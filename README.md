@@ -53,6 +53,11 @@ Fermer l'application, puis copier le fichier
 4. Marquer les articles habituels comme favoris.
 5. Préparer une commande et générer le PDF.
 
+La liste des fournisseurs de l'écran **Nouvelle commande** est filtrée pendant
+la saisie du nom. Depuis **Catalogue**, sélectionner un article puis cliquer sur
+**Commander cet article** pour ouvrir directement une commande avec le bon
+fournisseur.
+
 ## Personnalisation du PDF
 
 Dans **Paramètres**, il est possible de modifier :
@@ -62,6 +67,10 @@ Dans **Paramètres**, il est possible de modifier :
 - le titre du document ;
 - le texte du pied de page, qui peut rester vide ;
 - l'affichage du numéro de page.
+- le dossier proposé par défaut lors de l'enregistrement.
+
+Lors de chaque génération ou régénération, une fenêtre **Enregistrer sous**
+permet de modifier librement le nom et la destination du PDF.
 
 ## Modifier un brouillon
 

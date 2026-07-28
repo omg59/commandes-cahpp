@@ -11,6 +11,7 @@ from pypdf import PdfReader
 from cahpp_app.catalog_importer import CatalogImporter, EXPECTED_COLUMNS
 from cahpp_app.database import Database
 from cahpp_app.pdf_export import generate_order_pdf
+from cahpp_app.ui import configured_pdf_directory, filter_supplier_names
 
 
 def create_catalog(path: Path, rows: list[dict[str, object]]) -> None:
@@ -49,6 +50,21 @@ class WorkflowTest(unittest.TestCase):
         }
 
     def test_import_search_order_and_pdf(self):
+        self.assertEqual(
+            filter_supplier_names(
+                ["ABENA-FRANTEX", "HARTMANN", "MEDLINE"], "hart"
+            ),
+            ["HARTMANN"],
+        )
+        pdf_directory = self.root / "pdf-personnalises"
+        pdf_directory.mkdir()
+        self.database.save_settings(
+            {"pdf_default_directory": str(pdf_directory)}
+        )
+        self.assertEqual(
+            configured_pdf_directory(self.database), pdf_directory
+        )
+
         first_path = self.root / "catalogue-1.xlsx"
         create_catalog(
             first_path,

@@ -64,6 +64,38 @@ def safe_filename(value: str) -> str:
     return value or "fournisseur"
 
 
+def filter_supplier_names(names: list[str], query: str) -> list[str]:
+    query = query.strip().casefold()
+    if not query:
+        return names
+    return [name for name in names if query in name.casefold()]
+
+
+def configured_pdf_directory(database: Database) -> Path:
+    configured = database.get_settings().get("pdf_default_directory", "").strip()
+    if configured:
+        directory = Path(os.path.expandvars(configured)).expanduser()
+        if directory.is_dir():
+            return directory
+    return EXPORT_DIR
+
+
+def choose_pdf_path(parent, database: Database, order) -> Path | None:
+    default_name = (
+        f"{order['order_number']}-"
+        f"{safe_filename(order['supplier_name'])}.pdf"
+    )
+    selected = filedialog.asksaveasfilename(
+        parent=parent,
+        title="Enregistrer le bon de commande",
+        initialdir=str(configured_pdf_directory(database)),
+        initialfile=default_name,
+        defaultextension=".pdf",
+        filetypes=[("Document PDF", "*.pdf"), ("Tous les fichiers", "*.*")],
+    )
+    return Path(selected) if selected else None
+
+
 class App(ttk.Frame):
     def __init__(self, root: tk.Tk, database: Database):
         super().__init__(root)
@@ -441,6 +473,12 @@ class CatalogPage(BasePage):
             text="Configurer le favori",
             command=self.edit_favorite,
         ).pack(side="right", padx=8)
+        ttk.Button(
+            bottom,
+            text="Commander cet article",
+            style="Accent.TButton",
+            command=self.start_order,
+        ).pack(side="right")
 
         self.supplier_map: dict[str, int | None] = {}
         self._after_id = None
@@ -532,6 +570,19 @@ class CatalogPage(BasePage):
         )
         self.search()
 
+    def start_order(self) -> None:
+        product_id = self.selected_product_id()
+        if not product_id:
+            messagebox.showinfo(
+                "Commande",
+                "Sélectionnez d'abord un article du catalogue.",
+                parent=self,
+            )
+            return
+        self.app.show_page("new_order")
+        order_page: OrderPage = self.app.pages["new_order"]  # type: ignore[assignment]
+        order_page.start_with_product(product_id)
+
     def refresh(self) -> None:
         self._load_suppliers()
         self.search()
@@ -547,18 +598,19 @@ class OrderPage(BasePage):
         )
         top = ttk.Frame(self)
         top.pack(fill="x", pady=(0, 10))
-        ttk.Label(top, text="Fournisseur").pack(side="left")
+        ttk.Label(top, text="Fournisseur (saisir pour filtrer)").pack(side="left")
         self.supplier_var = tk.StringVar()
         self.supplier_box = ttk.Combobox(
             top,
             textvariable=self.supplier_var,
-            state="readonly",
+            state="normal",
             width=40,
         )
         self.supplier_box.pack(side="left", padx=(7, 16))
         self.supplier_box.bind(
             "<<ComboboxSelected>>", lambda event: self.supplier_changed()
         )
+        self.supplier_box.bind("<KeyRelease>", self._filter_suppliers)
         self.franco_label = ttk.Label(top, text="", style="Subtitle.TLabel")
         self.franco_label.pack(side="left")
         self.mode_label = ttk.Label(top, text="", style="Subtitle.TLabel")
@@ -692,6 +744,7 @@ class OrderPage(BasePage):
         ).pack(side="right", padx=(0, 8))
 
         self.supplier_map: dict[str, int] = {}
+        self._all_supplier_names: list[str] = []
         self.cart: list[dict[str, object]] = []
         self._search_after = None
         self._previous_supplier = ""
@@ -706,9 +759,34 @@ class OrderPage(BasePage):
     def load_suppliers(self) -> None:
         suppliers = self.database.list_suppliers(used_only=True)
         self.supplier_map = {row["name"]: row["id"] for row in suppliers}
-        self.supplier_box["values"] = list(self.supplier_map)
+        self._all_supplier_names = list(self.supplier_map)
+        self.supplier_box["values"] = self._all_supplier_names
         if self.supplier_var.get() not in self.supplier_map:
             self.supplier_var.set("")
+
+    def _filter_suppliers(self, event=None) -> None:
+        if event and event.keysym in {
+            "Up",
+            "Down",
+            "Left",
+            "Right",
+            "Escape",
+            "Tab",
+            "Shift_L",
+            "Shift_R",
+        }:
+            return
+        matches = filter_supplier_names(
+            self._all_supplier_names, self.supplier_var.get()
+        )
+        self.supplier_box["values"] = matches
+        if event and event.keysym == "Return":
+            if self.supplier_var.get() in self.supplier_map:
+                self.supplier_changed()
+            elif len(matches) == 1:
+                self.supplier_var.set(matches[0])
+                self.supplier_changed()
+            return
 
     def selected_supplier_id(self) -> int | None:
         return self.supplier_map.get(self.supplier_var.get())
@@ -767,7 +845,12 @@ class OrderPage(BasePage):
         selected = self.product_tree.selection()
         if not selected:
             return
-        product = self.database.get_product(int(selected[0]))
+        self.add_product_by_id(int(selected[0]))
+
+    def add_product_by_id(self, product_id: int) -> None:
+        product = self.database.get_product(product_id)
+        if product is None:
+            return
         if product["unit_price"] is None:
             price = simpledialog.askfloat(
                 "Prix manquant",
@@ -832,6 +915,17 @@ class OrderPage(BasePage):
                 }
             )
         self.refresh_cart()
+
+    def start_with_product(self, product_id: int) -> None:
+        product = self.database.get_product(product_id)
+        if product is None:
+            return
+        if not self.reset_order(confirm=True):
+            return
+        self.supplier_var.set(product["supplier_name"])
+        self._previous_supplier = product["supplier_name"]
+        self.supplier_changed()
+        self.add_product_by_id(product_id)
 
     def add_manual_product(self) -> None:
         supplier_id = self.selected_supplier_id()
@@ -946,14 +1040,14 @@ class OrderPage(BasePage):
         self.search_products()
         self.refresh_cart()
 
-    def reset_order(self, confirm: bool = True) -> None:
+    def reset_order(self, confirm: bool = True) -> bool:
         if confirm and (self.cart or self.current_order_id):
             if not messagebox.askyesno(
                 "Nouvelle commande",
                 "Effacer la commande affichée et repartir de zéro ?",
                 parent=self,
             ):
-                return
+                return False
         self.current_order_id = None
         self.current_order_date = None
         self.cart.clear()
@@ -964,6 +1058,7 @@ class OrderPage(BasePage):
         self.franco_label.configure(text="")
         self.product_tree.delete(*self.product_tree.get_children())
         self.refresh_cart()
+        return True
 
     def _save(self, generate_pdf: bool) -> None:
         supplier_id = self.selected_supplier_id()
@@ -985,12 +1080,23 @@ class OrderPage(BasePage):
             order_id=editing_order_id,
             selected_date=self.current_order_date,
         )
+        order, _ = self.database.get_order(order_id)
+        self.current_order_id = order_id
+        self.current_order_date = date.fromisoformat(order["order_date"])
+        self.mode_label.configure(
+            text=f"Modification de {order['order_number']}"
+        )
         if generate_pdf:
-            order, _ = self.database.get_order(order_id)
-            output = EXPORT_DIR / (
-                f"{order['order_number']}-"
-                f"{safe_filename(order['supplier_name'])}.pdf"
-            )
+            output = choose_pdf_path(self, self.database, order)
+            if output is None:
+                messagebox.showinfo(
+                    "PDF non généré",
+                    "L'enregistrement du PDF a été annulé. "
+                    "La commande reste enregistrée comme brouillon.",
+                    parent=self,
+                )
+                self.app.refresh_pages()
+                return
             generate_order_pdf(self.database, order_id, output)
             messagebox.showinfo(
                 "Bon généré",
@@ -1169,10 +1275,9 @@ class OrdersPage(BasePage):
         if not order_id:
             return
         order, _ = self.database.get_order(order_id)
-        output = EXPORT_DIR / (
-            f"{order['order_number']}-"
-            f"{safe_filename(order['supplier_name'])}.pdf"
-        )
+        output = choose_pdf_path(self, self.database, order)
+        if output is None:
+            return
         generate_order_pdf(self.database, order_id, output)
         self.refresh()
         messagebox.showinfo("PDF", f"PDF généré :\n{output}", parent=self)
@@ -1546,6 +1651,25 @@ class SettingsPage(BasePage):
             side="left", padx=(7, 0)
         )
         row += 1
+        ttk.Label(
+            surface,
+            text="Dossier PDF par défaut",
+            style="Surface.TLabel",
+        ).grid(row=row, column=0, sticky="w", pady=5)
+        self.pdf_directory_var = tk.StringVar()
+        pdf_directory_row = ttk.Frame(surface, style="Surface.TFrame")
+        pdf_directory_row.grid(
+            row=row, column=1, sticky="ew", padx=(14, 0), pady=5
+        )
+        ttk.Entry(
+            pdf_directory_row, textvariable=self.pdf_directory_var
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            pdf_directory_row,
+            text="Parcourir",
+            command=self.browse_pdf_directory,
+        ).pack(side="left", padx=(7, 0))
+        row += 1
         self.show_page_number_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             surface,
@@ -1577,9 +1701,21 @@ class SettingsPage(BasePage):
         if path:
             self.logo_var.set(path)
 
+    def browse_pdf_directory(self) -> None:
+        current = self.pdf_directory_var.get().strip()
+        initial = current if current and Path(current).is_dir() else str(EXPORT_DIR)
+        path = filedialog.askdirectory(
+            parent=self,
+            title="Choisir le dossier PDF par défaut",
+            initialdir=initial,
+        )
+        if path:
+            self.pdf_directory_var.set(path)
+
     def save(self) -> None:
         values = {key: variable.get() for key, variable in self.vars.items()}
         values["logo_path"] = self.logo_var.get()
+        values["pdf_default_directory"] = self.pdf_directory_var.get()
         values["pdf_show_page_number"] = (
             "1" if self.show_page_number_var.get() else "0"
         )
@@ -1603,6 +1739,9 @@ class SettingsPage(BasePage):
         for key, variable in self.vars.items():
             variable.set(settings.get(key, ""))
         self.logo_var.set(settings.get("logo_path", ""))
+        self.pdf_directory_var.set(
+            settings.get("pdf_default_directory", "")
+        )
         self.show_page_number_var.set(
             settings.get("pdf_show_page_number", "1") != "0"
         )

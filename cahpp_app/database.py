@@ -145,6 +145,7 @@ DEFAULT_SETTINGS = {
     "pdf_title": "BON DE COMMANDE",
     "pdf_footer_text": "",
     "pdf_show_page_number": "1",
+    "pdf_default_directory": "",
 }
 
 

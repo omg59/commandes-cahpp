@@ -1,5 +1,12 @@
 # Historique des versions
 
+## 0.3.0
+
+- recherche par saisie dans la liste des fournisseurs ;
+- création d'une commande directement depuis un article du catalogue ;
+- choix du nom et de la destination lors de chaque génération PDF ;
+- dossier PDF par défaut configurable.
+
 ## 0.2.0
 
 - ajout de la modification des brouillons depuis l'historique ;
@@ -13,4 +20,3 @@
 - import et mise à jour du catalogue CAHPP ;
 - recherche, favoris, commandes et fournisseurs ;
 - génération PDF et base SQLite portable.
-
