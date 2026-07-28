@@ -1,5 +1,11 @@
 # Historique des versions
 
+## 0.6.1
+
+- correction de la fenêtre des documents liés : la barre d'actions reste
+  visible avec la mise à l'échelle de Windows et la hauteur s'adapte désormais
+  au contenu et à l'écran.
+
 ## 0.6.0
 
 - préparation locale des messages dans Gmail avec destinataire, objet et corps

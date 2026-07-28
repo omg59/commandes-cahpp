@@ -1275,8 +1275,6 @@ class OrderDocumentsDialog(tk.Toplevel):
         self.order_id = order_id
         order, _ = database.get_order(order_id)
         self.title(f"Documents — {order['order_number']}")
-        self.geometry("780x430")
-        self.minsize(650, 360)
         self.transient(parent.winfo_toplevel())
         self.grab_set()
 
@@ -1294,32 +1292,11 @@ class OrderDocumentsDialog(tk.Toplevel):
             style="Subtitle.TLabel",
         ).pack(anchor="w", padx=18, pady=(0, 12))
 
-        frame = ttk.Frame(self)
-        frame.pack(fill="both", expand=True, padx=18)
-        self.tree = ttk.Treeview(
-            frame,
-            columns=("kind", "name", "email", "state"),
-            show="headings",
-            selectmode="browse",
-        )
-        for column, title, width in (
-            ("kind", "Type", 145),
-            ("name", "Fichier", 360),
-            ("email", "Joint au mail", 95),
-            ("state", "État", 75),
-        ):
-            self.tree.heading(column, text=title)
-            self.tree.column(
-                column,
-                width=width,
-                stretch=column == "name",
-                anchor="w" if column in ("kind", "name") else "center",
-            )
-        self.tree.pack(fill="both", expand=True)
-        self.tree.bind("<Double-1>", lambda event: self.open_selected())
-
+        # Réserver la barre d'actions avant la zone extensible. Ainsi, même
+        # lorsque Windows applique une mise à l'échelle élevée, le tableau se
+        # réduit en priorité et les boutons restent entièrement visibles.
         actions = ttk.Frame(self)
-        actions.pack(fill="x", padx=18, pady=14)
+        actions.pack(side="bottom", fill="x", padx=18, pady=14)
         ttk.Button(
             actions,
             text="Ajouter un bon de livraison",
@@ -1346,7 +1323,57 @@ class OrderDocumentsDialog(tk.Toplevel):
             text="Inclure / exclure du mail",
             command=self.toggle_email,
         ).pack(side="right")
+
+        frame = ttk.Frame(self)
+        frame.pack(fill="both", expand=True, padx=18)
+        self.tree = ttk.Treeview(
+            frame,
+            columns=("kind", "name", "email", "state"),
+            show="headings",
+            selectmode="browse",
+        )
+        for column, title, width in (
+            ("kind", "Type", 145),
+            ("name", "Fichier", 360),
+            ("email", "Joint au mail", 95),
+            ("state", "État", 75),
+        ):
+            self.tree.heading(column, text=title)
+            self.tree.column(
+                column,
+                width=width,
+                stretch=column == "name",
+                anchor="w" if column in ("kind", "name") else "center",
+            )
+        self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<Double-1>", lambda event: self.open_selected())
+
         self.refresh()
+        self._set_adaptive_geometry(parent.winfo_toplevel())
+
+    def _set_adaptive_geometry(self, parent_window: tk.Misc) -> None:
+        """Dimensionner la fenêtre d'après son contenu et l'écran courant."""
+        self.update_idletasks()
+        minimum_width = max(700, self.winfo_reqwidth())
+        minimum_height = max(460, self.winfo_reqheight())
+        self.minsize(minimum_width, minimum_height)
+
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        width = min(max(800, minimum_width), max(minimum_width, screen_width - 80))
+        height = min(
+            max(500, minimum_height),
+            max(minimum_height, screen_height - 100),
+        )
+
+        parent_window.update_idletasks()
+        x = parent_window.winfo_rootx() + (parent_window.winfo_width() - width) // 2
+        y = parent_window.winfo_rooty() + (
+            parent_window.winfo_height() - height
+        ) // 2
+        x = max(0, min(x, screen_width - width))
+        y = max(0, min(y, screen_height - height))
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def selected_attachment_id(self) -> int | None:
         selected = self.tree.selection()
