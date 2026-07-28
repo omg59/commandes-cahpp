@@ -1,0 +1,27 @@
+# Données et documents de travail
+data/*.sqlite3
+data/*.sqlite3-*
+documents/*
+exports/*
+envois/*
+sauvegardes/*
+
+# Conserver les éventuels fichiers d'aide placés dans ces dossiers
+!documents/.gitkeep
+!exports/.gitkeep
+!envois/.gitkeep
+!sauvegardes/.gitkeep
+
+# Python et compilation Windows
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.spec.bak
+
+# Fichiers temporaires et paramètres locaux
+tmp/
+*.log
+.DS_Store
+Thumbs.db

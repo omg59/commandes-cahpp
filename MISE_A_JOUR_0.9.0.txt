@@ -1,0 +1,62 @@
+COMMANDES CAHPP — MISE À JOUR 0.9.0
+===================================
+
+Cette version ajoute le travail à plusieurs sans serveur central.
+
+AVANT LA MISE À JOUR
+--------------------
+
+1. Fermer l'ancienne version.
+2. Créer une sauvegarde de :
+   - data\commandes_cahpp.sqlite3
+   - documents\
+   - assets\ si un logo personnalisé y est stocké.
+3. Conserver l'ancien dossier jusqu'à validation de la nouvelle version.
+
+INSTALLATION SUR CHAQUE POSTE
+-----------------------------
+
+1. Compiler avec build_windows.bat ou utiliser le dossier portable fourni.
+2. Copier CommandesCAHPP-portable dans un dossier LOCAL du PC.
+3. Recopier dans cette installation la base et les dossiers sauvegardés.
+4. Lancer CommandesCAHPP.exe.
+5. Saisir le nom de l'utilisateur demandé au premier lancement.
+
+L'application migre automatiquement la base vers le format 9.
+
+CONFIGURATION À DEUX UTILISATEURS
+--------------------------------
+
+1. Créer ou choisir un dossier réseau commun accessible en lecture/écriture.
+2. Sur chaque poste, ouvrir Paramètres > Collaboration.
+3. Activer le mode collaboratif.
+4. Choisir exactement le même dossier partagé.
+5. Cliquer sur Tester l'accès, Enregistrer, puis Synchroniser maintenant.
+
+IMPORTANT
+---------
+
+- Ne placez PAS CommandesCAHPP.exe sur le lecteur réseau.
+- Ne placez PAS data\commandes_cahpp.sqlite3 sur le lecteur réseau.
+- Chaque PC garde sa propre application et sa propre base locale.
+- Seul le dossier choisi dans Paramètres > Collaboration est partagé.
+- La base de développement n'est plus copiée par build_windows.bat.
+
+PREMIER CATALOGUE PARTAGÉ
+-------------------------
+
+Un seul utilisateur importe le fichier Excel CAHPP. La version est publiée sur
+le partage. L'autre poste la détecte et propose automatiquement son
+installation après vérification de l'intégrité du fichier.
+
+Les corrections de produits, favoris, articles hors catalogue, fournisseurs et
+commandes sont ensuite synchronisés automatiquement.
+
+EN CAS DE COUPURE RÉSEAU
+------------------------
+
+L'historique, le catalogue et les documents déjà synchronisés restent
+consultables depuis le cache local. Les modifications collaboratives sont
+bloquées jusqu'au retour du partage afin d'éviter les conflits.
+
+Consultez GUIDE_COLLABORATION_0.9.0.md pour le fonctionnement détaillé.

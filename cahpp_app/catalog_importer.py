@@ -267,16 +267,14 @@ class CatalogImporter:
             progress(72, 100, "Comparaison avec le catalogue précédent...")
             connection.execute(
                 """
-                INSERT INTO suppliers(name, cahpp_id, updated_at)
-                SELECT supplier_name, MIN(supplier_cahpp_id), ?
+                INSERT INTO suppliers(name, cahpp_id)
+                SELECT supplier_name, MIN(supplier_cahpp_id)
                 FROM staging_catalog
                 WHERE supplier_cahpp_id <> 0
                 GROUP BY supplier_name
                 ON CONFLICT(name) DO UPDATE SET
-                    cahpp_id = excluded.cahpp_id,
-                    updated_at = excluded.updated_at
+                    cahpp_id = excluded.cahpp_id
                 """,
-                (now,),
             )
 
             added_count = connection.execute(

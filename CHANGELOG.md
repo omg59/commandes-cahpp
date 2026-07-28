@@ -1,5 +1,32 @@
 # Historique des versions
 
+## 0.9.0
+
+- ajout d'un mode collaboratif sans serveur : chaque poste conserve sa base
+  SQLite locale et échange uniquement des fichiers versionnés dans un dossier
+  réseau partagé ;
+- création d'un profil nominatif au premier lancement, modifiable dans les
+  paramètres, sans notion de poste ou d'emplacement ;
+- choix, test, ouverture et modification du dossier partagé depuis l'onglet
+  **Collaboration** ;
+- synchronisation automatique et manuelle des commandes, fournisseurs,
+  favoris, corrections du catalogue, articles hors catalogue et paramètres
+  communs ;
+- publication versionnée des catalogues CAHPP avec contrôle d'intégrité SHA-256
+  et proposition d'installation sur les autres postes ;
+- numérotation commune des commandes afin d'éviter les doublons ;
+- verrou temporaire d'une commande ou d'un article pendant sa modification ;
+- consultation locale maintenue lorsque le partage est indisponible, avec
+  indication **Hors ligne — cache local** ;
+- copie locale des PDF et documents reçus pour préserver leur consultation
+  hors connexion ;
+- ajout du créateur et de l'état de synchronisation dans l'historique ;
+- ajout d'un journal nominatif des actions de chaque commande ;
+- conservation de révisions récentes des données d'équipe et des commandes
+  dans le dossier partagé ;
+- retrait de la base de développement lors de la compilation du dossier
+  portable : chaque poste démarre désormais avec sa propre base locale.
+
 ## 0.8.1b
 
 - suppression de la fenêtre explicative après **Préparer le mail** ;

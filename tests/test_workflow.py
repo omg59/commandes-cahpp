@@ -13,6 +13,10 @@ from openpyxl import Workbook
 from pypdf import PdfReader
 
 from cahpp_app.catalog_importer import CatalogImporter, EXPECTED_COLUMNS
+from cahpp_app.collaboration import (
+    CollaborationManager,
+    ResourceLockedError,
+)
 from cahpp_app.database import Database
 from cahpp_app import local_services
 from cahpp_app.local_services import (
@@ -393,7 +397,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue({"email_prepared_at", "sent_at"} <= order_columns)
         self.assertIn("product_overrides", tables)
         self.assertTrue(migrated.get_settings()["mail_compose_url"])
-        self.assertEqual(version, 8)
+        self.assertEqual(version, 9)
 
     def test_product_edits_dates_and_mail_variables(self):
         catalog_path = self.root / "catalogue.xlsx"
@@ -526,6 +530,153 @@ class WorkflowTest(unittest.TestCase):
         )
         self.assertIn("Clinique test", query["body"][0])
         self.assertEqual(len(prepared), 1)
+
+    def test_collaboration_without_server(self):
+        shared = self.root / "partage"
+        second_database = Database(self.root / "second.sqlite3")
+        self.database.set_current_user("user-damien", "Damien")
+        second_database.set_current_user("user-sophie", "Sophie")
+
+        catalogue = self.root / "catalogue-collaboratif.xlsx"
+        create_catalog(
+            catalogue,
+            [
+                self.row("DM001", "REF-A", "COMPRESSE TEST", 0.12, 100),
+                self.row("DM002", "REF-B", "GANT TEST", 0.03, 1000),
+            ],
+        )
+        first_result = CatalogImporter(self.database).import_file(catalogue)
+        CatalogImporter(second_database).import_file(catalogue)
+
+        first = CollaborationManager(
+            self.database, "user-damien", "Damien", shared
+        )
+        second = CollaborationManager(
+            second_database, "user-sophie", "Sophie", shared
+        )
+        workspace_id = first.initialize_workspace()
+        self.assertEqual(second.initialize_workspace(), workspace_id)
+
+        product = self.database.search_products("compresse")[0]
+        supplier_id = int(product["supplier_id"])
+        self.database.update_supplier(
+            supplier_id,
+            customer_number="CLIENT-COMMUN",
+            email="commandes@example.test",
+            phone="",
+            franco_ht=250,
+            notes="Paramètre partagé",
+        )
+        self.database.set_favorite(
+            int(product["id"]),
+            True,
+            usual_cartons=3,
+            short_name="Compresse favorite",
+        )
+        self.database.set_product_override(
+            int(product["id"]),
+            supplier_ref="REF-CORRIGEE",
+            designation="COMPRESSE CORRIGEE",
+            conditionnement=120,
+            unit_packaging="12 x 10",
+            unit_price=0.13,
+            vat=20,
+        )
+        manual_id = self.database.create_manual_product(
+            supplier_id,
+            "LOCAL-REF",
+            "ARTICLE LOCAL PARTAGE",
+            10,
+            1.5,
+            20,
+            "Boîte de 10",
+        )
+        first.sync_team_state()
+        second.sync_team_state()
+
+        second_product = second_database.search_products("corrigee")[0]
+        self.assertEqual(second_product["supplier_ref"], "REF-CORRIGEE")
+        self.assertEqual(second_product["conditionnement"], 120)
+        self.assertEqual(second_product["usual_cartons"], 3)
+        self.assertTrue(second_product["favorite"])
+        self.assertEqual(
+            second_database.search_products("article local partage")[0][
+                "supplier_ref"
+            ],
+            "LOCAL-REF",
+        )
+        second_supplier = second_database.get_supplier(
+            int(second_product["supplier_id"])
+        )
+        self.assertEqual(second_supplier["customer_number"], "CLIENT-COMMUN")
+
+        order_number = first.reserve_order_number()
+        order_id = self.database.save_order(
+            supplier_id,
+            [
+                {
+                    "product_id": manual_id,
+                    "code_cahpp": self.database.get_product(manual_id)[
+                        "code_cahpp"
+                    ],
+                    "supplier_ref": "LOCAL-REF",
+                    "designation": "ARTICLE LOCAL PARTAGE",
+                    "cartons": 2,
+                    "units_per_carton": 10,
+                    "unit_price": 1.5,
+                    "vat": 20,
+                }
+            ],
+            notes="Commande collaborative",
+            order_number=order_number,
+        )
+        generated_pdf = generate_order_pdf(
+            self.database, order_id, self.root / "bc-collaboratif.pdf"
+        )
+        linked_document = self.root / "bon-livraison-collaboratif.pdf"
+        linked_document.write_bytes(b"%PDF-1.4\n% document partage\n")
+        attach_document(
+            self.database,
+            order_id,
+            linked_document,
+            "Bon de livraison",
+        )
+        first.publish_order(order_id)
+        sync_result = second.sync_orders()
+        self.assertEqual(sync_result["imported"], 1)
+        imported_order = second_database.list_orders()[0]
+        self.assertEqual(imported_order["order_number"], order_number)
+        self.assertEqual(imported_order["created_by"], "Damien")
+        self.assertFalse(str(imported_order["pdf_path"]).startswith("shared:"))
+        self.assertTrue(
+            local_services.resolve_portable_path(
+                imported_order["pdf_path"]
+            ).is_file()
+        )
+        imported_attachments = second_database.list_order_attachments(
+            int(imported_order["id"])
+        )
+        self.assertEqual(len(imported_attachments), 1)
+        self.assertTrue(
+            local_services.resolve_portable_path(
+                imported_attachments[0]["stored_path"]
+            ).is_file()
+        )
+        self.assertTrue(generated_pdf.is_file())
+
+        order, _ = self.database.get_order(order_id)
+        with first.acquire_lock("commande", order["shared_uid"]):
+            with self.assertRaises(ResourceLockedError):
+                second.acquire_lock("commande", order["shared_uid"])
+
+        first.publish_catalog(catalogue, first_result)
+        pending = second.pending_catalog()
+        self.assertIsNotNone(pending)
+        shared_source = second.catalog_source(pending)
+        duplicate = CatalogImporter(second_database).import_file(shared_source)
+        self.assertTrue(duplicate.already_imported)
+        second.mark_catalog_applied(pending)
+        self.assertIsNone(second.pending_catalog())
 
 
 if __name__ == "__main__":

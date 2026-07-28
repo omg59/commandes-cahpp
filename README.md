@@ -1,13 +1,15 @@
 # Commandes CAHPP
 
-Application locale Windows pour importer un catalogue tarifaire CAHPP, retrouver
+Application Windows locale pour importer un catalogue tarifaire CAHPP, retrouver
 rapidement les articles, préparer des commandes fournisseurs et générer des bons
-de commande PDF.
+de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
+travailler ensemble à travers un simple dossier partagé, sans serveur.
 
 ## Principes
 
-- fonctionnement entièrement local, sans serveur ni compte en ligne ;
-- base SQLite conservée dans le dossier `data` ;
+- application, catalogue et base SQLite conservés localement sur chaque poste ;
+- aucun serveur, compte en ligne ou droit administrateur nécessaire ;
+- synchronisation optionnelle par fichiers versionnés dans un dossier partagé ;
 - import d'un nouveau fichier Excel CAHPP avec comparaison de la version
   précédente ;
 - conservation des tarifs historiques et des lignes de commandes déjà créées ;
@@ -20,6 +22,31 @@ de commande PDF.
 - préparation des e-mails sans mot de passe ni droit administrateur ;
 - sauvegarde complète de la base et des documents liés ;
 - bon PDF commun à tous les fournisseurs.
+
+## Collaboration sans serveur
+
+La version 0.9.0 ne place jamais la base SQLite sur le réseau. Chaque utilisateur
+installe son propre dossier `CommandesCAHPP-portable` sur son PC. Seul le dossier
+choisi dans **Paramètres > Collaboration** doit être commun aux utilisateurs.
+
+Ce mode synchronise :
+
+- les commandes, leur statut, leur PDF et leurs documents liés ;
+- les fournisseurs, favoris et quantités habituelles ;
+- les corrections manuelles des articles CAHPP ;
+- les articles hors catalogue, y compris leur modification ou archivage ;
+- les paramètres communs de l'établissement, du PDF et des modèles d'e-mail ;
+- la version du catalogue CAHPP publiée par un utilisateur.
+
+Un numéro de commande est réservé de manière commune. Une commande ou un article
+en cours de modification est temporairement verrouillé au nom de l'utilisateur.
+Les autres commandes restent utilisables en parallèle.
+
+La synchronisation s'effectue au démarrage, toutes les 30 secondes, après les
+actions importantes et à la demande. Les PDF et documents reçus sont aussi mis
+en cache localement. Si le réseau disparaît, l'historique reste consultable ;
+les modifications nécessitant un verrou sont bloquées jusqu'au retour du
+partage afin d'éviter les conflits.
 
 ## Confort d'utilisation
 
@@ -49,19 +76,26 @@ Depuis un poste Windows 11 64 bits :
 build_windows.bat
 ```
 
-Le résultat se trouve dans `dist\CommandesCAHPP-portable`. Ce dossier peut être
-copié sur un autre poste. Les données restent dans
-`data\commandes_cahpp.sqlite3`, à côté de l'application.
+Le résultat se trouve dans `dist\CommandesCAHPP-portable`. Copiez séparément ce
+dossier sur chaque poste. Les données de chaque utilisateur restent dans
+`data\commandes_cahpp.sqlite3`, à côté de son application. Le script de
+compilation ne copie aucune base de développement.
 
 ## Première utilisation
 
-1. Ouvrir **Paramètres** et renseigner l'établissement.
-2. Ouvrir **Mise à jour CAHPP** et sélectionner le fichier Excel du catalogue
-   à utiliser.
-3. Configurer les fournisseurs utilisés : numéro client, adresse e-mail et
+1. Au premier lancement, renseigner le nom qui apparaîtra dans l'historique.
+2. Si plusieurs postes sont utilisés, choisir le même dossier dans
+   **Paramètres > Collaboration** sur chacun d'eux.
+3. Ouvrir **Paramètres** et renseigner l'établissement.
+4. Sur un seul poste, ouvrir **Mise à jour CAHPP** et sélectionner le fichier
+   Excel du catalogue à utiliser. Il sera proposé aux autres postes.
+5. Configurer les fournisseurs utilisés : numéro client, adresse e-mail et
    montant du franco.
-4. Marquer les articles habituels comme favoris.
-5. Préparer une commande et générer le PDF.
+6. Marquer les articles habituels comme favoris.
+7. Préparer une commande et générer le PDF.
+
+Le guide détaillé [GUIDE_COLLABORATION_0.9.0.md](GUIDE_COLLABORATION_0.9.0.md)
+explique l'installation à deux postes et les comportements en cas de coupure.
 
 La liste des fournisseurs de l'écran **Nouvelle commande** est filtrée pendant
 la saisie du nom. Depuis **Catalogue**, sélectionner un article puis cliquer sur
@@ -135,9 +169,11 @@ Pour repartir d'une ancienne commande, sélectionnez-la dans **Historique** puis
 cliquez sur **Dupliquer**. Un nouveau brouillon daté du jour est créé avec les
 prix et conditionnements de la commande d'origine.
 
-L'historique affiche la date de création et la première date d'envoi. Cette
-dernière est renseignée avec **Marquer envoyée**. La date propre au bon reste
-conservée dans la base et utilisée dans le PDF et son nom de fichier.
+L'historique affiche la date de création, le créateur, l'état de
+synchronisation et la première date d'envoi. Cette dernière est renseignée avec
+**Marquer envoyée**. La date propre au bon reste conservée dans la base et
+utilisée dans le PDF et son nom de fichier. Le bouton **Journal** détaille les
+actions nominatives de la commande.
 
 ## Préparer une commande par e-mail
 
@@ -173,8 +209,10 @@ la commande sont conservés à leur emplacement habituel.
 
 Dans **Historique**, sélectionnez une commande puis ouvrez
 **Documents / bon de livraison**. Les fichiers choisis sont copiés dans
-`documents\<numero de commande>` à côté de l'application. Ils restent ainsi
-liés à la commande même si le fichier original du scanner est déplacé.
+`documents\<numero de commande>` à côté de l'application. En mode collaboratif,
+une copie est publiée dans l'espace partagé puis mise en cache sur l'autre
+poste. Ils restent ainsi liés à la commande même si le fichier original du
+scanner est déplacé ou si le partage est temporairement indisponible.
 
 Une pièce peut être incluse ou exclue de la préparation e-mail. Les bons de
 livraison ne sont pas joints au mail par défaut.
@@ -185,6 +223,12 @@ Après l'import d'un catalogue, l'application signale les variations de prix ou
 de conditionnement qui concernent des articles déjà commandés. Le détail reste
 consultable depuis l'historique des imports. Les anciennes commandes conservent
 toujours leurs valeurs d'origine.
+
+En mode collaboratif, l'utilisateur qui reçoit le nouveau fichier l'importe une
+seule fois. Le fichier est copié dans le dossier partagé avec sa version, son
+empreinte SHA-256 et l'auteur de la publication. Les autres postes proposent
+ensuite son installation. Les corrections manuelles sont conservées au-dessus
+des nouvelles données CAHPP et continuent d'être synchronisées.
 
 ## Seuils et conditionnements
 
@@ -202,17 +246,23 @@ exception.
 
 Le bouton **Exporter une sauvegarde complète**, dans l'onglet **Sauvegarde**
 des paramètres, crée une archive ZIP contenant la base SQLite et tous les
-documents liés aux commandes.
+documents locaux, y compris les copies mises en cache. Le dossier partagé
+conserve par ailleurs les dernières révisions des commandes et des données
+d'équipe ; il ne remplace pas une sauvegarde régulière.
 
 ## Mise à niveau depuis une ancienne version
 
 Conservez votre fichier `data\commandes_cahpp.sqlite3` et le dossier
-`documents` s'il existe, puis copiez-les dans le nouveau dossier portable.
-L'application met automatiquement la base à niveau au premier démarrage.
+`documents` s'il existe, puis copiez-les dans le nouveau dossier portable
+local. L'application met automatiquement la base à niveau au premier démarrage.
+Ne placez ni l'exécutable ni `data\commandes_cahpp.sqlite3` dans le dossier
+réseau ; configurez uniquement ce dernier depuis l'application.
 
 ## Limitation du prototype
 
 L'exécutable Windows doit être compilé sur Windows : PyInstaller ne permet pas
 de produire de manière fiable un `.exe` Windows depuis Linux. Le script
 `build_windows.bat` automatise entièrement cette compilation. L'application
-obtenue fonctionne ensuite sans Python et sans connexion Internet.
+obtenue fonctionne ensuite sans Python et sans connexion Internet. Le mode
+collaboratif suppose seulement que Windows donne accès en lecture/écriture au
+dossier réseau configuré.

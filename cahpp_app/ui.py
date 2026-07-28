@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 import queue
 import re
 import subprocess
 import threading
 import tkinter as tk
+import uuid
 import webbrowser
+from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -15,11 +18,19 @@ from typing import Callable
 
 from . import __version__
 from .catalog_importer import CatalogImporter, ImportResult
+from .collaboration import (
+    CollaborationError,
+    CollaborationManager,
+    ResourceLock,
+    ResourceLockedError,
+    SyncConflictError,
+)
 from .database import Database
 from .local_services import (
     MAIL_TEMPLATE_VARIABLES,
     attach_document,
     create_complete_backup,
+    configure_shared_workspace,
     mark_order_sent,
     portable_path,
     prepare_mail_order,
@@ -198,6 +209,11 @@ class App(ttk.Frame):
         super().__init__(root)
         self.root = root
         self.database = database
+        self._syncing = False
+        self._catalog_prompted_hash = ""
+        self._periodic_started = False
+        self.collaboration: CollaborationManager | None = None
+        self._initialize_user_and_collaboration()
         self.root.title("Commandes CAHPP")
         self.root.geometry("1320x820")
         self.root.minsize(1060, 680)
@@ -272,7 +288,7 @@ class App(ttk.Frame):
             page.grid(row=0, column=0, sticky="nsew")
             self.pages[key] = page
 
-        tk.Label(
+        self.version_label = tk.Label(
             self.sidebar,
             text=f"Version {__version__}",
             bg=COLORS["nav"],
@@ -281,8 +297,336 @@ class App(ttk.Frame):
             padx=20,
             pady=16,
             anchor="w",
-        ).pack(side="bottom", fill="x")
+        )
+        self.version_label.pack(side="bottom", fill="x")
+        self.sync_label = tk.Label(
+            self.sidebar,
+            text="",
+            bg=COLORS["nav"],
+            fg="#BDD6E5",
+            font=("Segoe UI", 8),
+            padx=20,
+            pady=3,
+            anchor="w",
+            wraplength=170,
+            justify="left",
+        )
+        self.sync_label.pack(side="bottom", fill="x")
+        self.user_label = tk.Label(
+            self.sidebar,
+            text=self.database.current_user_name,
+            bg=COLORS["nav"],
+            fg="white",
+            font=("Segoe UI Semibold", 9),
+            padx=20,
+            pady=3,
+            anchor="w",
+        )
+        self.user_label.pack(side="bottom", fill="x")
         self.show_page("dashboard")
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        if self.collaboration:
+            self.root.after(700, self.sync_collaboration)
+            self._start_periodic_collaboration()
+
+    def _initialize_user_and_collaboration(self) -> None:
+        settings = self.database.get_settings()
+        user_id = settings.get("user_id", "").strip()
+        user_name = settings.get("user_name", "").strip()
+        first_profile = not user_name
+        if not user_id:
+            user_id = str(uuid.uuid4())
+        if not user_name:
+            suggested = os.environ.get("USERNAME", "").strip()
+            user_name = (
+                simpledialog.askstring(
+                    "Profil utilisateur",
+                    (
+                        "Quel nom doit apparaître dans l'historique "
+                        "collaboratif ?"
+                    ),
+                    initialvalue=suggested,
+                    parent=self.root,
+                )
+                or suggested
+                or "Utilisateur"
+            ).strip()
+        self.database.save_settings(
+            {"user_id": user_id, "user_name": user_name}
+        )
+        self.database.set_current_user(user_id, user_name)
+
+        shared_path = settings.get("shared_workspace_path", "").strip()
+        enabled = settings.get("collaboration_enabled", "0") == "1"
+        if first_profile and not shared_path:
+            configure = messagebox.askyesno(
+                "Mode collaboratif",
+                (
+                    "Souhaitez-vous configurer maintenant le dossier partagé "
+                    "utilisé avec votre collègue ?"
+                ),
+                parent=self.root,
+            )
+            if configure:
+                selected = filedialog.askdirectory(
+                    parent=self.root,
+                    title="Choisir le dossier partagé",
+                )
+                if selected:
+                    shared_path = selected
+                    enabled = True
+        if enabled and shared_path:
+            manager = CollaborationManager(
+                self.database, user_id, user_name, shared_path
+            )
+            try:
+                manager.initialize_workspace()
+            except (OSError, CollaborationError) as exc:
+                configure_shared_workspace(None)
+                messagebox.showwarning(
+                    "Espace collaboratif indisponible",
+                    (
+                        f"{exc}\n\nL'application démarre en mode local. "
+                        "Le chemin peut être corrigé dans Paramètres."
+                    ),
+                    parent=self.root,
+                )
+            else:
+                self.collaboration = manager
+                configure_shared_workspace(manager.root)
+        else:
+            configure_shared_workspace(None)
+
+    def reconfigure_collaboration(self) -> None:
+        if self.collaboration:
+            self.collaboration.release_all_locks()
+        settings = self.database.get_settings()
+        user_id = settings.get("user_id", "").strip() or str(uuid.uuid4())
+        user_name = settings.get("user_name", "").strip() or "Utilisateur"
+        self.database.set_current_user(user_id, user_name)
+        self.user_label.configure(text=user_name)
+        enabled = settings.get("collaboration_enabled", "0") == "1"
+        path = settings.get("shared_workspace_path", "").strip()
+        if not enabled or not path:
+            self.collaboration = None
+            configure_shared_workspace(None)
+            self.sync_label.configure(text="", fg="#BDD6E5")
+            return
+        manager = CollaborationManager(
+            self.database, user_id, user_name, path
+        )
+        manager.initialize_workspace()
+        self.collaboration = manager
+        configure_shared_workspace(manager.root)
+        self.sync_label.configure(text="Synchronisation…", fg="#BDD6E5")
+        self._start_periodic_collaboration()
+        self.sync_collaboration()
+
+    def _start_periodic_collaboration(self) -> None:
+        if self._periodic_started:
+            return
+        self._periodic_started = True
+        self.root.after(30000, self._periodic_collaboration)
+
+    def _periodic_collaboration(self) -> None:
+        if self.collaboration:
+            self.collaboration.refresh_active_locks()
+            self.sync_collaboration()
+            self.root.after(30000, self._periodic_collaboration)
+        else:
+            self._periodic_started = False
+
+    def sync_collaboration(self, show_errors: bool = False) -> None:
+        if not self.collaboration or self._syncing:
+            return
+        self._syncing = True
+        self.sync_label.configure(text="Synchronisation…", fg="#BDD6E5")
+
+        def worker() -> None:
+            try:
+                result = self.collaboration.sync_all()
+            except Exception as exc:
+                self.root.after(
+                    0, lambda error=exc: self._sync_finished(None, error, show_errors)
+                )
+            else:
+                self.root.after(
+                    0, lambda value=result: self._sync_finished(value, None, show_errors)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _sync_finished(
+        self,
+        result: dict[str, object] | None,
+        error: Exception | None,
+        show_errors: bool,
+    ) -> None:
+        self._syncing = False
+        if error:
+            self.sync_label.configure(
+                text="Hors ligne — cache local", fg="#F0C36A"
+            )
+            if show_errors:
+                messagebox.showwarning(
+                    "Synchronisation", str(error), parent=self.root
+                )
+            return
+        self.sync_label.configure(
+            text=f"Synchronisé • {datetime.now():%H:%M}",
+            fg="#9FE0BE",
+        )
+        self.refresh_pages()
+        if result and result.get("catalog_pending"):
+            self._offer_shared_catalog()
+
+    def _offer_shared_catalog(self) -> None:
+        if not self.collaboration:
+            return
+        manifest = self.collaboration.pending_catalog()
+        if not manifest:
+            return
+        file_hash = str(manifest.get("sha256") or "")
+        if file_hash == self._catalog_prompted_hash:
+            return
+        self._catalog_prompted_hash = file_hash
+        if not messagebox.askyesno(
+            "Nouveau catalogue partagé",
+            (
+                f"Le catalogue {manifest.get('version', '')} publié par "
+                f"{manifest.get('published_by', 'un collègue')} est disponible.\n\n"
+                "L'installer maintenant sur ce poste ?"
+            ),
+            parent=self.root,
+        ):
+            return
+        page: ImportPage = self.pages["import"]  # type: ignore[assignment]
+        self.show_page("import")
+        page.start_shared_import(manifest)
+
+    def sync_team_data(self) -> None:
+        self.sync_collaboration(show_errors=True)
+
+    def publish_order(self, order_id: int) -> bool:
+        if not self.collaboration:
+            return True
+        try:
+            self.collaboration.publish_order(order_id)
+            self.sync_label.configure(
+                text=f"Synchronisé • {datetime.now():%H:%M}",
+                fg="#9FE0BE",
+            )
+            return True
+        except (OSError, CollaborationError) as exc:
+            self.sync_label.configure(
+                text="À synchroniser", fg="#F0C36A"
+            )
+            messagebox.showwarning(
+                "Commande non synchronisée",
+                (
+                    f"La commande reste enregistrée localement.\n\n{exc}\n\n"
+                    "Utilisez « Synchroniser maintenant » lorsque le partage "
+                    "sera disponible."
+                ),
+                parent=self.root,
+            )
+            return False
+
+    def reserve_order_number(self, selected_date: date | None = None) -> str | None:
+        if not self.collaboration:
+            return None
+        return self.collaboration.reserve_order_number(selected_date)
+
+    def acquire_order_lock(self, order_id: int) -> ResourceLock | None:
+        if not self.collaboration:
+            return None
+        order, _ = self.database.get_order(order_id)
+        try:
+            return self.collaboration.acquire_lock(
+                "commande", str(order["shared_uid"])
+            )
+        except ResourceLockedError as exc:
+            messagebox.showinfo(
+                "Commande en cours d'utilisation",
+                (
+                    f"Cette commande est actuellement ouverte par "
+                    f"{exc.owner or 'votre collègue'}.\n\n"
+                    "Elle reste consultable mais ne peut pas être modifiée."
+                ),
+                parent=self.root,
+            )
+            return None
+        except (OSError, CollaborationError) as exc:
+            self.sync_label.configure(text="Hors connexion", fg="#F0C36A")
+            messagebox.showwarning(
+                "Partage indisponible",
+                (
+                    "Le verrou collaboratif ne peut pas être obtenu. La commande "
+                    "reste consultable, mais sa modification est bloquée pour "
+                    f"éviter un conflit.\n\n{exc}"
+                ),
+                parent=self.root,
+            )
+            return None
+
+    @contextmanager
+    def locked_order(self, order_id: int):
+        handle = self.acquire_order_lock(order_id)
+        if self.collaboration and handle is None:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            if handle:
+                handle.release()
+
+    @contextmanager
+    def locked_product(self, product_id: int):
+        if not self.collaboration:
+            yield True
+            return
+        product = self.database.get_product(product_id)
+        if product is None:
+            yield False
+            return
+        try:
+            handle = self.collaboration.acquire_lock(
+                "produit", str(product["code_cahpp"])
+            )
+        except ResourceLockedError as exc:
+            messagebox.showinfo(
+                "Article en cours de modification",
+                (
+                    f"Cet article est actuellement modifié par "
+                    f"{exc.owner or 'votre collègue'}."
+                ),
+                parent=self.root,
+            )
+            yield False
+            return
+        except (OSError, CollaborationError) as exc:
+            self.sync_label.configure(text="Hors connexion", fg="#F0C36A")
+            messagebox.showwarning(
+                "Partage indisponible",
+                (
+                    "Le verrou collaboratif ne peut pas être obtenu. La fiche "
+                    "reste consultable, mais sa modification est bloquée pour "
+                    f"éviter un conflit.\n\n{exc}"
+                ),
+                parent=self.root,
+            )
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            handle.release()
+
+    def close(self) -> None:
+        if self.collaboration:
+            self.collaboration.release_all_locks()
+        self.root.destroy()
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self.root)
@@ -732,11 +1076,15 @@ class CatalogPage(BasePage):
                 "Article", "Sélectionnez d'abord un article.", parent=self
             )
             return
-        dialog = ProductEditDialog(self, self.database, product_id)
-        self.wait_window(dialog)
-        if dialog.saved:
-            self.search()
-            self.app.pages["dashboard"].invalidate()
+        with self.app.locked_product(product_id) as allowed:
+            if not allowed:
+                return
+            dialog = ProductEditDialog(self, self.database, product_id)
+            self.wait_window(dialog)
+            if dialog.saved:
+                self.search()
+                self.app.pages["dashboard"].invalidate()
+                self.app.sync_team_data()
 
     def reset_product(self) -> None:
         product_id = self.selected_product_id()
@@ -748,8 +1096,12 @@ class CatalogPage(BasePage):
             parent=self,
         ):
             return
-        self.database.reset_product_override(product_id)
+        with self.app.locked_product(product_id) as allowed:
+            if not allowed:
+                return
+            self.database.reset_product_override(product_id)
         self.search()
+        self.app.sync_team_data()
 
     def delete_product(self) -> None:
         product_id = self.selected_product_id()
@@ -767,18 +1119,28 @@ class CatalogPage(BasePage):
             parent=self,
         ):
             return
-        self.database.archive_manual_product(product_id)
+        with self.app.locked_product(product_id) as allowed:
+            if not allowed:
+                return
+            self.database.archive_manual_product(product_id)
         self.search()
         self.app.pages["dashboard"].invalidate()
+        self.app.sync_team_data()
 
     def toggle_favorite(self) -> None:
         product_id = self.selected_product_id()
         if not product_id:
             return
-        product = self.database.get_product(product_id)
-        self.database.set_favorite(product_id, not bool(product["favorite"]))
+        with self.app.locked_product(product_id) as allowed:
+            if not allowed:
+                return
+            product = self.database.get_product(product_id)
+            self.database.set_favorite(
+                product_id, not bool(product["favorite"])
+            )
         self.search()
         self.app.pages["dashboard"].invalidate()
+        self.app.sync_team_data()
 
     def edit_favorite(self) -> None:
         product_id = self.selected_product_id()
@@ -803,10 +1165,17 @@ class CatalogPage(BasePage):
             initialvalue=product["short_name"] or product["designation"],
             parent=self,
         )
-        self.database.set_favorite(
-            product_id, True, usual_cartons=usual, short_name=short_name or ""
-        )
+        with self.app.locked_product(product_id) as allowed:
+            if not allowed:
+                return
+            self.database.set_favorite(
+                product_id,
+                True,
+                usual_cartons=usual,
+                short_name=short_name or "",
+            )
         self.search()
+        self.app.sync_team_data()
 
     def start_order(self) -> None:
         product_id = self.selected_product_id()
@@ -1110,6 +1479,7 @@ class OrderPage(BasePage):
         self._previous_supplier = ""
         self.current_order_id: int | None = None
         self.current_order_date: date | None = None
+        self.current_order_lock: ResourceLock | None = None
 
     def _schedule_search(self, event=None) -> None:
         if self._search_after:
@@ -1325,6 +1695,7 @@ class OrderPage(BasePage):
         dialog = ManualProductDialog(self, self.database, supplier_id)
         self.wait_window(dialog)
         if dialog.product_id:
+            self.app.sync_team_data()
             self.search_products()
             self.product_tree.selection_set(str(dialog.product_id))
             self.add_product()
@@ -1378,11 +1749,14 @@ class OrderPage(BasePage):
             self.cart.pop(int(selected[0]))
             self.refresh_cart()
 
-    def load_order(self, order_id: int) -> None:
+    def load_order(
+        self, order_id: int, lock: ResourceLock | None = None
+    ) -> None:
         order, lines = self.database.get_order(order_id)
         if order["status"] != "Brouillon":
             raise ValueError("Seuls les brouillons peuvent être modifiés.")
         self.current_order_id = order_id
+        self.current_order_lock = lock
         self.current_order_date = date.fromisoformat(order["order_date"])
         self.supplier_var.set(order["supplier_name"])
         self._previous_supplier = order["supplier_name"]
@@ -1414,6 +1788,9 @@ class OrderPage(BasePage):
                 parent=self,
             ):
                 return False
+        if self.current_order_lock:
+            self.current_order_lock.release()
+            self.current_order_lock = None
         self.current_order_id = None
         self.current_order_date = None
         self.cart.clear()
@@ -1482,13 +1859,31 @@ class OrderPage(BasePage):
         if not self._confirm_order_warnings(supplier_id):
             return False
         editing_order_id = self.current_order_id
-        order_id = self.database.save_order(
-            supplier_id=supplier_id,
-            lines=self.cart,
-            notes=self.notes_var.get(),
-            order_id=editing_order_id,
-            selected_date=self.current_order_date,
-        )
+        try:
+            reserved_number = (
+                self.app.reserve_order_number(self.current_order_date)
+                if editing_order_id is None
+                else None
+            )
+            order_id = self.database.save_order(
+                supplier_id=supplier_id,
+                lines=self.cart,
+                notes=self.notes_var.get(),
+                order_id=editing_order_id,
+                selected_date=self.current_order_date,
+                order_number=reserved_number,
+            )
+        except (OSError, CollaborationError) as exc:
+            messagebox.showwarning(
+                "Commande",
+                (
+                    "Le numéro de commande partagé ne peut pas être réservé. "
+                    "Aucune commande n'a été créée.\n\n"
+                    f"{exc}"
+                ),
+                parent=self,
+            )
+            return False
         order, _ = self.database.get_order(order_id)
         self.current_order_id = order_id
         self.current_order_date = date.fromisoformat(order["order_date"])
@@ -1504,10 +1899,12 @@ class OrderPage(BasePage):
                     "La commande reste enregistrée comme brouillon.",
                     parent=self,
                 )
+                self.app.publish_order(order_id)
                 self.app.refresh_pages()
                 return False
             generate_order_pdf(self.database, order_id, output)
             open_path(output.parent)
+        self.app.publish_order(order_id)
         self.reset_order(confirm=False)
         self.app.refresh_pages()
         return True
@@ -1614,8 +2011,8 @@ class OrderDocumentsDialog(tk.Toplevel):
         ttk.Label(
             self,
             text=(
-                "Les fichiers sont copiés dans le dossier portable de "
-                "l'application et suivent la sauvegarde complète."
+                "Les fichiers sont copiés dans l'espace de la commande. "
+                "En mode collaboratif, ils sont disponibles sur les deux postes."
             ),
             style="Subtitle.TLabel",
         ).pack(anchor="w", padx=18, pady=(0, 12))
@@ -1769,7 +2166,7 @@ class OrderDocumentsDialog(tk.Toplevel):
         attachment = self.database.get_order_attachment(attachment_id)
         if not messagebox.askyesno(
             "Supprimer le document",
-            f"Retirer et supprimer la copie locale « {attachment['display_name']} » ?",
+            f"Retirer et supprimer « {attachment['display_name']} » ?",
             parent=self,
         ):
             return
@@ -1828,9 +2225,11 @@ class OrdersPage(BasePage):
             columns=(
                 "number",
                 "created",
+                "author",
                 "sent",
                 "supplier",
                 "status",
+                "sync",
                 "ht",
                 "ttc",
             ),
@@ -1839,9 +2238,11 @@ class OrdersPage(BasePage):
         for column, title, width in (
             ("number", "N° commande", 125),
             ("created", "Créée le", 128),
+            ("author", "Créée par", 90),
             ("sent", "Envoyée le", 128),
-            ("supplier", "Fournisseur", 220),
+            ("supplier", "Fournisseur", 180),
             ("status", "Statut", 95),
+            ("sync", "Synchro", 95),
             ("ht", "Total HT", 90),
             ("ttc", "Total TTC", 90),
         ):
@@ -1877,6 +2278,11 @@ class OrdersPage(BasePage):
             text="Documents / bon de livraison",
             command=self.manage_documents,
         ).pack(side="left")
+        ttk.Button(
+            actions,
+            text="Journal",
+            command=self.show_audit,
+        ).pack(side="left", padx=6)
         ttk.Button(
             actions,
             text="Préparer le mail",
@@ -1920,9 +2326,12 @@ class OrdersPage(BasePage):
                 parent=self,
             )
             return
+        lock = self.app.acquire_order_lock(order_id)
+        if self.app.collaboration and lock is None:
+            return
         self.app.show_page("new_order")
         order_page: OrderPage = self.app.pages["new_order"]  # type: ignore[assignment]
-        order_page.load_order(order_id)
+        order_page.load_order(order_id, lock=lock)
 
     def duplicate(self) -> None:
         order_id = self.selected_order()
@@ -1931,11 +2340,26 @@ class OrdersPage(BasePage):
                 "Dupliquer", "Sélectionnez une commande.", parent=self
             )
             return
-        new_id = self.database.duplicate_order(order_id)
+        try:
+            reserved = self.app.reserve_order_number(date.today())
+            new_id = self.database.duplicate_order(
+                order_id, order_number=reserved
+            )
+        except (OSError, CollaborationError) as exc:
+            messagebox.showwarning(
+                "Dupliquer",
+                f"La nouvelle commande n'a pas pu être créée :\n{exc}",
+                parent=self,
+            )
+            return
+        lock = self.app.acquire_order_lock(new_id)
+        if self.app.collaboration and lock is None:
+            return
+        self.app.publish_order(new_id)
         self.app.refresh_pages()
         self.app.show_page("new_order")
         order_page: OrderPage = self.app.pages["new_order"]  # type: ignore[assignment]
-        order_page.load_order(new_id)
+        order_page.load_order(new_id, lock=lock)
 
     def manage_documents(self) -> None:
         order_id = self.selected_order()
@@ -1944,9 +2368,98 @@ class OrdersPage(BasePage):
                 "Documents", "Sélectionnez une commande.", parent=self
             )
             return
-        dialog = OrderDocumentsDialog(self, self.database, order_id)
-        self.wait_window(dialog)
+        with self.app.locked_order(order_id) as allowed:
+            if not allowed:
+                return
+            dialog = OrderDocumentsDialog(self, self.database, order_id)
+            self.wait_window(dialog)
+            self.app.publish_order(order_id)
         self.refresh()
+
+    def show_audit(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            messagebox.showinfo(
+                "Journal", "Sélectionnez une commande.", parent=self
+            )
+            return
+        order, _ = self.database.get_order(order_id)
+        dialog = tk.Toplevel(self)
+        dialog.title(f"Journal — {order['order_number']}")
+        dialog.geometry("780x430")
+        dialog.minsize(650, 330)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        content = ttk.Frame(dialog, padding=16)
+        content.pack(fill="both", expand=True)
+        ttk.Label(
+            content,
+            text=f"Activité de {order['order_number']}",
+            font=("Segoe UI Semibold", 13),
+        ).pack(anchor="w", pady=(0, 10))
+
+        frame = ttk.Frame(content)
+        frame.pack(fill="both", expand=True)
+        tree = ttk.Treeview(
+            frame,
+            columns=("date", "user", "action", "details"),
+            show="headings",
+        )
+        for column, title, width in (
+            ("date", "Date", 135),
+            ("user", "Utilisateur", 120),
+            ("action", "Action", 145),
+            ("details", "Détails", 330),
+        ):
+            tree.heading(column, text=title)
+            tree.column(
+                column,
+                width=width,
+                stretch=column == "details",
+                anchor="w",
+            )
+        scrollbar = ttk.Scrollbar(
+            frame, orient="vertical", command=tree.yview
+        )
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        action_labels = {
+            "created": "Commande créée",
+            "updated": "Commande modifiée",
+            "duplicated": "Commande dupliquée",
+            "pdf_generated": "PDF généré",
+            "status_changed": "Statut modifié",
+            "attachment_added": "Document ajouté",
+            "attachment_updated": "Document modifié",
+            "attachment_deleted": "Document supprimé",
+            "synced": "Synchronisation",
+        }
+        for audit in self.database.list_order_audit(order_id):
+            details = str(audit["details"] or "")
+            try:
+                parsed = json.loads(details) if details else {}
+                if isinstance(parsed, dict):
+                    details = ", ".join(
+                        f"{key} : {value}" for key, value in parsed.items()
+                    )
+            except json.JSONDecodeError:
+                pass
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    format_timestamp(audit["occurred_at"]),
+                    audit["actor_name"] or "—",
+                    action_labels.get(audit["action"], audit["action"]),
+                    details or "—",
+                ),
+            )
+        ttk.Button(content, text="Fermer", command=dialog.destroy).pack(
+            anchor="e", pady=(10, 0)
+        )
 
     def open_pdf(self) -> None:
         order_id = self.selected_order()
@@ -1969,14 +2482,18 @@ class OrdersPage(BasePage):
         order_id = self.selected_order()
         if not order_id:
             return False
-        order, _ = self.database.get_order(order_id)
-        output = choose_pdf_path(self, self.database, order)
-        if output is None:
-            return False
-        generate_order_pdf(self.database, order_id, output)
-        self.refresh()
-        open_path(output.parent)
-        return True
+        with self.app.locked_order(order_id) as allowed:
+            if not allowed:
+                return False
+            order, _ = self.database.get_order(order_id)
+            output = choose_pdf_path(self, self.database, order)
+            if output is None:
+                return False
+            generate_order_pdf(self.database, order_id, output)
+            self.app.publish_order(order_id)
+            self.refresh()
+            open_path(output.parent)
+            return True
 
     def prepare_email(self) -> None:
         order_id = self.selected_order()
@@ -1985,33 +2502,41 @@ class OrdersPage(BasePage):
                 "E-mail", "Sélectionnez une commande.", parent=self
             )
             return
-        try:
-            compose_url, folder, _ = prepare_mail_order(
-                self.database, order_id
-            )
-        except (ValueError, OSError) as exc:
-            messagebox.showwarning("E-mail", str(exc), parent=self)
-            return
-        self.database.update_order_status(order_id, "E-mail préparé")
-        webbrowser.open(compose_url)
-        open_path(folder)
+        with self.app.locked_order(order_id) as allowed:
+            if not allowed:
+                return
+            try:
+                compose_url, folder, _ = prepare_mail_order(
+                    self.database, order_id
+                )
+            except (ValueError, OSError) as exc:
+                messagebox.showwarning("E-mail", str(exc), parent=self)
+                return
+            self.database.update_order_status(order_id, "E-mail préparé")
+            self.app.publish_order(order_id)
+            webbrowser.open(compose_url)
+            open_path(folder)
         self.refresh()
 
     def mark_sent(self) -> None:
         order_id = self.selected_order()
         if not order_id:
             return
-        try:
-            mark_order_sent(self.database, order_id)
-        except OSError as exc:
-            messagebox.showwarning(
-                "Nettoyage du dossier d'envoi",
-                (
-                    "La commande a été marquée comme envoyée, mais son dossier "
-                    f"de préparation n'a pas pu être supprimé :\n{exc}"
-                ),
-                parent=self,
-            )
+        with self.app.locked_order(order_id) as allowed:
+            if not allowed:
+                return
+            try:
+                mark_order_sent(self.database, order_id)
+            except OSError as exc:
+                messagebox.showwarning(
+                    "Nettoyage du dossier d'envoi",
+                    (
+                        "La commande a été marquée comme envoyée, mais son dossier "
+                        f"de préparation n'a pas pu être supprimé :\n{exc}"
+                    ),
+                    parent=self,
+                )
+            self.app.publish_order(order_id)
         self.refresh()
 
     def refresh(self) -> None:
@@ -2029,9 +2554,11 @@ class OrdersPage(BasePage):
                 values=(
                     order["order_number"],
                     format_timestamp(order["created_at"]),
+                    order["created_by"] or "—",
                     format_timestamp(order["sent_at"]),
                     order["supplier_name"],
                     order["status"],
+                    order["sync_state"],
                     format_price(order["total_ht"], 2),
                     format_price(order["total_ttc"], 2),
                 ),
@@ -2177,6 +2704,7 @@ class SuppliersPage(BasePage):
             website=self.fields["website"].get(),
             minimum_order_ht=minimum,
         )
+        self.app.sync_team_data()
         return True
 
     def refresh(self) -> None:
@@ -2335,6 +2863,7 @@ class ImportPage(BasePage):
         self.tree.pack(fill="both", expand=True)
         self.messages: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
+        self._shared_manifest: dict[str, object] | None = None
 
     def browse(self) -> None:
         path = filedialog.askopenfilename(
@@ -2352,16 +2881,50 @@ class ImportPage(BasePage):
                 "Import", "Sélectionnez un fichier Excel valide.", parent=self
             )
             return
+        self._shared_manifest = None
+        self._start_worker(path, None)
+
+    def start_shared_import(self, manifest: dict[str, object]) -> None:
+        if not self.app.collaboration:
+            return
+        self._shared_manifest = dict(manifest)
+        self.path_var.set(
+            f"Catalogue partagé : {manifest.get('version', '')}"
+        )
+        self._start_worker(None, self._shared_manifest)
+
+    def _start_worker(
+        self,
+        path: Path | None,
+        shared_manifest: dict[str, object] | None,
+    ) -> None:
         self.import_button.configure(state="disabled")
         self.progress["value"] = 0
         self.worker = threading.Thread(
-            target=self._run_import, args=(path,), daemon=True
+            target=self._run_import,
+            args=(path, shared_manifest),
+            daemon=True,
         )
         self.worker.start()
         self.after(100, self._poll_messages)
 
-    def _run_import(self, path: Path) -> None:
+    def _run_import(
+        self,
+        path: Path | None,
+        shared_manifest: dict[str, object] | None,
+    ) -> None:
         try:
+            if shared_manifest is not None:
+                if not self.app.collaboration:
+                    raise CollaborationError(
+                        "Le mode collaboratif n'est plus actif."
+                    )
+                self.messages.put(
+                    ("progress", 0, "Vérification du catalogue partagé...")
+                )
+                path = self.app.collaboration.catalog_source(shared_manifest)
+            if path is None:
+                raise FileNotFoundError("Catalogue introuvable")
             importer = CatalogImporter(self.database)
             result = importer.import_file(
                 path,
@@ -2369,7 +2932,18 @@ class ImportPage(BasePage):
                     ("progress", current, message)
                 ),
             )
-            self.messages.put(("done", result))
+            publication = None
+            if shared_manifest is not None and self.app.collaboration:
+                self.app.collaboration.mark_catalog_applied(shared_manifest)
+                publication = shared_manifest
+            elif self.app.collaboration:
+                self.messages.put(
+                    ("progress", 99, "Publication sur le dossier partagé...")
+                )
+                publication = self.app.collaboration.publish_catalog(
+                    path, result
+                )
+            self.messages.put(("done", result, publication))
         except Exception as exc:
             self.messages.put(("error", str(exc)))
 
@@ -2381,7 +2955,7 @@ class ImportPage(BasePage):
                     self.progress["value"] = message[1]
                     self.status_label.configure(text=message[2])
                 elif message[0] == "done":
-                    self._import_done(message[1])
+                    self._import_done(message[1], message[2])
                     return
                 elif message[0] == "error":
                     self.import_button.configure(state="normal")
@@ -2393,7 +2967,11 @@ class ImportPage(BasePage):
         if self.worker and self.worker.is_alive():
             self.after(100, self._poll_messages)
 
-    def _import_done(self, result: ImportResult) -> None:
+    def _import_done(
+        self,
+        result: ImportResult,
+        publication: dict[str, object] | None = None,
+    ) -> None:
         self.import_button.configure(state="normal")
         self.progress["value"] = 100
         if result.already_imported:
@@ -2406,7 +2984,13 @@ class ImportPage(BasePage):
                 parent=self,
             )
         else:
-            self.status_label.configure(text="Catalogue mis à jour.")
+            self.status_label.configure(
+                text=(
+                    "Catalogue mis à jour et synchronisé."
+                    if publication
+                    else "Catalogue mis à jour."
+                )
+            )
             ordered_changes = self.database.ordered_changes_for_import(
                 result.import_id
             )
@@ -2423,6 +3007,8 @@ class ImportPage(BasePage):
                 self.wait_window(dialog)
         self.app.refresh_pages()
         self.refresh()
+        if self.app.collaboration:
+            self.app.sync_collaboration()
 
     def show_selected_changes(self) -> None:
         selected = self.tree.selection()
@@ -2480,9 +3066,13 @@ class SettingsPage(BasePage):
         pdf = ttk.Frame(notebook, style="Surface.TFrame", padding=18)
         email = ttk.Frame(notebook, style="Surface.TFrame", padding=18)
         backup = ttk.Frame(notebook, style="Surface.TFrame", padding=18)
+        collaboration = ttk.Frame(
+            notebook, style="Surface.TFrame", padding=18
+        )
         notebook.add(identity, text="Établissement")
         notebook.add(pdf, text="PDF")
         notebook.add(email, text="E-mail")
+        notebook.add(collaboration, text="Collaboration")
         notebook.add(backup, text="Sauvegarde")
 
         identity_fields = [
@@ -2653,6 +3243,98 @@ class SettingsPage(BasePage):
         )
         self.backup_status.pack(anchor="w", pady=(10, 0))
 
+        ttk.Label(
+            collaboration,
+            text="Profil et espace partagé",
+            style="Surface.TLabel",
+            font=("Segoe UI Semibold", 13),
+        ).grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(
+            collaboration,
+            text=(
+                "Le catalogue reste sur ce poste. Les commandes, corrections "
+                "et produits locaux sont synchronisés par fichiers versionnés."
+            ),
+            style="Surface.TLabel",
+            wraplength=780,
+        ).grid(
+            row=1,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(6, 18),
+        )
+        ttk.Label(
+            collaboration, text="Nom d'utilisateur", style="Surface.TLabel"
+        ).grid(row=2, column=0, sticky="w", pady=7)
+        self.user_name_var = tk.StringVar()
+        ttk.Entry(
+            collaboration, textvariable=self.user_name_var, width=55
+        ).grid(row=2, column=1, columnspan=2, sticky="ew", padx=(14, 0), pady=7)
+        self.collaboration_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            collaboration,
+            text="Activer le mode collaboratif",
+            variable=self.collaboration_enabled_var,
+        ).grid(
+            row=3, column=1, columnspan=2, sticky="w", padx=(14, 0), pady=7
+        )
+        ttk.Label(
+            collaboration, text="Dossier partagé", style="Surface.TLabel"
+        ).grid(row=4, column=0, sticky="w", pady=7)
+        self.shared_path_var = tk.StringVar()
+        ttk.Entry(
+            collaboration, textvariable=self.shared_path_var
+        ).grid(row=4, column=1, sticky="ew", padx=(14, 0), pady=7)
+        ttk.Button(
+            collaboration,
+            text="Parcourir",
+            command=self.browse_shared_directory,
+        ).grid(row=4, column=2, sticky="e", padx=(7, 0), pady=7)
+        collaboration.columnconfigure(1, weight=1)
+        collab_actions = ttk.Frame(
+            collaboration, style="Surface.TFrame"
+        )
+        collab_actions.grid(
+            row=5, column=1, columnspan=2, sticky="w", padx=(14, 0), pady=(12, 0)
+        )
+        ttk.Button(
+            collab_actions,
+            text="Tester l'accès",
+            command=self.test_shared_directory,
+        ).pack(side="left")
+        self.collaboration_save_button = FeedbackButton(
+            collab_actions,
+            text="Enregistrer",
+            command=self.save,
+        )
+        self.collaboration_save_button.pack(side="left", padx=7)
+        ttk.Button(
+            collab_actions,
+            text="Synchroniser maintenant",
+            style="Accent.TButton",
+            command=self.sync_now,
+        ).pack(side="left")
+        ttk.Button(
+            collab_actions,
+            text="Ouvrir le dossier",
+            command=self.open_shared_directory,
+        ).pack(side="left", padx=7)
+        self.collaboration_status = ttk.Label(
+            collaboration,
+            text="",
+            style="Surface.TLabel",
+            wraplength=780,
+            justify="left",
+        )
+        self.collaboration_status.grid(
+            row=6,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(18, 0),
+        )
+
     def browse_logo(self) -> None:
         path = filedialog.askopenfilename(
             parent=self,
@@ -2676,7 +3358,91 @@ class SettingsPage(BasePage):
         if path:
             self.pdf_directory_var.set(path)
 
+    def browse_shared_directory(self) -> None:
+        current = self.shared_path_var.get().strip()
+        path = filedialog.askdirectory(
+            parent=self,
+            title="Choisir le dossier partagé",
+            initialdir=(
+                current
+                if current and Path(current).is_dir()
+                else str(Path.home())
+            ),
+        )
+        if path:
+            self.shared_path_var.set(path)
+            self.collaboration_enabled_var.set(True)
+
+    def test_shared_directory(self) -> None:
+        path = self.shared_path_var.get().strip()
+        if not path:
+            messagebox.showinfo(
+                "Collaboration",
+                "Sélectionnez d'abord un dossier partagé.",
+                parent=self,
+            )
+            return
+        try:
+            result = CollaborationManager.test_path(path)
+        except OSError as exc:
+            self.collaboration_status.configure(
+                text=f"Accès impossible : {exc}", foreground=COLORS["danger"]
+            )
+            return
+        lines = [
+            f"Lecture : {'OK' if result.readable else 'Échec'}",
+            f"Écriture : {'OK' if result.writable else 'Échec'}",
+            (
+                "Renommage sécurisé : "
+                + ("OK" if result.atomic_rename else "Échec")
+            ),
+            (
+                "Espace existant : "
+                + (
+                    f"oui ({result.workspace_id})"
+                    if result.workspace_found
+                    else "non — il sera créé à l'enregistrement"
+                )
+            ),
+        ]
+        self.collaboration_status.configure(
+            text="\n".join(lines),
+            foreground=COLORS["success"] if result.ok else COLORS["danger"],
+        )
+
+    def open_shared_directory(self) -> None:
+        path = Path(self.shared_path_var.get().strip())
+        if path.is_dir():
+            open_path(path)
+        else:
+            messagebox.showinfo(
+                "Collaboration",
+                "Le dossier partagé est indisponible.",
+                parent=self,
+            )
+
+    def sync_now(self) -> None:
+        if self.save():
+            self.app.sync_collaboration(show_errors=True)
+
     def save(self) -> bool:
+        user_name = self.user_name_var.get().strip()
+        if not user_name:
+            messagebox.showerror(
+                "Profil utilisateur",
+                "Le nom d'utilisateur est obligatoire.",
+                parent=self,
+            )
+            return False
+        shared_path = self.shared_path_var.get().strip()
+        if self.collaboration_enabled_var.get() and not shared_path:
+            messagebox.showerror(
+                "Collaboration",
+                "Sélectionnez le dossier partagé.",
+                parent=self,
+            )
+            return False
+        previous = self.database.get_settings()
         values = {key: variable.get() for key, variable in self.vars.items()}
         values["logo_path"] = self.logo_var.get()
         values["pdf_default_directory"] = self.pdf_directory_var.get()
@@ -2686,7 +3452,32 @@ class SettingsPage(BasePage):
         values["pdf_show_page_number"] = (
             "1" if self.show_page_number_var.get() else "0"
         )
+        values["user_name"] = user_name
+        values["collaboration_enabled"] = (
+            "1" if self.collaboration_enabled_var.get() else "0"
+        )
+        values["shared_workspace_path"] = shared_path
         self.database.save_settings(values)
+        collaboration_changed = any(
+            previous.get(key, "") != values.get(key, "")
+            for key in (
+                "user_name",
+                "collaboration_enabled",
+                "shared_workspace_path",
+            )
+        )
+        if collaboration_changed:
+            try:
+                self.app.reconfigure_collaboration()
+            except (OSError, CollaborationError) as exc:
+                messagebox.showerror(
+                    "Collaboration",
+                    f"Les paramètres sont enregistrés, mais l'accès a échoué :\n{exc}",
+                    parent=self,
+                )
+                return False
+        elif self.app.collaboration:
+            self.app.sync_team_data()
         return True
 
     def backup(self) -> bool:
@@ -2722,4 +3513,30 @@ class SettingsPage(BasePage):
         self.show_page_number_var.set(
             settings.get("pdf_show_page_number", "1") != "0"
         )
+        self.user_name_var.set(settings.get("user_name", ""))
+        self.shared_path_var.set(settings.get("shared_workspace_path", ""))
+        self.collaboration_enabled_var.set(
+            settings.get("collaboration_enabled", "0") == "1"
+        )
+        if self.app.collaboration:
+            last_sync = settings.get("collaboration_last_sync_at", "")
+            catalogue = settings.get("collaboration_catalog_version", "")
+            self.collaboration_status.configure(
+                text=(
+                    f"Espace : {self.app.collaboration.workspace_id}\n"
+                    f"Dernière synchronisation : "
+                    f"{format_timestamp(last_sync)}\n"
+                    f"Catalogue partagé : {catalogue or 'non publié'}"
+                ),
+                foreground=COLORS["success"],
+            )
+        elif self.collaboration_enabled_var.get():
+            self.collaboration_status.configure(
+                text="Espace partagé actuellement indisponible.",
+                foreground=COLORS["warning"],
+            )
+        else:
+            self.collaboration_status.configure(
+                text="Mode local.", foreground=COLORS["muted"]
+            )
         self._valid = True

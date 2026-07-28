@@ -38,11 +38,11 @@ if exist "assets" (
   xcopy /e /i /y "assets" "dist\CommandesCAHPP-portable\assets" >nul
 )
 
-if exist "data\commandes_cahpp.sqlite3" (
-  copy /y "data\commandes_cahpp.sqlite3" "dist\CommandesCAHPP-portable\data\commandes_cahpp.sqlite3" >nul
-)
-
 echo.
 echo Compilation terminee :
 echo %CD%\dist\CommandesCAHPP-portable
+echo.
+echo Important pour la collaboration :
+echo installez ce dossier sur chaque PC et configurez uniquement
+echo le dossier partage depuis les parametres de l'application.
 pause

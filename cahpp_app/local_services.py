@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from .database import Database
 from .paths import DATABASE_PATH, DOCUMENTS_DIR, MAIL_PREP_DIR, ROOT_DIR
 
+SHARED_WORKSPACE_DIR: Path | None = None
 
 MAIL_TEMPLATE_VARIABLES = {
     "order_number": "numéro du bon de commande",
@@ -34,6 +35,13 @@ def safe_filename(value: str) -> str:
 
 
 def resolve_portable_path(value: str | Path) -> Path:
+    if isinstance(value, str) and value.startswith("shared:"):
+        if SHARED_WORKSPACE_DIR is None:
+            return Path(value.removeprefix("shared:"))
+        relative = Path(value.removeprefix("shared:"))
+        candidate = (SHARED_WORKSPACE_DIR / relative).resolve()
+        candidate.relative_to(SHARED_WORKSPACE_DIR.resolve())
+        return candidate
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = ROOT_DIR / path
@@ -42,10 +50,25 @@ def resolve_portable_path(value: str | Path) -> Path:
 
 def portable_path(path: str | Path) -> str:
     resolved = Path(path).resolve()
+    if SHARED_WORKSPACE_DIR is not None:
+        try:
+            relative = resolved.relative_to(SHARED_WORKSPACE_DIR.resolve())
+            return "shared:" + relative.as_posix()
+        except ValueError:
+            pass
     try:
         return resolved.relative_to(ROOT_DIR.resolve()).as_posix()
     except ValueError:
         return str(resolved)
+
+
+def configure_shared_workspace(path: str | Path | None) -> None:
+    global SHARED_WORKSPACE_DIR
+    SHARED_WORKSPACE_DIR = (
+        Path(path).expanduser().resolve()
+        if str(path or "").strip()
+        else None
+    )
 
 
 def _available_destination(directory: Path, filename: str) -> Path:
@@ -70,6 +93,9 @@ def attach_document(
     if not source.is_file():
         raise FileNotFoundError(source)
     order, _ = database.get_order(order_id)
+    # La copie locale reste la source de travail. En mode collaboratif, la
+    # publication de la commande crée ensuite une seconde copie sur le partage.
+    # Le document demeure ainsi consultable lorsque le réseau est indisponible.
     directory = DOCUMENTS_DIR / safe_filename(order["order_number"])
     directory.mkdir(parents=True, exist_ok=True)
     destination = _available_destination(directory, source.name)
