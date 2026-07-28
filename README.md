@@ -135,8 +135,9 @@ Pour repartir d'une ancienne commande, sélectionnez-la dans **Historique** puis
 cliquez sur **Dupliquer**. Un nouveau brouillon daté du jour est créé avec les
 prix et conditionnements de la commande d'origine.
 
-L'historique affiche séparément la date du bon, sa date de création et sa
-première date d'envoi. Cette dernière est renseignée avec **Marquer envoyée**.
+L'historique affiche la date de création et la première date d'envoi. Cette
+dernière est renseignée avec **Marquer envoyée**. La date propre au bon reste
+conservée dans la base et utilisée dans le PDF et son nom de fichier.
 
 ## Préparer une commande par e-mail
 
@@ -163,6 +164,10 @@ Dans **Historique**, le bouton **Préparer le mail** :
 Gmail reste configuré par défaut. Une URL de composition générique ou `mailto:`
 peut également être utilisée. L'ajout final des pièces jointes reste manuel :
 aucun identifiant ni mot de passe de messagerie n'est enregistré.
+
+Lorsque la commande est marquée comme envoyée, son sous-dossier temporaire dans
+`envois` est supprimé automatiquement. Le PDF original et les documents liés à
+la commande sont conservés à leur emplacement habituel.
 
 ## Documents et bons de livraison
 

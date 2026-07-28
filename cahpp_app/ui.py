@@ -20,6 +20,7 @@ from .local_services import (
     MAIL_TEMPLATE_VARIABLES,
     attach_document,
     create_complete_backup,
+    mark_order_sent,
     portable_path,
     prepare_mail_order,
     remove_document,
@@ -1826,7 +1827,6 @@ class OrdersPage(BasePage):
             frame,
             columns=(
                 "number",
-                "date",
                 "created",
                 "sent",
                 "supplier",
@@ -1838,7 +1838,6 @@ class OrdersPage(BasePage):
         )
         for column, title, width in (
             ("number", "N° commande", 125),
-            ("date", "Date du BC", 88),
             ("created", "Créée le", 128),
             ("sent", "Envoyée le", 128),
             ("supplier", "Fournisseur", 220),
@@ -2010,7 +2009,17 @@ class OrdersPage(BasePage):
         order_id = self.selected_order()
         if not order_id:
             return
-        self.database.update_order_status(order_id, "Envoyée")
+        try:
+            mark_order_sent(self.database, order_id)
+        except OSError as exc:
+            messagebox.showwarning(
+                "Nettoyage du dossier d'envoi",
+                (
+                    "La commande a été marquée comme envoyée, mais son dossier "
+                    f"de préparation n'a pas pu être supprimé :\n{exc}"
+                ),
+                parent=self,
+            )
         self.refresh()
 
     def refresh(self) -> None:
@@ -2021,16 +2030,12 @@ class OrdersPage(BasePage):
             status="" if status == "Tous" else status,
         )
         for order in orders:
-            order_date = datetime.fromisoformat(order["order_date"]).strftime(
-                "%d/%m/%Y"
-            )
             self.tree.insert(
                 "",
                 "end",
                 iid=str(order["id"]),
                 values=(
                     order["order_number"],
-                    order_date,
                     format_timestamp(order["created_at"]),
                     format_timestamp(order["sent_at"]),
                     order["supplier_name"],

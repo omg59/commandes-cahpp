@@ -18,6 +18,7 @@ from cahpp_app import local_services
 from cahpp_app.local_services import (
     attach_document,
     create_complete_backup,
+    mark_order_sent,
     prepare_mail_order,
     remove_document,
 )
@@ -234,6 +235,16 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn(first_order["order_number"], compose_query["su"][0])
         self.assertEqual(len(prepared), 2)
         self.assertTrue(mail_folder.is_dir())
+        linked_copy = local_services.resolve_portable_path(
+            attachments[0]["stored_path"]
+        )
+        self.assertTrue(mark_order_sent(self.database, order_id))
+        self.assertFalse(mail_folder.exists())
+        self.assertTrue(pdf_path.is_file())
+        self.assertTrue(linked_copy.is_file())
+        sent_order, _ = self.database.get_order(order_id)
+        self.assertEqual(sent_order["status"], "Envoyée")
+        self.assertTrue(sent_order["sent_at"])
 
         backup = create_complete_backup(
             self.database, self.root / "sauvegarde.zip"
@@ -483,7 +494,7 @@ class WorkflowTest(unittest.TestCase):
                 "UPDATE orders SET sent_at = '2026-01-02T03:04:05' WHERE id = ?",
                 (order_id,),
             )
-        self.database.update_order_status(order_id, "Envoyée")
+        self.assertFalse(mark_order_sent(self.database, order_id))
         sent_order, _ = self.database.get_order(order_id)
         self.assertEqual(sent_order["sent_at"], "2026-01-02T03:04:05")
 

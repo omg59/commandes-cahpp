@@ -1,5 +1,13 @@
 # Historique des versions
 
+## 0.8.1
+
+- retrait de la colonne redondante « Date du BC » dans l'historique ; la date
+  reste conservée dans la base, le PDF et le nom du fichier ;
+- suppression automatique du dossier temporaire
+  `envois/<numero de commande>` lorsque la commande est marquée comme envoyée ;
+- conservation du PDF original et des documents liés lors de ce nettoyage.
+
 ## 0.8.0
 
 - ajout des dates de création et de premier envoi dans l'historique des

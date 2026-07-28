@@ -226,6 +226,21 @@ def prepare_mail_order(
     return compose_url, staging, prepared
 
 
+def mark_order_sent(database: Database, order_id: int) -> bool:
+    """Marquer la commande envoyée et supprimer ses copies de préparation."""
+    database.update_order_status(order_id, "Envoyée")
+    order, _ = database.get_order(order_id)
+    staging = MAIL_PREP_DIR / safe_filename(order["order_number"])
+    if not staging.exists():
+        return False
+    if staging.is_symlink() or not staging.is_dir():
+        raise OSError(
+            f"Le chemin de préparation n'est pas un dossier valide : {staging}"
+        )
+    shutil.rmtree(staging)
+    return True
+
+
 DEFAULT_MAIL_URL = "https://mail.google.com/mail/?view=cm&fs=1"
 
 # Alias conservé pour les scripts créés avec les prototypes précédents.
