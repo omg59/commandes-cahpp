@@ -13,6 +13,12 @@ de commande PDF.
 - conservation des tarifs historiques et des lignes de commandes déjà créées ;
 - recherche par fournisseur, code CAHPP, référence ou désignation ;
 - favoris et quantités habituelles ;
+- duplication des commandes récurrentes ;
+- recherche dans tout l'historique, y compris les références et désignations ;
+- suivi des changements de prix et de conditionnement des articles commandés ;
+- rattachement des bons de livraison et autres documents ;
+- préparation des e-mails dans Gmail sans mot de passe ni droit administrateur ;
+- sauvegarde complète de la base et des documents liés ;
 - bon PDF commun à tous les fournisseurs.
 
 ## Lancement depuis les sources
@@ -37,11 +43,6 @@ Le résultat se trouve dans `dist\CommandesCAHPP-portable`. Ce dossier peut êtr
 copié sur un autre poste. Les données restent dans
 `data\commandes_cahpp.sqlite3`, à côté de l'application.
 
-## Sauvegarde
-
-Fermer l'application, puis copier le fichier
-`data\commandes_cahpp.sqlite3`. Les PDF sont enregistrés dans `exports`.
-
 ## Première utilisation
 
 1. Ouvrir **Paramètres** et renseigner l'établissement.
@@ -58,6 +59,10 @@ la saisie du nom. Depuis **Catalogue**, sélectionner un article puis cliquer su
 **Commander cet article** pour ouvrir directement une commande avec le bon
 fournisseur.
 
+Les favoris du fournisseur sont affichés en premier dans la préparation d'une
+commande. En l'absence de recherche, la liste est limitée aux favoris s'il en
+existe.
+
 ## Personnalisation du PDF
 
 Dans **Paramètres**, il est possible de modifier :
@@ -66,8 +71,11 @@ Dans **Paramètres**, il est possible de modifier :
 - le logo ;
 - le titre du document ;
 - le texte du pied de page, qui peut rester vide ;
-- l'affichage du numéro de page.
+- l'affichage du numéro de page ;
 - le dossier proposé par défaut lors de l'enregistrement.
+
+Pour un logo portable, placez-le par exemple dans `assets\logo.png` puis
+indiquez simplement `assets/logo.png` dans les paramètres.
 
 Lors de chaque génération ou régénération, une fenêtre **Enregistrer sous**
 permet de modifier librement le nom et la destination du PDF.
@@ -97,6 +105,73 @@ BC-2026-07-28_3_Hartmann.pdf
 
 Une commande déjà générée reste figée. Cela évite de modifier par erreur un bon
 qui aurait déjà été envoyé au fournisseur.
+
+Pour repartir d'une ancienne commande, sélectionnez-la dans **Historique** puis
+cliquez sur **Dupliquer**. Un nouveau brouillon daté du jour est créé avec les
+prix et conditionnements de la commande d'origine.
+
+## Préparer une commande dans Gmail
+
+Dans **Fournisseurs**, renseignez l'adresse e-mail de commande. Les modèles
+d'objet et de message peuvent être modifiés dans **Paramètres** avec les
+variables suivantes :
+
+```text
+{order_number} {order_date} {supplier} {total_ht}
+{establishment_name} {customer_number}
+```
+
+Dans **Historique**, le bouton **Préparer dans Gmail** :
+
+1. ouvre un message Gmail avec le destinataire, l'objet et le texte préremplis ;
+2. ouvre un dossier contenant le PDF et toutes les pièces marquées
+   **Joint au mail** ;
+3. permet de joindre l'ensemble par `Ctrl+A`, puis glisser-déposer dans Gmail.
+
+L'ajout final des fichiers reste manuel car Gmail Web interdit à une application
+locale de déposer silencieusement des pièces jointes sans autorisation OAuth de
+l'organisation. Aucun identifiant ni mot de passe Google n'est enregistré.
+
+## Documents et bons de livraison
+
+Dans **Historique**, sélectionnez une commande puis ouvrez
+**Documents / bon de livraison**. Les fichiers choisis sont copiés dans
+`documents\<numero de commande>` à côté de l'application. Ils restent ainsi
+liés à la commande même si le fichier original du scanner est déplacé.
+
+Une pièce peut être incluse ou exclue de la préparation Gmail. Les bons de
+livraison ne sont pas joints au mail par défaut.
+
+## Mise à jour des tarifs
+
+Après l'import d'un catalogue, l'application signale les variations de prix ou
+de conditionnement qui concernent des articles déjà commandés. Le détail reste
+consultable depuis l'historique des imports. Les anciennes commandes conservent
+toujours leurs valeurs d'origine.
+
+## Seuils et conditionnements
+
+Les coordonnées, le minimum de commande et le franco se configurent dans
+**Fournisseurs**. Avant l'enregistrement, l'application avertit si :
+
+- le nombre de cartons d'une ligne n'est pas entier ;
+- le minimum de commande n'est pas atteint ;
+- le franco n'est pas atteint.
+
+L'utilisateur peut confirmer et continuer si le fournisseur accepte une
+exception.
+
+## Sauvegarde complète
+
+Le bouton **Exporter une sauvegarde complète**, dans l'onglet **Sauvegarde**
+des paramètres, crée une archive ZIP contenant la base SQLite et tous les
+documents liés aux commandes.
+
+## Mise à niveau depuis une ancienne version
+
+Conservez votre fichier `data\commandes_cahpp.sqlite3` et le dossier
+`documents` s'il existe, puis copiez-les dans le nouveau dossier portable.
+L'application met automatiquement la base à niveau au premier démarrage.
 
 ## Limitation du prototype
 

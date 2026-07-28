@@ -24,6 +24,7 @@ from reportlab.platypus import (
 )
 
 from .database import Database
+from .local_services import resolve_portable_path
 from .paths import RESOURCE_DIR
 
 
@@ -170,7 +171,8 @@ def generate_order_pdf(
     )
 
     story = []
-    logo_path = Path(settings.get("logo_path") or "")
+    logo_value = settings.get("logo_path") or ""
+    logo_path = resolve_portable_path(logo_value) if logo_value else Path()
     logo = ""
     if logo_path.is_file():
         try:

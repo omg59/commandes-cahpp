@@ -29,6 +29,14 @@ if errorlevel 1 exit /b 1
 
 if not exist "dist\CommandesCAHPP-portable\data" mkdir "dist\CommandesCAHPP-portable\data"
 if not exist "dist\CommandesCAHPP-portable\exports" mkdir "dist\CommandesCAHPP-portable\exports"
+if not exist "dist\CommandesCAHPP-portable\documents" mkdir "dist\CommandesCAHPP-portable\documents"
+if not exist "dist\CommandesCAHPP-portable\envois" mkdir "dist\CommandesCAHPP-portable\envois"
+if not exist "dist\CommandesCAHPP-portable\sauvegardes" mkdir "dist\CommandesCAHPP-portable\sauvegardes"
+if not exist "dist\CommandesCAHPP-portable\assets" mkdir "dist\CommandesCAHPP-portable\assets"
+
+if exist "assets" (
+  xcopy /e /i /y "assets" "dist\CommandesCAHPP-portable\assets" >nul
+)
 
 if exist "data\commandes_cahpp.sqlite3" (
   copy /y "data\commandes_cahpp.sqlite3" "dist\CommandesCAHPP-portable\data\commandes_cahpp.sqlite3" >nul
@@ -38,4 +46,3 @@ echo.
 echo Compilation terminee :
 echo %CD%\dist\CommandesCAHPP-portable
 pause
-

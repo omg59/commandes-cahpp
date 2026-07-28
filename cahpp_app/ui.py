@@ -6,6 +6,7 @@ import re
 import subprocess
 import threading
 import tkinter as tk
+import webbrowser
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -14,6 +15,14 @@ from typing import Callable
 
 from .catalog_importer import CatalogImporter, ImportResult
 from .database import Database
+from .local_services import (
+    attach_document,
+    create_complete_backup,
+    portable_path,
+    prepare_gmail_order,
+    remove_document,
+    resolve_portable_path,
+)
 from .paths import BACKUP_DIR, EXPORT_DIR
 from .pdf_export import generate_order_pdf
 
@@ -50,6 +59,12 @@ def format_price(value: object, decimals: int = 4) -> str:
     return f"{Decimal(str(value)):.{decimals}f}".replace(".", ",") + " €"
 
 
+def format_pack(row) -> str:
+    quantity = format_number(row["conditionnement"])
+    detail = str(row["unit_packaging"] or "").strip()
+    return f"{quantity} • {detail}" if detail else quantity
+
+
 def open_path(path: Path | str) -> None:
     path = str(path)
     if os.name == "nt":
@@ -74,7 +89,7 @@ def filter_supplier_names(names: list[str], query: str) -> list[str]:
 def configured_pdf_directory(database: Database) -> Path:
     configured = database.get_settings().get("pdf_default_directory", "").strip()
     if configured:
-        directory = Path(os.path.expandvars(configured)).expanduser()
+        directory = resolve_portable_path(os.path.expandvars(configured))
         if directory.is_dir():
             return directory
     return EXPORT_DIR
@@ -85,6 +100,15 @@ def suggested_pdf_filename(database: Database, order) -> str:
     suffix = "" if sequence == 1 else f"_{sequence}"
     supplier = safe_filename(str(order["supplier_name"]).title())
     return f"BC-{order['order_date']}{suffix}_{supplier}.pdf"
+
+
+def fractional_carton_lines(lines: list[dict[str, object]]) -> list[str]:
+    issues = []
+    for line in lines:
+        cartons = Decimal(str(line.get("cartons") or 0))
+        if cartons != cartons.to_integral_value():
+            issues.append(str(line.get("designation") or "Article"))
+    return issues
 
 
 def choose_pdf_path(parent, database: Database, order) -> Path | None:
@@ -440,7 +464,7 @@ class CatalogPage(BasePage):
             "reference": 95,
             "code": 90,
             "designation": 480,
-            "pack": 65,
+            "pack": 130,
             "price": 85,
             "vat": 55,
         }
@@ -523,7 +547,7 @@ class CatalogPage(BasePage):
                     row["supplier_ref"],
                     row["code_cahpp"],
                     designation,
-                    format_number(row["conditionnement"]),
+                    format_pack(row),
                     format_price(row["unit_price"]),
                     format_number(row["vat"], 1) + " %",
                 ),
@@ -657,7 +681,7 @@ class OrderPage(BasePage):
         for column, title, width in (
             ("ref", "Référence", 90),
             ("designation", "Désignation", 260),
-            ("pack", "Cond.", 55),
+            ("pack", "Conditionnement", 120),
             ("price", "PU HT", 75),
         ):
             self.product_tree.heading(column, text=title)
@@ -795,6 +819,39 @@ class OrderPage(BasePage):
     def selected_supplier_id(self) -> int | None:
         return self.supplier_map.get(self.supplier_var.get())
 
+    def _update_threshold_label(self, total: Decimal = Decimal("0")) -> None:
+        supplier_id = self.selected_supplier_id()
+        supplier = self.database.get_supplier(supplier_id) if supplier_id else None
+        if supplier is None:
+            self.franco_label.configure(text="", foreground=COLORS["muted"])
+            return
+        messages = []
+        warning = False
+        minimum = supplier["minimum_order_ht"]
+        franco = supplier["franco_ht"]
+        if minimum is not None:
+            difference = Decimal(str(minimum)) - total
+            if difference > 0:
+                messages.append(
+                    f"Minimum : manque {format_price(difference, 2)}"
+                )
+                warning = True
+            else:
+                messages.append("Minimum atteint")
+        if franco is not None:
+            difference = Decimal(str(franco)) - total
+            if difference > 0:
+                messages.append(f"Franco : manque {format_price(difference, 2)}")
+                warning = True
+            else:
+                messages.append("Franco atteint")
+        if not messages:
+            messages.append("Seuils non renseignés")
+        self.franco_label.configure(
+            text=" • ".join(messages),
+            foreground=COLORS["warning"] if warning else COLORS["success"],
+        )
+
     def supplier_changed(self) -> None:
         if self.cart:
             if not messagebox.askyesno(
@@ -807,14 +864,7 @@ class OrderPage(BasePage):
             self.cart.clear()
             self.refresh_cart()
         self._previous_supplier = self.supplier_var.get()
-        supplier_id = self.selected_supplier_id()
-        supplier = self.database.get_supplier(supplier_id) if supplier_id else None
-        if supplier and supplier["franco_ht"] is not None:
-            self.franco_label.configure(
-                text=f"Franco : {format_price(supplier['franco_ht'], 2)} HT"
-            )
-        else:
-            self.franco_label.configure(text="Franco non renseigné")
+        self._update_threshold_label()
         self.search_products()
 
     def search_products(self) -> None:
@@ -840,7 +890,7 @@ class OrderPage(BasePage):
                 values=(
                     row["supplier_ref"],
                     row["short_name"] or row["designation"],
-                    format_number(row["conditionnement"]),
+                    format_pack(row),
                     format_price(row["unit_price"]),
                 ),
             )
@@ -971,20 +1021,7 @@ class OrderPage(BasePage):
                 ),
             )
         self.total_label.configure(text=f"Total HT : {format_price(total, 2)}")
-        supplier_id = self.selected_supplier_id()
-        supplier = self.database.get_supplier(supplier_id) if supplier_id else None
-        if supplier and supplier["franco_ht"] is not None:
-            difference = Decimal(str(supplier["franco_ht"])) - total
-            if difference > 0:
-                self.franco_label.configure(
-                    text=f"Franco : il manque {format_price(difference, 2)}",
-                    foreground=COLORS["warning"],
-                )
-            else:
-                self.franco_label.configure(
-                    text="Franco atteint",
-                    foreground=COLORS["success"],
-                )
+        self._update_threshold_label(total)
 
     def edit_quantity(self) -> None:
         selected = self.cart_tree.selection()
@@ -1034,13 +1071,6 @@ class OrderPage(BasePage):
         self.mode_label.configure(
             text=f"Modification de {order['order_number']}"
         )
-        supplier = self.database.get_supplier(order["supplier_id"])
-        if supplier and supplier["franco_ht"] is not None:
-            self.franco_label.configure(
-                text=f"Franco : {format_price(supplier['franco_ht'], 2)} HT"
-            )
-        else:
-            self.franco_label.configure(text="Franco non renseigné")
         self.search_products()
         self.refresh_cart()
 
@@ -1064,6 +1094,47 @@ class OrderPage(BasePage):
         self.refresh_cart()
         return True
 
+    def _confirm_order_warnings(self, supplier_id: int) -> bool:
+        warnings = []
+        fractional = fractional_carton_lines(self.cart)
+        if fractional:
+            sample = "\n".join(f"• {name}" for name in fractional[:5])
+            more = "\n…" if len(fractional) > 5 else ""
+            warnings.append(
+                "Le nombre de cartons n'est pas entier pour :\n"
+                f"{sample}{more}"
+            )
+        total = sum(
+            (
+                Decimal(str(item["cartons"]))
+                * Decimal(str(item["units_per_carton"]))
+                * Decimal(str(item["unit_price"]))
+                for item in self.cart
+            ),
+            Decimal("0"),
+        )
+        supplier = self.database.get_supplier(supplier_id)
+        if supplier:
+            minimum = supplier["minimum_order_ht"]
+            franco = supplier["franco_ht"]
+            if minimum is not None and total < Decimal(str(minimum)):
+                warnings.append(
+                    "Le minimum de commande n'est pas atteint "
+                    f"({format_price(total, 2)} / {format_price(minimum, 2)})."
+                )
+            if franco is not None and total < Decimal(str(franco)):
+                warnings.append(
+                    "Le seuil de franco n'est pas atteint "
+                    f"({format_price(total, 2)} / {format_price(franco, 2)})."
+                )
+        if not warnings:
+            return True
+        return messagebox.askyesno(
+            "Vérification de la commande",
+            "\n\n".join(warnings) + "\n\nEnregistrer quand même ?",
+            parent=self,
+        )
+
     def _save(self, generate_pdf: bool) -> None:
         supplier_id = self.selected_supplier_id()
         if not supplier_id:
@@ -1075,6 +1146,8 @@ class OrderPage(BasePage):
             messagebox.showwarning(
                 "Commande", "Ajoutez au moins un article.", parent=self
             )
+            return
+        if not self._confirm_order_warnings(supplier_id):
             return
         editing_order_id = self.current_order_id
         order_id = self.database.save_order(
@@ -1195,13 +1268,204 @@ class ManualProductDialog(tk.Toplevel):
             messagebox.showerror("Article", str(exc), parent=self)
 
 
+class OrderDocumentsDialog(tk.Toplevel):
+    def __init__(self, parent, database: Database, order_id: int):
+        super().__init__(parent)
+        self.database = database
+        self.order_id = order_id
+        order, _ = database.get_order(order_id)
+        self.title(f"Documents — {order['order_number']}")
+        self.geometry("780x430")
+        self.minsize(650, 360)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+
+        ttk.Label(
+            self,
+            text=f"Documents liés à {order['order_number']}",
+            font=("Segoe UI Semibold", 14),
+        ).pack(anchor="w", padx=18, pady=(16, 3))
+        ttk.Label(
+            self,
+            text=(
+                "Les fichiers sont copiés dans le dossier portable de "
+                "l'application et suivent la sauvegarde complète."
+            ),
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", padx=18, pady=(0, 12))
+
+        frame = ttk.Frame(self)
+        frame.pack(fill="both", expand=True, padx=18)
+        self.tree = ttk.Treeview(
+            frame,
+            columns=("kind", "name", "email", "state"),
+            show="headings",
+            selectmode="browse",
+        )
+        for column, title, width in (
+            ("kind", "Type", 145),
+            ("name", "Fichier", 360),
+            ("email", "Joint au mail", 95),
+            ("state", "État", 75),
+        ):
+            self.tree.heading(column, text=title)
+            self.tree.column(
+                column,
+                width=width,
+                stretch=column == "name",
+                anchor="w" if column in ("kind", "name") else "center",
+            )
+        self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<Double-1>", lambda event: self.open_selected())
+
+        actions = ttk.Frame(self)
+        actions.pack(fill="x", padx=18, pady=14)
+        ttk.Button(
+            actions,
+            text="Ajouter un bon de livraison",
+            style="Accent.TButton",
+            command=lambda: self.add_files("Bon de livraison", False),
+        ).pack(side="left")
+        ttk.Button(
+            actions,
+            text="Ajouter une pièce au mail",
+            command=lambda: self.add_files("Pièce jointe e-mail", True),
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            actions,
+            text="Ouvrir",
+            command=self.open_selected,
+        ).pack(side="right")
+        ttk.Button(
+            actions,
+            text="Supprimer",
+            command=self.remove_selected,
+        ).pack(side="right", padx=6)
+        ttk.Button(
+            actions,
+            text="Inclure / exclure du mail",
+            command=self.toggle_email,
+        ).pack(side="right")
+        self.refresh()
+
+    def selected_attachment_id(self) -> int | None:
+        selected = self.tree.selection()
+        return int(selected[0]) if selected else None
+
+    def add_files(self, kind: str, include_in_email: bool) -> None:
+        paths = filedialog.askopenfilenames(
+            parent=self,
+            title=f"Ajouter — {kind}",
+            filetypes=[
+                ("Documents", "*.pdf;*.png;*.jpg;*.jpeg;*.doc;*.docx;*.xlsx"),
+                ("Tous les fichiers", "*.*"),
+            ],
+        )
+        if not paths:
+            return
+        errors = []
+        for path in paths:
+            try:
+                attach_document(
+                    self.database,
+                    self.order_id,
+                    path,
+                    kind,
+                    include_in_email=include_in_email,
+                )
+            except OSError as exc:
+                errors.append(f"{Path(path).name} : {exc}")
+        self.refresh()
+        if errors:
+            messagebox.showwarning(
+                "Documents",
+                "Certains fichiers n'ont pas pu être ajoutés :\n"
+                + "\n".join(errors),
+                parent=self,
+            )
+
+    def open_selected(self) -> None:
+        attachment_id = self.selected_attachment_id()
+        if not attachment_id:
+            return
+        attachment = self.database.get_order_attachment(attachment_id)
+        path = resolve_portable_path(attachment["stored_path"])
+        if path.is_file():
+            open_path(path)
+        else:
+            messagebox.showwarning(
+                "Document", "Le fichier lié est introuvable.", parent=self
+            )
+
+    def toggle_email(self) -> None:
+        attachment_id = self.selected_attachment_id()
+        if not attachment_id:
+            return
+        attachment = self.database.get_order_attachment(attachment_id)
+        self.database.set_attachment_email(
+            attachment_id, not bool(attachment["include_in_email"])
+        )
+        self.refresh()
+
+    def remove_selected(self) -> None:
+        attachment_id = self.selected_attachment_id()
+        if not attachment_id:
+            return
+        attachment = self.database.get_order_attachment(attachment_id)
+        if not messagebox.askyesno(
+            "Supprimer le document",
+            f"Retirer et supprimer la copie locale « {attachment['display_name']} » ?",
+            parent=self,
+        ):
+            return
+        remove_document(self.database, attachment_id)
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        for attachment in self.database.list_order_attachments(self.order_id):
+            path = resolve_portable_path(attachment["stored_path"])
+            self.tree.insert(
+                "",
+                "end",
+                iid=str(attachment["id"]),
+                values=(
+                    attachment["kind"],
+                    attachment["display_name"],
+                    "Oui" if attachment["include_in_email"] else "Non",
+                    "Disponible" if path.is_file() else "Absent",
+                ),
+            )
+
+
 class OrdersPage(BasePage):
     def __init__(self, parent, app):
         super().__init__(parent, app)
         self.header(
             "Historique des commandes",
-            "Les prix et conditionnements restent ceux utilisés lors de la commande.",
+            "Recherchez, dupliquez et rattachez les documents de livraison.",
         )
+        filters = ttk.Frame(self)
+        filters.pack(fill="x", pady=(0, 10))
+        ttk.Label(filters, text="Recherche").pack(side="left")
+        self.search_var = tk.StringVar()
+        search = ttk.Entry(filters, textvariable=self.search_var, width=42)
+        search.pack(side="left", padx=(7, 14))
+        search.bind("<KeyRelease>", self._schedule_refresh)
+        ttk.Label(filters, text="Statut").pack(side="left")
+        self.status_var = tk.StringVar(value="Tous")
+        status_box = ttk.Combobox(
+            filters,
+            textvariable=self.status_var,
+            state="readonly",
+            width=18,
+            values=("Tous", "Brouillon", "Générée", "E-mail préparé", "Envoyée"),
+        )
+        status_box.pack(side="left", padx=7)
+        status_box.bind("<<ComboboxSelected>>", lambda event: self.refresh())
+        self.result_label = ttk.Label(filters, text="", style="Subtitle.TLabel")
+        self.result_label.pack(side="right")
+
         frame = ttk.Frame(self)
         frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(
@@ -1223,8 +1487,13 @@ class OrdersPage(BasePage):
                 width=width,
                 stretch=column == "supplier",
                 anchor="w" if column == "supplier" else "center",
-            )
-        self.tree.pack(fill="both", expand=True)
+        )
+        scrollbar = ttk.Scrollbar(
+            frame, orient="vertical", command=self.tree.yview
+        )
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         self.tree.bind("<Double-1>", lambda event: self.edit_draft())
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(10, 0))
@@ -1235,11 +1504,36 @@ class OrdersPage(BasePage):
             command=self.edit_draft,
         ).pack(side="left")
         ttk.Button(
-            actions, text="Regénérer le PDF", command=self.regenerate_pdf
+            actions,
+            text="Dupliquer",
+            command=self.duplicate,
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            actions,
+            text="Documents / bon de livraison",
+            command=self.manage_documents,
+        ).pack(side="left")
+        ttk.Button(
+            actions,
+            text="Préparer dans Gmail",
+            style="Accent.TButton",
+            command=self.prepare_email,
         ).pack(side="right")
         ttk.Button(
+            actions, text="Marquer envoyée", command=self.mark_sent
+        ).pack(side="right", padx=6)
+        ttk.Button(
             actions, text="Ouvrir le PDF", command=self.open_pdf
-        ).pack(side="right", padx=8)
+        ).pack(side="right")
+        ttk.Button(
+            actions, text="Regénérer le PDF", command=self.regenerate_pdf
+        ).pack(side="right", padx=6)
+        self._refresh_after = None
+
+    def _schedule_refresh(self, event=None) -> None:
+        if self._refresh_after:
+            self.after_cancel(self._refresh_after)
+        self._refresh_after = self.after(250, self.refresh)
 
     def selected_order(self):
         selected = self.tree.selection()
@@ -1262,13 +1556,42 @@ class OrdersPage(BasePage):
         order_page: OrderPage = self.app.pages["new_order"]  # type: ignore[assignment]
         order_page.load_order(order_id)
 
+    def duplicate(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            messagebox.showinfo(
+                "Dupliquer", "Sélectionnez une commande.", parent=self
+            )
+            return
+        new_id = self.database.duplicate_order(order_id)
+        self.app.refresh_pages()
+        self.app.show_page("new_order")
+        order_page: OrderPage = self.app.pages["new_order"]  # type: ignore[assignment]
+        order_page.load_order(new_id)
+
+    def manage_documents(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            messagebox.showinfo(
+                "Documents", "Sélectionnez une commande.", parent=self
+            )
+            return
+        dialog = OrderDocumentsDialog(self, self.database, order_id)
+        self.wait_window(dialog)
+        self.refresh()
+
     def open_pdf(self) -> None:
         order_id = self.selected_order()
         if not order_id:
             return
         order, _ = self.database.get_order(order_id)
-        if order["pdf_path"] and Path(order["pdf_path"]).is_file():
-            open_path(order["pdf_path"])
+        pdf_path = (
+            resolve_portable_path(order["pdf_path"])
+            if order["pdf_path"]
+            else None
+        )
+        if pdf_path and pdf_path.is_file():
+            open_path(pdf_path)
         else:
             messagebox.showinfo(
                 "PDF", "Aucun PDF n'a encore été généré.", parent=self
@@ -1286,9 +1609,48 @@ class OrdersPage(BasePage):
         self.refresh()
         messagebox.showinfo("PDF", f"PDF généré :\n{output}", parent=self)
 
+    def prepare_email(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            messagebox.showinfo(
+                "Gmail", "Sélectionnez une commande.", parent=self
+            )
+            return
+        try:
+            compose_url, folder, prepared = prepare_gmail_order(
+                self.database, order_id
+            )
+        except (ValueError, OSError) as exc:
+            messagebox.showwarning("Gmail", str(exc), parent=self)
+            return
+        self.database.update_order_status(order_id, "E-mail préparé")
+        webbrowser.open(compose_url)
+        open_path(folder)
+        self.refresh()
+        messagebox.showinfo(
+            "Gmail",
+            "Le brouillon Gmail est prérempli et le dossier contenant "
+            f"{len(prepared)} pièce(s) jointe(s) est ouvert.\n\n"
+            "Dans ce dossier : Ctrl+A, puis faites glisser les fichiers "
+            "dans le message Gmail.",
+            parent=self,
+        )
+
+    def mark_sent(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            return
+        self.database.update_order_status(order_id, "Envoyée")
+        self.refresh()
+
     def refresh(self) -> None:
         self.tree.delete(*self.tree.get_children())
-        for order in self.database.list_orders():
+        status = self.status_var.get()
+        orders = self.database.list_orders(
+            query=self.search_var.get(),
+            status="" if status == "Tous" else status,
+        )
+        for order in orders:
             order_date = datetime.fromisoformat(order["order_date"]).strftime(
                 "%d/%m/%Y"
             )
@@ -1305,6 +1667,7 @@ class OrdersPage(BasePage):
                     format_price(order["total_ttc"], 2),
                 ),
             )
+        self.result_label.configure(text=f"{len(orders)} commande(s)")
         self._valid = True
 
 
@@ -1313,7 +1676,7 @@ class SuppliersPage(BasePage):
         super().__init__(parent, app)
         self.header(
             "Fournisseurs",
-            "Numéro client, adresse de commande et seuil de franco.",
+            "Coordonnées, destinataire des commandes et seuils commerciaux.",
         )
         pane = ttk.Panedwindow(self, orient="horizontal")
         pane.pack(fill="both", expand=True)
@@ -1340,8 +1703,12 @@ class SuppliersPage(BasePage):
         self.fields: dict[str, tk.StringVar] = {}
         field_defs = [
             ("Numéro client", "customer_number"),
+            ("Contact", "contact_name"),
             ("E-mail de commande", "email"),
             ("Téléphone", "phone"),
+            ("Adresse", "address"),
+            ("Site web", "website"),
+            ("Minimum de commande HT", "minimum_order_ht"),
             ("Franco HT", "franco_ht"),
         ]
         ttk.Label(
@@ -1359,8 +1726,9 @@ class SuppliersPage(BasePage):
                 row=row, column=1, sticky="ew", padx=(12, 0), pady=6
             )
             self.fields[key] = variable
+        notes_row = len(field_defs) + 1
         ttk.Label(right, text="Notes", style="Surface.TLabel").grid(
-            row=5, column=0, sticky="nw", pady=6
+            row=notes_row, column=0, sticky="nw", pady=6
         )
         self.notes = tk.Text(
             right,
@@ -1371,15 +1739,17 @@ class SuppliersPage(BasePage):
             relief="solid",
             bd=1,
         )
-        self.notes.grid(row=5, column=1, sticky="nsew", padx=(12, 0), pady=6)
+        self.notes.grid(
+            row=notes_row, column=1, sticky="nsew", padx=(12, 0), pady=6
+        )
         right.columnconfigure(1, weight=1)
-        right.rowconfigure(5, weight=1)
+        right.rowconfigure(notes_row, weight=1)
         ttk.Button(
             right,
             text="Enregistrer",
             style="Accent.TButton",
             command=self.save,
-        ).grid(row=6, column=1, sticky="e", pady=(12, 0))
+        ).grid(row=notes_row + 1, column=1, sticky="e", pady=(12, 0))
         self.all_suppliers = []
 
     def filter_suppliers(self) -> None:
@@ -1410,11 +1780,17 @@ class SuppliersPage(BasePage):
             )
             return
         franco_text = self.fields["franco_ht"].get().strip().replace(",", ".")
+        minimum_text = (
+            self.fields["minimum_order_ht"].get().strip().replace(",", ".")
+        )
         try:
             franco = float(franco_text) if franco_text else None
+            minimum = float(minimum_text) if minimum_text else None
         except ValueError:
             messagebox.showerror(
-                "Fournisseur", "Le franco doit être un nombre.", parent=self
+                "Fournisseur",
+                "Le minimum et le franco doivent être des nombres.",
+                parent=self,
             )
             return
         self.database.update_supplier(
@@ -1424,6 +1800,10 @@ class SuppliersPage(BasePage):
             self.fields["phone"].get(),
             franco,
             self.notes.get("1.0", "end").strip(),
+            contact_name=self.fields["contact_name"].get(),
+            address=self.fields["address"].get(),
+            website=self.fields["website"].get(),
+            minimum_order_ht=minimum,
         )
         messagebox.showinfo(
             "Fournisseur", "Configuration enregistrée.", parent=self
@@ -1433,6 +1813,76 @@ class SuppliersPage(BasePage):
         self.all_suppliers = self.database.list_suppliers(used_only=True)
         self.filter_suppliers()
         self._valid = True
+
+
+class PriceChangesDialog(tk.Toplevel):
+    def __init__(self, parent, rows):
+        super().__init__(parent)
+        self.title("Changements sur les articles déjà commandés")
+        self.geometry("1050x520")
+        self.minsize(800, 380)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+        ttk.Label(
+            self,
+            text=f"{len(rows)} article(s) déjà commandé(s) ont changé",
+            font=("Segoe UI Semibold", 14),
+        ).pack(anchor="w", padx=18, pady=(16, 3))
+        ttk.Label(
+            self,
+            text=(
+                "Les anciennes commandes restent inchangées ; les nouvelles "
+                "utiliseront les valeurs du catalogue importé."
+            ),
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", padx=18, pady=(0, 12))
+        tree = ttk.Treeview(
+            self,
+            columns=(
+                "supplier",
+                "reference",
+                "designation",
+                "old_price",
+                "new_price",
+                "old_pack",
+                "new_pack",
+            ),
+            show="headings",
+        )
+        for column, title, width in (
+            ("supplier", "Fournisseur", 145),
+            ("reference", "Référence", 95),
+            ("designation", "Désignation", 330),
+            ("old_price", "Ancien PU", 90),
+            ("new_price", "Nouveau PU", 90),
+            ("old_pack", "Ancien cond.", 85),
+            ("new_pack", "Nouveau cond.", 85),
+        ):
+            tree.heading(column, text=title)
+            tree.column(
+                column,
+                width=width,
+                stretch=column == "designation",
+                anchor="w" if column in ("supplier", "designation") else "center",
+            )
+        for row in rows:
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    row["supplier_name"],
+                    row["supplier_ref"],
+                    row["designation"],
+                    format_price(row["old_price"]),
+                    format_price(row["new_price"]),
+                    format_number(row["old_pack"]),
+                    format_number(row["new_pack"]),
+                ),
+            )
+        tree.pack(fill="both", expand=True, padx=18)
+        ttk.Button(self, text="Fermer", command=self.destroy).pack(
+            anchor="e", padx=18, pady=14
+        )
 
 
 class ImportPage(BasePage):
@@ -1479,9 +1929,18 @@ class ImportPage(BasePage):
         )
         self.status_label.pack(anchor="w", pady=(5, 0))
 
+        history_header = ttk.Frame(self)
+        history_header.pack(fill="x", pady=(22, 8))
         ttk.Label(
-            self, text="Historique des imports", font=("Segoe UI Semibold", 11)
-        ).pack(anchor="w", pady=(22, 8))
+            history_header,
+            text="Historique des imports",
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+        ttk.Button(
+            history_header,
+            text="Voir les changements déjà commandés",
+            command=self.show_selected_changes,
+        ).pack(side="right")
         self.tree = ttk.Treeview(
             self,
             columns=("date", "file", "rows", "added", "updated", "missing"),
@@ -1578,15 +2037,43 @@ class ImportPage(BasePage):
             )
         else:
             self.status_label.configure(text="Catalogue mis à jour.")
+            ordered_changes = self.database.ordered_changes_for_import(
+                result.import_id
+            )
             details = (
                 f"{result.row_count:,} articles lus\n"
                 f"{result.added_count:,} ajoutés\n"
                 f"{result.updated_count:,} modifiés\n"
-                f"{result.missing_count:,} absents du nouveau fichier"
+                f"{result.missing_count:,} absents du nouveau fichier\n"
+                f"{len(ordered_changes):,} article(s) déjà commandé(s) modifié(s)"
             ).replace(",", " ")
             messagebox.showinfo("Import CAHPP terminé", details, parent=self)
+            if ordered_changes:
+                dialog = PriceChangesDialog(self, ordered_changes)
+                self.wait_window(dialog)
         self.app.refresh_pages()
         self.refresh()
+
+    def show_selected_changes(self) -> None:
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo(
+                "Changements",
+                "Sélectionnez un import dans l'historique.",
+                parent=self,
+            )
+            return
+        rows = self.database.ordered_changes_for_import(int(selected[0]))
+        if not rows:
+            messagebox.showinfo(
+                "Changements",
+                "Aucun changement de prix ou de conditionnement ne concerne "
+                "un article déjà commandé pour cet import.",
+                parent=self,
+            )
+            return
+        dialog = PriceChangesDialog(self, rows)
+        self.wait_window(dialog)
 
     def refresh(self) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -1615,11 +2102,20 @@ class SettingsPage(BasePage):
         super().__init__(parent, app)
         self.header(
             "Paramètres",
-            "Identité utilisée sur les bons de commande.",
+            "Établissement, PDF, préparation Gmail et sauvegardes.",
         )
-        surface = ttk.Frame(self, style="Surface.TFrame", padding=18)
-        surface.pack(fill="both", expand=True)
-        fields = [
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill="both", expand=True)
+        identity = ttk.Frame(notebook, style="Surface.TFrame", padding=18)
+        pdf = ttk.Frame(notebook, style="Surface.TFrame", padding=18)
+        email = ttk.Frame(notebook, style="Surface.TFrame", padding=18)
+        backup = ttk.Frame(notebook, style="Surface.TFrame", padding=18)
+        notebook.add(identity, text="Établissement")
+        notebook.add(pdf, text="PDF")
+        notebook.add(email, text="E-mail")
+        notebook.add(backup, text="Sauvegarde")
+
+        identity_fields = [
             ("Nom de l'établissement", "establishment_name"),
             ("Sous-titre / service", "establishment_subtitle"),
             ("Adresse - ligne 1", "address_line1"),
@@ -1630,23 +2126,35 @@ class SettingsPage(BasePage):
             ("FINESS", "finess"),
             ("SIRET", "siret"),
             ("Code APE", "ape"),
+        ]
+        pdf_fields = [
             ("Titre du document PDF", "pdf_title"),
             ("Texte du pied de page PDF", "pdf_footer_text"),
         ]
+        email_fields = [
+            ("Objet de l'e-mail", "email_subject_template"),
+            ("Adresse de composition Gmail", "gmail_compose_url"),
+        ]
+        fields = identity_fields + pdf_fields + email_fields
         self.vars = {key: tk.StringVar() for _, key in fields}
-        for row, (label, key) in enumerate(fields):
-            ttk.Label(surface, text=label, style="Surface.TLabel").grid(
-                row=row, column=0, sticky="w", pady=5
-            )
-            ttk.Entry(
-                surface, textvariable=self.vars[key], width=70
-            ).grid(row=row, column=1, sticky="ew", padx=(14, 0), pady=5)
-        row = len(fields)
-        ttk.Label(surface, text="Logo", style="Surface.TLabel").grid(
+
+        def add_fields(surface, definitions) -> int:
+            for row, (label, key) in enumerate(definitions):
+                ttk.Label(surface, text=label, style="Surface.TLabel").grid(
+                    row=row, column=0, sticky="w", pady=7
+                )
+                ttk.Entry(
+                    surface, textvariable=self.vars[key], width=70
+                ).grid(row=row, column=1, sticky="ew", padx=(14, 0), pady=7)
+            surface.columnconfigure(1, weight=1)
+            return len(definitions)
+
+        row = add_fields(identity, identity_fields)
+        ttk.Label(identity, text="Logo", style="Surface.TLabel").grid(
             row=row, column=0, sticky="w", pady=5
         )
         self.logo_var = tk.StringVar()
-        logo_row = ttk.Frame(surface, style="Surface.TFrame")
+        logo_row = ttk.Frame(identity, style="Surface.TFrame")
         logo_row.grid(row=row, column=1, sticky="ew", padx=(14, 0), pady=5)
         ttk.Entry(logo_row, textvariable=self.logo_var).pack(
             side="left", fill="x", expand=True
@@ -1654,14 +2162,21 @@ class SettingsPage(BasePage):
         ttk.Button(logo_row, text="Parcourir", command=self.browse_logo).pack(
             side="left", padx=(7, 0)
         )
-        row += 1
+        ttk.Button(
+            identity,
+            text="Enregistrer",
+            style="Accent.TButton",
+            command=self.save,
+        ).grid(row=row + 1, column=1, sticky="e", pady=(18, 0))
+
+        row = add_fields(pdf, pdf_fields)
         ttk.Label(
-            surface,
+            pdf,
             text="Dossier PDF par défaut",
             style="Surface.TLabel",
         ).grid(row=row, column=0, sticky="w", pady=5)
         self.pdf_directory_var = tk.StringVar()
-        pdf_directory_row = ttk.Frame(surface, style="Surface.TFrame")
+        pdf_directory_row = ttk.Frame(pdf, style="Surface.TFrame")
         pdf_directory_row.grid(
             row=row, column=1, sticky="ew", padx=(14, 0), pady=5
         )
@@ -1676,22 +2191,63 @@ class SettingsPage(BasePage):
         row += 1
         self.show_page_number_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
-            surface,
+            pdf,
             text="Afficher le numéro de page sur le PDF",
             variable=self.show_page_number_var,
-        ).grid(row=row, column=1, sticky="w", padx=(14, 0), pady=5)
+        ).grid(row=row, column=1, sticky="w", padx=(14, 0), pady=7)
         ttk.Button(
-            surface,
+            pdf,
             text="Enregistrer",
             style="Accent.TButton",
             command=self.save,
-        ).grid(row=row + 1, column=1, sticky="e", pady=(16, 0))
+        ).grid(row=row + 1, column=1, sticky="e", pady=(18, 0))
+
+        row = add_fields(email, email_fields)
+        ttk.Label(
+            email,
+            text="Corps de l'e-mail",
+            style="Surface.TLabel",
+        ).grid(row=row, column=0, sticky="nw", pady=5)
+        self.email_body = tk.Text(
+            email,
+            width=68,
+            height=10,
+            font=("Segoe UI", 9),
+            wrap="word",
+            relief="solid",
+            bd=1,
+        )
+        self.email_body.grid(
+            row=row, column=1, sticky="ew", padx=(14, 0), pady=5
+        )
         ttk.Button(
-            surface,
-            text="Créer une sauvegarde",
+            email,
+            text="Enregistrer",
+            style="Accent.TButton",
+            command=self.save,
+        ).grid(row=row + 1, column=1, sticky="e", pady=(18, 0))
+
+        ttk.Label(
+            backup,
+            text="Sauvegarde complète",
+            style="Surface.TLabel",
+            font=("Segoe UI Semibold", 13),
+        ).pack(anchor="w")
+        ttk.Label(
+            backup,
+            text=(
+                "L'archive contient la base des commandes, les paramètres, "
+                "les fournisseurs et tous les documents liés."
+            ),
+            style="Surface.TLabel",
+            wraplength=700,
+        ).pack(anchor="w", pady=(7, 20))
+        ttk.Button(
+            backup,
+            text="Exporter une sauvegarde complète",
+            style="Accent.TButton",
             command=self.backup,
-        ).grid(row=row + 1, column=0, sticky="w", pady=(16, 0))
-        surface.columnconfigure(1, weight=1)
+        ).pack(anchor="w")
 
     def browse_logo(self) -> None:
         path = filedialog.askopenfilename(
@@ -1703,7 +2259,7 @@ class SettingsPage(BasePage):
             ],
         )
         if path:
-            self.logo_var.set(path)
+            self.logo_var.set(portable_path(path))
 
     def browse_pdf_directory(self) -> None:
         current = self.pdf_directory_var.get().strip()
@@ -1720,6 +2276,9 @@ class SettingsPage(BasePage):
         values = {key: variable.get() for key, variable in self.vars.items()}
         values["logo_path"] = self.logo_var.get()
         values["pdf_default_directory"] = self.pdf_directory_var.get()
+        values["email_body_template"] = self.email_body.get(
+            "1.0", "end"
+        ).strip()
         values["pdf_show_page_number"] = (
             "1" if self.show_page_number_var.get() else "0"
         )
@@ -1730,11 +2289,21 @@ class SettingsPage(BasePage):
 
     def backup(self) -> None:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        destination = BACKUP_DIR / f"commandes-cahpp-{timestamp}.sqlite3"
-        self.database.backup(destination)
+        selected = filedialog.asksaveasfilename(
+            parent=self,
+            title="Exporter la sauvegarde complète",
+            initialdir=str(BACKUP_DIR),
+            initialfile=f"commandes-cahpp-{timestamp}.zip",
+            defaultextension=".zip",
+            filetypes=[("Archive ZIP", "*.zip")],
+        )
+        if not selected:
+            return
+        destination = create_complete_backup(self.database, selected)
         messagebox.showinfo(
             "Sauvegarde",
-            f"La sauvegarde a été créée :\n{destination}",
+            "La base et tous les documents liés ont été sauvegardés :\n"
+            f"{destination}",
             parent=self,
         )
 
@@ -1745,6 +2314,10 @@ class SettingsPage(BasePage):
         self.logo_var.set(settings.get("logo_path", ""))
         self.pdf_directory_var.set(
             settings.get("pdf_default_directory", "")
+        )
+        self.email_body.delete("1.0", "end")
+        self.email_body.insert(
+            "1.0", settings.get("email_body_template", "")
         )
         self.show_page_number_var.set(
             settings.get("pdf_show_page_number", "1") != "0"

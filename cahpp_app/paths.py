@@ -24,6 +24,8 @@ RESOURCE_DIR = RESOURCE_ROOT / "ressources"
 DATA_DIR = ROOT_DIR / "data"
 EXPORT_DIR = ROOT_DIR / "exports"
 BACKUP_DIR = ROOT_DIR / "sauvegardes"
+DOCUMENTS_DIR = ROOT_DIR / "documents"
+MAIL_PREP_DIR = ROOT_DIR / "envois"
 DATABASE_PATH = DATA_DIR / "commandes_cahpp.sqlite3"
 
 
@@ -31,3 +33,5 @@ def ensure_directories() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    MAIL_PREP_DIR.mkdir(parents=True, exist_ok=True)

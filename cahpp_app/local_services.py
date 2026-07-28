@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+import json
+import shutil
+import tempfile
+import zipfile
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+from .database import Database
+from .paths import DATABASE_PATH, DOCUMENTS_DIR, MAIL_PREP_DIR, ROOT_DIR
+
+
+def safe_filename(value: str) -> str:
+    forbidden = '<>:"/\\|?*'
+    cleaned = "".join("-" if char in forbidden else char for char in value)
+    cleaned = " ".join(cleaned.split()).strip(" .-")
+    return cleaned or "document"
+
+
+def resolve_portable_path(value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = ROOT_DIR / path
+    return path.resolve()
+
+
+def portable_path(path: str | Path) -> str:
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(ROOT_DIR.resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def _available_destination(directory: Path, filename: str) -> Path:
+    candidate = directory / safe_filename(filename)
+    stem = candidate.stem
+    suffix = candidate.suffix
+    index = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}_{index}{suffix}"
+        index += 1
+    return candidate
+
+
+def attach_document(
+    database: Database,
+    order_id: int,
+    source: str | Path,
+    kind: str,
+    include_in_email: bool = False,
+) -> int:
+    source = Path(source)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    order, _ = database.get_order(order_id)
+    directory = DOCUMENTS_DIR / safe_filename(order["order_number"])
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = _available_destination(directory, source.name)
+    shutil.copy2(source, destination)
+    return database.add_order_attachment(
+        order_id=order_id,
+        kind=kind,
+        display_name=destination.name,
+        stored_path=portable_path(destination),
+        include_in_email=include_in_email,
+    )
+
+
+def remove_document(database: Database, attachment_id: int) -> None:
+    attachment = database.get_order_attachment(attachment_id)
+    if attachment is None:
+        return
+    path = resolve_portable_path(attachment["stored_path"])
+    if path.is_file():
+        path.unlink()
+    database.delete_order_attachment(attachment_id)
+
+
+def create_complete_backup(
+    database: Database, destination: str | Path
+) -> Path:
+    destination = Path(destination)
+    if destination.suffix.lower() != ".zip":
+        destination = destination.with_suffix(".zip")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="commandes-cahpp-") as temp_name:
+        temp = Path(temp_name)
+        database_copy = temp / "data" / DATABASE_PATH.name
+        database.backup(database_copy)
+        manifest = {
+            "application": "Commandes CAHPP",
+            "backup_format": 1,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "database": f"data/{DATABASE_PATH.name}",
+            "documents": "documents/",
+        }
+        (temp / "sauvegarde.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        with zipfile.ZipFile(
+            destination, "w", compression=zipfile.ZIP_DEFLATED
+        ) as archive:
+            for path in sorted(temp.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(temp))
+            if DOCUMENTS_DIR.is_dir():
+                for path in sorted(DOCUMENTS_DIR.rglob("*")):
+                    if path.is_file():
+                        archive.write(
+                            path,
+                            Path("documents") / path.relative_to(DOCUMENTS_DIR),
+                        )
+    return destination
+
+
+class _SafeTemplate(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _render_template(template: str, values: dict[str, object]) -> str:
+    return template.format_map(_SafeTemplate(values))
+
+
+def _gmail_compose_url(
+    base_url: str, recipient: str, subject: str, body: str
+) -> str:
+    parsed = urlparse(base_url)
+    parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    parameters.update(
+        {
+            "view": "cm",
+            "fs": "1",
+            "to": recipient,
+            "su": subject,
+            "body": body,
+        }
+    )
+    return urlunparse(parsed._replace(query=urlencode(parameters)))
+
+
+def prepare_gmail_order(
+    database: Database, order_id: int
+) -> tuple[str, Path, list[Path]]:
+    order, _ = database.get_order(order_id)
+    if not order["supplier_email"]:
+        raise ValueError(
+            "Aucune adresse e-mail n'est configurée pour ce fournisseur."
+        )
+    pdf_path = resolve_portable_path(order["pdf_path"]) if order["pdf_path"] else None
+    if pdf_path is None or not pdf_path.is_file():
+        raise ValueError("Générez d'abord le PDF de cette commande.")
+
+    staging = MAIL_PREP_DIR / safe_filename(order["order_number"])
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+
+    sources = [pdf_path]
+    for attachment in database.list_order_attachments(order_id):
+        if attachment["include_in_email"]:
+            path = resolve_portable_path(attachment["stored_path"])
+            if path.is_file():
+                sources.append(path)
+
+    prepared: list[Path] = []
+    for source in sources:
+        destination = _available_destination(staging, source.name)
+        shutil.copy2(source, destination)
+        prepared.append(destination)
+
+    settings = database.get_settings()
+    values: dict[str, object] = {
+        "order_number": order["order_number"],
+        "order_date": order["order_date"],
+        "supplier": order["supplier_name"],
+        "total_ht": f"{float(order['total_ht']):.2f}".replace(".", ","),
+        "establishment_name": settings.get("establishment_name", ""),
+        "customer_number": order["customer_number"] or "",
+    }
+    subject = _render_template(
+        settings.get("email_subject_template", ""), values
+    )
+    body = _render_template(settings.get("email_body_template", ""), values)
+    compose_url = _gmail_compose_url(
+        settings.get("gmail_compose_url", DEFAULT_GMAIL_URL),
+        order["supplier_email"],
+        subject,
+        body,
+    )
+    return compose_url, staging, prepared
+
+
+DEFAULT_GMAIL_URL = "https://mail.google.com/mail/?view=cm&fs=1"

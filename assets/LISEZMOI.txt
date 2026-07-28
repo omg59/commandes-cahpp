@@ -1,0 +1,10 @@
+Placez ici le logo de l'établissement, par exemple :
+
+assets\logo.png
+
+Dans les paramètres de l'application, le chemin à indiquer est :
+
+assets/logo.png
+
+Ce chemin reste valable lorsque le dossier portable complet est déplacé ou
+copié sur un autre poste.
