@@ -1,5 +1,11 @@
 # Historique des versions
 
+## 0.8.1b
+
+- suppression de la fenêtre explicative après **Préparer le mail** ;
+- conservation de l'ouverture automatique du message et du dossier contenant
+  les pièces à joindre.
+
 ## 0.8.1
 
 - retrait de la colonne redondante « Date du BC » dans l'historique ; la date

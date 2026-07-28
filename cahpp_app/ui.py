@@ -1986,7 +1986,7 @@ class OrdersPage(BasePage):
             )
             return
         try:
-            compose_url, folder, prepared = prepare_mail_order(
+            compose_url, folder, _ = prepare_mail_order(
                 self.database, order_id
             )
         except (ValueError, OSError) as exc:
@@ -1996,14 +1996,6 @@ class OrdersPage(BasePage):
         webbrowser.open(compose_url)
         open_path(folder)
         self.refresh()
-        messagebox.showinfo(
-            "E-mail",
-            "Le nouveau message est prérempli et le dossier contenant "
-            f"{len(prepared)} pièce(s) jointe(s) est ouvert.\n\n"
-            "Dans ce dossier : Ctrl+A, puis faites glisser les fichiers "
-            "dans le message.",
-            parent=self,
-        )
 
     def mark_sent(self) -> None:
         order_id = self.selected_order()
