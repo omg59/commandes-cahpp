@@ -26,6 +26,7 @@ from .collaboration import (
     SyncConflictError,
 )
 from .database import Database
+from .diagnostics import build_diagnostic_report
 from .local_services import (
     MAIL_TEMPLATE_VARIABLES,
     attach_document,
@@ -212,6 +213,8 @@ class App(ttk.Frame):
         self._syncing = False
         self._catalog_prompted_hash = ""
         self._periodic_started = False
+        self.last_sync_result: dict[str, object] | None = None
+        self.last_sync_error = ""
         self.collaboration: CollaborationManager | None = None
         self._initialize_user_and_collaboration()
         self.root.title("Commandes CAHPP")
@@ -464,6 +467,7 @@ class App(ttk.Frame):
     ) -> None:
         self._syncing = False
         if error:
+            self.last_sync_error = f"{type(error).__name__}: {error}"
             self.sync_label.configure(
                 text="Hors ligne — cache local", fg="#F0C36A"
             )
@@ -471,12 +475,25 @@ class App(ttk.Frame):
                 messagebox.showwarning(
                     "Synchronisation", str(error), parent=self.root
                 )
+            if self.active_page == "settings":
+                self.pages["settings"].refresh()
             return
-        self.sync_label.configure(
-            text=f"Synchronisé • {datetime.now():%H:%M}",
-            fg="#9FE0BE",
-        )
+        self.last_sync_result = result
+        self.last_sync_error = ""
+        pending = len(self.database.pending_order_ids())
+        if pending:
+            self.sync_label.configure(
+                text=f"{pending} commande(s) en attente",
+                fg="#F0C36A",
+            )
+        else:
+            self.sync_label.configure(
+                text=f"Synchronisé • {datetime.now():%H:%M}",
+                fg="#9FE0BE",
+            )
         self.refresh_pages()
+        if self.active_page == "settings":
+            self.pages["settings"].refresh()
         if result and result.get("catalog_pending"):
             self._offer_shared_catalog()
 
@@ -3320,6 +3337,11 @@ class SettingsPage(BasePage):
             text="Ouvrir le dossier",
             command=self.open_shared_directory,
         ).pack(side="left", padx=7)
+        ttk.Button(
+            collab_actions,
+            text="Diagnostic",
+            command=self.open_diagnostic,
+        ).pack(side="left")
         self.collaboration_status = ttk.Label(
             collaboration,
             text="",
@@ -3425,6 +3447,9 @@ class SettingsPage(BasePage):
         if self.save():
             self.app.sync_collaboration(show_errors=True)
 
+    def open_diagnostic(self) -> None:
+        DiagnosticDialog(self, self.app)
+
     def save(self) -> bool:
         user_name = self.user_name_var.get().strip()
         if not user_name:
@@ -3521,14 +3546,32 @@ class SettingsPage(BasePage):
         if self.app.collaboration:
             last_sync = settings.get("collaboration_last_sync_at", "")
             catalogue = settings.get("collaboration_catalog_version", "")
+            pending = len(self.database.pending_order_ids())
+            last_result = self.app.last_sync_result or {}
+            order_result = dict(last_result.get("orders") or {})
+            error_text = (
+                f"\nDernière erreur : {self.app.last_sync_error}"
+                if self.app.last_sync_error
+                else ""
+            )
             self.collaboration_status.configure(
                 text=(
                     f"Espace : {self.app.collaboration.workspace_id}\n"
                     f"Dernière synchronisation : "
                     f"{format_timestamp(last_sync)}\n"
-                    f"Catalogue partagé : {catalogue or 'non publié'}"
+                    f"Catalogue partagé : {catalogue or 'non publié'}\n"
+                    f"Commandes locales en attente : {pending}\n"
+                    "Dernier échange : "
+                    f"{order_result.get('imported', 0)} reçue(s), "
+                    f"{order_result.get('published', 0)} envoyée(s), "
+                    f"{order_result.get('conflicts', 0)} verrou/conflit"
+                    f"{error_text}"
                 ),
-                foreground=COLORS["success"],
+                foreground=(
+                    COLORS["warning"]
+                    if pending or self.app.last_sync_error
+                    else COLORS["success"]
+                ),
             )
         elif self.collaboration_enabled_var.get():
             self.collaboration_status.configure(
@@ -3540,3 +3583,157 @@ class SettingsPage(BasePage):
                 text="Mode local.", foreground=COLORS["muted"]
             )
         self._valid = True
+
+
+class DiagnosticDialog(tk.Toplevel):
+    def __init__(self, parent, app: App):
+        super().__init__(parent)
+        self.app = app
+        self.report = ""
+        self.title(f"Diagnostic — Commandes CAHPP {__version__}")
+        self.geometry("900x650")
+        self.minsize(700, 480)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+
+        content = ttk.Frame(self, padding=16)
+        content.pack(fill="both", expand=True)
+        ttk.Label(
+            content,
+            text="Diagnostic de l'application",
+            font=("Segoe UI Semibold", 14),
+        ).pack(anchor="w")
+        ttk.Label(
+            content,
+            text=(
+                "Contrôle la base locale, l'espace partagé, le catalogue et "
+                "les commandes encore en attente."
+            ),
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(2, 10))
+
+        report_frame = ttk.Frame(content)
+        report_frame.pack(fill="both", expand=True)
+        self.text = tk.Text(
+            report_frame,
+            wrap="none",
+            font=("Consolas", 9),
+            relief="solid",
+            bd=1,
+        )
+        vertical = ttk.Scrollbar(
+            report_frame, orient="vertical", command=self.text.yview
+        )
+        horizontal = ttk.Scrollbar(
+            report_frame, orient="horizontal", command=self.text.xview
+        )
+        self.text.configure(
+            yscrollcommand=vertical.set,
+            xscrollcommand=horizontal.set,
+        )
+        self.text.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        report_frame.rowconfigure(0, weight=1)
+        report_frame.columnconfigure(0, weight=1)
+
+        actions = ttk.Frame(content)
+        actions.pack(fill="x", pady=(10, 0))
+        self.status = ttk.Label(
+            actions, text="", style="Subtitle.TLabel"
+        )
+        self.status.pack(side="left")
+        ttk.Button(
+            actions, text="Fermer", command=self.destroy
+        ).pack(side="right")
+        self.export_button = ttk.Button(
+            actions,
+            text="Exporter le rapport",
+            command=self.export_report,
+            state="disabled",
+        )
+        self.export_button.pack(side="right", padx=6)
+        self.copy_button = ttk.Button(
+            actions,
+            text="Copier",
+            command=self.copy_report,
+            state="disabled",
+        )
+        self.copy_button.pack(side="right")
+        self.refresh_button = ttk.Button(
+            actions,
+            text="Relancer",
+            style="Accent.TButton",
+            command=self.run_diagnostic,
+        )
+        self.refresh_button.pack(side="right", padx=6)
+        self.run_diagnostic()
+
+    def run_diagnostic(self) -> None:
+        self.refresh_button.configure(state="disabled")
+        self.copy_button.configure(state="disabled")
+        self.export_button.configure(state="disabled")
+        self.status.configure(text="Analyse en cours…")
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", "Analyse en cours…")
+        self.text.configure(state="disabled")
+
+        def worker() -> None:
+            report = build_diagnostic_report(
+                self.app.database,
+                self.app.collaboration,
+                __version__,
+                self.app.last_sync_result,
+                self.app.last_sync_error,
+            )
+            self.after(0, lambda: self.show_report(report))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def show_report(self, report: str) -> None:
+        if not self.winfo_exists():
+            return
+        self.report = report
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", report)
+        self.text.configure(state="disabled")
+        self.refresh_button.configure(state="normal")
+        self.copy_button.configure(state="normal")
+        self.export_button.configure(state="normal")
+        self.status.configure(text="Diagnostic terminé.")
+
+    def copy_report(self) -> None:
+        if not self.report:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(self.report)
+        self.status.configure(text="Rapport copié.")
+
+    def export_report(self) -> None:
+        if not self.report:
+            return
+        selected = filedialog.asksaveasfilename(
+            parent=self,
+            title="Exporter le diagnostic",
+            initialdir=str(BACKUP_DIR),
+            initialfile=(
+                "diagnostic-commandes-cahpp-"
+                f"{datetime.now():%Y%m%d-%H%M%S}.txt"
+            ),
+            defaultextension=".txt",
+            filetypes=[("Fichier texte", "*.txt")],
+        )
+        if not selected:
+            return
+        try:
+            Path(selected).write_text(self.report, encoding="utf-8")
+        except OSError as exc:
+            messagebox.showerror(
+                "Diagnostic",
+                f"Le rapport n'a pas pu être enregistré :\n{exc}",
+                parent=self,
+            )
+            return
+        self.status.configure(text=f"Rapport enregistré : {selected}")

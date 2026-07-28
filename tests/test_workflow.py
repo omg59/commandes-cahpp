@@ -18,6 +18,7 @@ from cahpp_app.collaboration import (
     ResourceLockedError,
 )
 from cahpp_app.database import Database
+from cahpp_app.diagnostics import build_diagnostic_report
 from cahpp_app import local_services
 from cahpp_app.local_services import (
     attach_document,
@@ -668,6 +669,11 @@ class WorkflowTest(unittest.TestCase):
         with first.acquire_lock("commande", order["shared_uid"]):
             with self.assertRaises(ResourceLockedError):
                 second.acquire_lock("commande", order["shared_uid"])
+        stale_lock = first.acquire_lock(
+            "produit", "VERROU-EXPIRE", ttl_seconds=-1
+        )
+        self.assertEqual(second.cleanup_expired_locks(), 1)
+        stale_lock.release()
 
         first.publish_catalog(catalogue, first_result)
         pending = second.pending_catalog()
@@ -677,6 +683,21 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(duplicate.already_imported)
         second.mark_catalog_applied(pending)
         self.assertIsNone(second.pending_catalog())
+
+        report = build_diagnostic_report(
+            second_database,
+            second,
+            "1.0.0-rc1",
+            {
+                "synced_at": "2026-07-29T08:00:00",
+                "orders": sync_result,
+                "catalog_pending": False,
+            },
+        )
+        self.assertIn("Contrôle d'intégrité : OK", report)
+        self.assertIn("Identifiant cohérent : OK", report)
+        self.assertIn(f"Commandes partagées : 1", report)
+        self.assertNotIn("ARTICLE LOCAL PARTAGE", report)
 
 
 if __name__ == "__main__":

@@ -326,6 +326,48 @@ class CollaborationManager:
         for handle in list(self._active_locks.values()):
             handle.release()
 
+    def cleanup_expired_locks(self) -> int:
+        root = self._required_root() / "verrous"
+        if not root.is_dir():
+            return 0
+        removed = 0
+        now = datetime.now()
+        for path in root.glob("*/*.lock"):
+            payload = _read_json(path, {})
+            expires_at = (
+                str(payload.get("expires_at") or "")
+                if isinstance(payload, dict)
+                else ""
+            )
+            try:
+                expired = (
+                    not expires_at
+                    or datetime.fromisoformat(expires_at) < now
+                )
+            except ValueError:
+                expired = True
+            if not expired:
+                continue
+            # Relire juste avant la suppression : un poste a pu renouveler le
+            # verrou depuis la première lecture.
+            current = _read_json(path, {})
+            current_expiry = (
+                str(current.get("expires_at") or "")
+                if isinstance(current, dict)
+                else ""
+            )
+            try:
+                still_expired = (
+                    not current_expiry
+                    or datetime.fromisoformat(current_expiry) < datetime.now()
+                )
+            except ValueError:
+                still_expired = True
+            if still_expired:
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed
+
     def _merge_team_states(
         self,
         local: Mapping[str, object],
@@ -741,6 +783,7 @@ class CollaborationManager:
         if not self.enabled:
             return {"enabled": False}
         self.initialize_workspace()
+        cleaned_locks = self.cleanup_expired_locks()
         team = self.sync_team_state()
         orders = self.sync_orders()
         self.database.save_settings({"collaboration_last_sync_at": _now()})
@@ -748,6 +791,85 @@ class CollaborationManager:
             "enabled": True,
             "team": team,
             "orders": orders,
+            "cleaned_locks": cleaned_locks,
             "catalog_pending": bool(self.pending_catalog()),
             "synced_at": _now(),
+        }
+
+    def diagnostic_snapshot(self) -> dict[str, object]:
+        root = self._required_root()
+        tested = self.test_path(root)
+        manifest = _read_json(root / "espace-collaboratif.json", {})
+        team_state = _read_json(root / "equipe" / "etat.json", {})
+        catalog = _read_json(
+            root / "catalogues" / "catalogue-actuel.json", {}
+        )
+        now = datetime.now()
+        active_locks = 0
+        expired_locks = 0
+        lock_owners: set[str] = set()
+        for path in (root / "verrous").glob("*/*.lock"):
+            payload = _read_json(path, {})
+            if not isinstance(payload, dict):
+                expired_locks += 1
+                continue
+            expires_at = str(payload.get("expires_at") or "")
+            try:
+                expired = (
+                    not expires_at
+                    or datetime.fromisoformat(expires_at) < now
+                )
+            except ValueError:
+                expired = True
+            if expired:
+                expired_locks += 1
+            else:
+                active_locks += 1
+                owner = str(payload.get("user_name") or "").strip()
+                if owner:
+                    lock_owners.add(owner)
+
+        shared_orders = sum(
+            1 for _ in (root / "commandes").glob("*/commande.json")
+        )
+        catalog_path = None
+        catalog_integrity = None
+        if isinstance(catalog, dict) and catalog.get("relative_path"):
+            try:
+                catalog_path = self.catalog_source(catalog)
+                catalog_integrity = True
+            except (OSError, CollaborationError, ValueError):
+                catalog_integrity = False
+
+        manifest_workspace_id = (
+            str(manifest.get("workspace_id") or "")
+            if isinstance(manifest, dict)
+            else ""
+        )
+        return {
+            "path": str(root),
+            "readable": tested.readable,
+            "writable": tested.writable,
+            "atomic_rename": tested.atomic_rename,
+            "workspace_id": manifest_workspace_id,
+            "workspace_matches": bool(
+                manifest_workspace_id
+                and manifest_workspace_id == self.workspace_id
+            ),
+            "shared_orders": shared_orders,
+            "team_revision": (
+                int(team_state.get("revision") or 0)
+                if isinstance(team_state, dict)
+                else 0
+            ),
+            "catalog_version": (
+                str(catalog.get("version") or "")
+                if isinstance(catalog, dict)
+                else ""
+            ),
+            "catalog_integrity": catalog_integrity,
+            "catalog_path": str(catalog_path) if catalog_path else "",
+            "active_locks": active_locks,
+            "expired_locks": expired_locks,
+            "lock_owners": sorted(lock_owners),
         }

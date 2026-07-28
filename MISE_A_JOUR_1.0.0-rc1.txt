@@ -1,0 +1,46 @@
+COMMANDES CAHPP — CANDIDATE V1.0.0 RC1
+======================================
+
+Cette candidate reprend toutes les fonctions de la version 0.9.0 et ajoute les
+outils de diagnostic nécessaires à une utilisation durable.
+
+ELLE PEUT ÊTRE TESTÉE SANS RÉIMPORTER LA BASE
+---------------------------------------------
+
+Le schéma de base reste en version 9. Une base déjà ouverte avec la 0.9.0 est
+directement compatible avec cette candidate.
+
+INSTALLATION
+------------
+
+1. Fermer la version précédente.
+2. Sauvegarder data\commandes_cahpp.sqlite3, documents\ et assets\.
+3. Compiler la candidate avec build_windows.bat.
+4. Installer le dossier portable localement sur chaque PC.
+5. Restaurer la base et les dossiers uniquement sur le poste correspondant.
+6. Ne jamais copier une base 0.9/1.0 déjà personnalisée d'un utilisateur vers
+   l'autre poste.
+7. Vérifier le nom d'utilisateur et le dossier partagé.
+
+DIAGNOSTIC
+----------
+
+Ouvrir Paramètres > Collaboration > Diagnostic. Le contrôle vérifie la base
+locale, le partage réseau, le catalogue, les commandes en attente et les
+verrous. Le rapport peut être copié ou exporté en fichier texte.
+
+Le rapport ne contient aucun tarif, article, contenu de commande ou document.
+
+VALIDATION AVANT PROMOTION
+--------------------------
+
+Suivre CHECKLIST_VALIDATION_V1.md sur les deux postes. Si tous les contrôles
+sont validés, cette candidate peut être promue en V1.0 sans migration
+supplémentaire.
+
+En cas de problème :
+
+1. ne pas supprimer les fichiers du dossier partagé ;
+2. exporter le diagnostic de chaque poste ;
+3. noter l'action qui vient d'être effectuée ;
+4. revenir temporairement à la copie sauvegardée si nécessaire.

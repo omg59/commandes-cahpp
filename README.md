@@ -97,6 +97,26 @@ compilation ne copie aucune base de développement.
 Le guide détaillé [GUIDE_COLLABORATION_0.9.0.md](GUIDE_COLLABORATION_0.9.0.md)
 explique l'installation à deux postes et les comportements en cas de coupure.
 
+## Diagnostic et assistance
+
+Le bouton **Diagnostic** de l'onglet **Collaboration** contrôle :
+
+- l'intégrité de la base SQLite locale ;
+- la version du schéma et le fonctionnement de la recherche ;
+- les commandes restant à synchroniser ;
+- l'accès en lecture et en écriture au dossier partagé ;
+- la cohérence de l'identifiant collaboratif ;
+- la présence et l'intégrité du catalogue partagé ;
+- les verrous collaboratifs encore actifs ou expirés.
+
+Le rapport peut être copié ou enregistré au format texte. Il contient les
+chemins techniques, la version et le nom du profil, mais aucun tarif, article,
+contenu de commande ou document. Il peut donc être transmis pour analyser un
+problème sans exposer les données métier.
+
+Avant de considérer la version comme validée, suivre
+[CHECKLIST_VALIDATION_V1.md](CHECKLIST_VALIDATION_V1.md) sur les deux postes.
+
 La liste des fournisseurs de l'écran **Nouvelle commande** est filtrée pendant
 la saisie du nom. Depuis **Catalogue**, sélectionner un article puis cliquer sur
 **Commander cet article** pour ouvrir directement une commande avec le bon

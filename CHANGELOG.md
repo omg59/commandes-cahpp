@@ -1,5 +1,19 @@
 # Historique des versions
 
+## 1.0.0-rc1
+
+- ajout d'un diagnostic accessible depuis **Paramètres > Collaboration** ;
+- contrôle SQLite `quick_check`, version du schéma, mode de journalisation,
+  disponibilité de la recherche et détection d'enregistrements orphelins ;
+- contrôle en lecture/écriture du dossier partagé, du renommage atomique, de
+  l'identifiant de l'espace et de l'intégrité du catalogue publié ;
+- affichage du nombre de commandes locales en attente et du bilan du dernier
+  échange dans les paramètres et la barre latérale ;
+- recensement des verrous actifs ou expirés et des utilisateurs concernés ;
+- export ou copie d'un rapport de dépannage ne contenant ni tarif, ni ligne de
+  commande, ni contenu de document ;
+- ajout d'une checklist de validation à deux postes avant promotion en V1.0.
+
 ## 0.9.0
 
 - ajout d'un mode collaboratif sans serveur : chaque poste conserve sa base

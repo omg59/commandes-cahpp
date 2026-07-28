@@ -2306,3 +2306,99 @@ class Database:
             target.close()
             source.close()
         return destination
+
+    def diagnostic_snapshot(self) -> dict[str, object]:
+        size = self.path.stat().st_size if self.path.is_file() else 0
+        wal_path = self.path.with_name(self.path.name + "-wal")
+        shm_path = self.path.with_name(self.path.name + "-shm")
+        with self.connect() as connection:
+            quick_check = [
+                str(row[0])
+                for row in connection.execute("PRAGMA quick_check")
+            ]
+            schema_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            )
+            journal_mode = str(
+                connection.execute("PRAGMA journal_mode").fetchone()[0]
+            )
+            counts = {
+                "products": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM products"
+                    ).fetchone()[0]
+                ),
+                "active_products": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM products WHERE active = 1"
+                    ).fetchone()[0]
+                ),
+                "suppliers": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM suppliers"
+                    ).fetchone()[0]
+                ),
+                "orders": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM orders"
+                    ).fetchone()[0]
+                ),
+                "pending_orders": int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM orders
+                        WHERE sync_state <> 'Synchronisée'
+                        """
+                    ).fetchone()[0]
+                ),
+                "attachments": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM order_attachments"
+                    ).fetchone()[0]
+                ),
+                "imports": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM imports"
+                    ).fetchone()[0]
+                ),
+            }
+            anomalies = {
+                "orders_without_shared_uid": int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM orders
+                        WHERE shared_uid IS NULL OR shared_uid = ''
+                        """
+                    ).fetchone()[0]
+                ),
+                "orphan_order_lines": int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM order_lines ol
+                        LEFT JOIN orders o ON o.id = ol.order_id
+                        WHERE o.id IS NULL
+                        """
+                    ).fetchone()[0]
+                ),
+                "orphan_attachments": int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM order_attachments oa
+                        LEFT JOIN orders o ON o.id = oa.order_id
+                        WHERE o.id IS NULL
+                        """
+                    ).fetchone()[0]
+                ),
+            }
+        return {
+            "path": str(self.path.resolve()),
+            "size_bytes": size,
+            "wal_size_bytes": wal_path.stat().st_size if wal_path.is_file() else 0,
+            "shm_size_bytes": shm_path.stat().st_size if shm_path.is_file() else 0,
+            "schema_version": schema_version,
+            "journal_mode": journal_mode,
+            "fts_available": self.fts_available,
+            "quick_check": quick_check,
+            "counts": counts,
+            "anomalies": anomalies,
+        }
