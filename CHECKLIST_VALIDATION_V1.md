@@ -31,6 +31,10 @@ un même dossier partagé.
 - [ ] Le créateur affiché dans l'historique est correct.
 - [ ] Le journal de chaque commande reprend les actions et le bon utilisateur.
 - [ ] La duplication d'une commande est synchronisée.
+- [ ] Un brouillon supprimé sur A disparaît de l'historique sur B.
+- [ ] Un brouillon supprimé ne réapparaît pas après redémarrage et
+      synchronisation des deux postes.
+- [ ] Une commande déjà générée ne peut pas être supprimée.
 - [ ] Une commande marquée envoyée affiche la date et l'utilisateur attendus.
 
 ## Travail simultané
@@ -72,7 +76,7 @@ un même dossier partagé.
 Sur chaque poste, ouvrir **Paramètres > Collaboration > Diagnostic** :
 
 - [ ] Contrôle d'intégrité : OK.
-- [ ] Schéma : 9.
+- [ ] Schéma : 10.
 - [ ] Recherche plein texte : OK.
 - [ ] Lecture, Écriture et Renommage atomique : OK.
 - [ ] Identifiant cohérent : OK.
@@ -87,4 +91,3 @@ Sur chaque poste, ouvrir **Paramètres > Collaboration > Diagnostic** :
       promue en V1.0.
 - [ ] Une anomalie est constatée : exporter le diagnostic des deux postes,
       noter l'action effectuée et conserver les dossiers avant correction.
-

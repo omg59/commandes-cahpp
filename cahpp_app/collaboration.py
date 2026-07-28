@@ -511,6 +511,14 @@ class CollaborationManager:
         order = dict(payload.get("order") or {})
         shared_uid = str(order["shared_uid"])
         files_dir = self._order_dir(shared_uid) / "fichiers"
+        if order.get("deleted_at"):
+            if files_dir.is_dir() and not files_dir.is_symlink():
+                shutil.rmtree(files_dir)
+            order["pdf_path"] = ""
+            payload["order"] = order
+            payload["lines"] = []
+            payload["attachments"] = []
+            return payload
         files_dir.mkdir(parents=True, exist_ok=True)
         pdf_path = str(order.get("pdf_path") or "")
         shared_pdf = None
@@ -553,6 +561,14 @@ class CollaborationManager:
         if not shared_uid:
             return cached
         cache_dir = local_services.DOCUMENTS_DIR / "_partage" / shared_uid
+        if order.get("deleted_at"):
+            if cache_dir.is_dir() and not cache_dir.is_symlink():
+                shutil.rmtree(cache_dir)
+            order["pdf_path"] = ""
+            cached["order"] = order
+            cached["lines"] = []
+            cached["attachments"] = []
+            return cached
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         pdf_path = str(order.get("pdf_path") or "")
@@ -621,6 +637,12 @@ class CollaborationManager:
             order = dict(payload["order"])
             revision = int(order.get("shared_revision") or 1)
             revisions = order_dir / "revisions"
+            if (
+                order.get("deleted_at")
+                and revisions.is_dir()
+                and not revisions.is_symlink()
+            ):
+                shutil.rmtree(revisions)
             revisions.mkdir(parents=True, exist_ok=True)
             _atomic_json(
                 revisions / f"commande-{revision:06d}.json",

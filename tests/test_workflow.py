@@ -23,6 +23,7 @@ from cahpp_app import local_services
 from cahpp_app.local_services import (
     attach_document,
     create_complete_backup,
+    delete_draft,
     mark_order_sent,
     prepare_mail_order,
     remove_document,
@@ -398,7 +399,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue({"email_prepared_at", "sent_at"} <= order_columns)
         self.assertIn("product_overrides", tables)
         self.assertTrue(migrated.get_settings()["mail_compose_url"])
-        self.assertEqual(version, 9)
+        self.assertEqual(version, 10)
 
     def test_product_edits_dates_and_mail_variables(self):
         catalog_path = self.root / "catalogue.xlsx"
@@ -698,6 +699,73 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("Identifiant cohérent : OK", report)
         self.assertIn(f"Commandes partagées : 1", report)
         self.assertNotIn("ARTICLE LOCAL PARTAGE", report)
+
+        draft_number = first.reserve_order_number()
+        draft_id = self.database.save_order(
+            supplier_id,
+            [
+                {
+                    "product_id": manual_id,
+                    "code_cahpp": self.database.get_product(manual_id)[
+                        "code_cahpp"
+                    ],
+                    "supplier_ref": "LOCAL-REF",
+                    "designation": "ARTICLE LOCAL PARTAGE",
+                    "cartons": 1,
+                    "units_per_carton": 10,
+                    "unit_price": 1.5,
+                    "vat": 20,
+                }
+            ],
+            notes="Brouillon à supprimer",
+            order_number=draft_number,
+        )
+        draft_document = self.root / "piece-brouillon.pdf"
+        draft_document.write_bytes(b"%PDF-1.4\n% brouillon\n")
+        draft_attachment_id = attach_document(
+            self.database,
+            draft_id,
+            draft_document,
+            "Pièce jointe e-mail",
+        )
+        local_draft_copy = local_services.resolve_portable_path(
+            self.database.get_order_attachment(draft_attachment_id)[
+                "stored_path"
+            ]
+        )
+        first.publish_order(draft_id)
+        second.sync_orders()
+        imported_draft = next(
+            row
+            for row in second_database.list_orders()
+            if row["order_number"] == draft_number
+        )
+        remote_attachment = second_database.list_order_attachments(
+            int(imported_draft["id"])
+        )[0]
+        remote_cached_copy = local_services.resolve_portable_path(
+            remote_attachment["stored_path"]
+        )
+        self.assertTrue(remote_cached_copy.is_file())
+
+        delete_draft(self.database, draft_id)
+        self.assertFalse(local_draft_copy.exists())
+        first.publish_order(draft_id)
+        second.sync_orders()
+        self.assertNotIn(
+            draft_number,
+            [row["order_number"] for row in second_database.list_orders()],
+        )
+        with second_database.connect() as connection:
+            deleted = connection.execute(
+                "SELECT deleted_at, deleted_by FROM orders WHERE order_number = ?",
+                (draft_number,),
+            ).fetchone()
+        self.assertTrue(deleted["deleted_at"])
+        self.assertEqual(deleted["deleted_by"], "Damien")
+        self.assertFalse(remote_cached_copy.exists())
+        with self.assertRaises(ValueError):
+            self.database.delete_draft(order_id)
 
 
 if __name__ == "__main__":

@@ -119,6 +119,35 @@ def remove_document(database: Database, attachment_id: int) -> None:
     database.delete_order_attachment(attachment_id)
 
 
+def delete_draft(database: Database, order_id: int) -> None:
+    order, _ = database.get_order(order_id)
+    stored_paths = database.delete_draft(order_id)
+    for value in stored_paths:
+        if not value or value.startswith("shared:"):
+            continue
+        path = resolve_portable_path(value)
+        try:
+            path.relative_to(DOCUMENTS_DIR.resolve())
+        except ValueError:
+            continue
+        if path.is_file():
+            path.unlink()
+        parent = path.parent
+        try:
+            parent.relative_to(DOCUMENTS_DIR.resolve())
+            parent.rmdir()
+        except (ValueError, OSError):
+            pass
+
+    order_directory = DOCUMENTS_DIR / safe_filename(order["order_number"])
+    if order_directory.is_dir() and not order_directory.is_symlink():
+        shutil.rmtree(order_directory)
+
+    staging = MAIL_PREP_DIR / safe_filename(order["order_number"])
+    if staging.is_dir() and not staging.is_symlink():
+        shutil.rmtree(staging)
+
+
 def create_complete_backup(
     database: Database, destination: str | Path
 ) -> Path:

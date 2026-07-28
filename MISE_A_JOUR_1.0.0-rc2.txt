@@ -1,0 +1,58 @@
+COMMANDES CAHPP — CANDIDATE V1.0.0 RC2
+======================================
+
+Cette candidate reprend toutes les fonctions de la version 0.9.0, ajoute les
+outils de diagnostic de la RC1 et permet de supprimer les brouillons.
+
+MIGRATION DE LA BASE
+--------------------
+
+La base passe automatiquement au schéma 10 lors du premier lancement. Les
+bases 0.9.0 et RC1 sont migrées sans réimporter le catalogue.
+
+INSTALLATION
+------------
+
+1. Fermer la version précédente.
+2. Sauvegarder data\commandes_cahpp.sqlite3, documents\ et assets\.
+3. Compiler la candidate avec build_windows.bat.
+4. Installer le dossier portable localement sur chaque PC.
+5. Restaurer la base et les dossiers uniquement sur le poste correspondant.
+6. Ne jamais copier une base déjà personnalisée d'un utilisateur vers l'autre.
+7. Vérifier le nom d'utilisateur et le dossier partagé.
+
+SUPPRESSION D'UN BROUILLON
+--------------------------
+
+Dans Historique, sélectionner une commande encore au statut Brouillon puis
+cliquer sur Supprimer le brouillon. Après confirmation :
+
+- la commande est verrouillée pendant l'opération ;
+- ses lignes et documents sont supprimés ;
+- la suppression est envoyée aux autres postes ;
+- un marqueur technique minimal empêche sa réapparition ultérieure.
+
+Une commande générée, préparée ou envoyée ne peut pas être supprimée.
+Le numéro du brouillon supprimé n'est pas réutilisé.
+
+DIAGNOSTIC
+----------
+
+Ouvrir Paramètres > Collaboration > Diagnostic. Le contrôle vérifie la base
+locale, le partage réseau, le catalogue, les commandes en attente et les
+verrous. Le rapport peut être copié ou exporté en fichier texte.
+
+Le rapport ne contient aucun tarif, article, contenu de commande ou document.
+
+VALIDATION AVANT PROMOTION
+--------------------------
+
+Suivre CHECKLIST_VALIDATION_V1.md sur les deux postes. Si tous les contrôles
+sont validés, cette candidate peut être promue en V1.0.
+
+En cas de problème :
+
+1. ne pas supprimer manuellement les fichiers du dossier partagé ;
+2. exporter le diagnostic de chaque poste ;
+3. noter l'action qui vient d'être effectuée ;
+4. revenir temporairement à la copie sauvegardée si nécessaire.

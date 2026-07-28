@@ -32,6 +32,7 @@ from .local_services import (
     attach_document,
     create_complete_backup,
     configure_shared_workspace,
+    delete_draft,
     mark_order_sent,
     portable_path,
     prepare_mail_order,
@@ -2292,9 +2293,14 @@ class OrdersPage(BasePage):
         ).pack(side="left", padx=6)
         ttk.Button(
             actions,
+            text="Supprimer le brouillon",
+            command=self.delete_selected_draft,
+        ).pack(side="left")
+        ttk.Button(
+            actions,
             text="Documents / bon de livraison",
             command=self.manage_documents,
-        ).pack(side="left")
+        ).pack(side="left", padx=6)
         ttk.Button(
             actions,
             text="Journal",
@@ -2391,6 +2397,46 @@ class OrdersPage(BasePage):
             dialog = OrderDocumentsDialog(self, self.database, order_id)
             self.wait_window(dialog)
             self.app.publish_order(order_id)
+        self.refresh()
+
+    def delete_selected_draft(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            messagebox.showinfo(
+                "Supprimer", "Sélectionnez un brouillon.", parent=self
+            )
+            return
+        order, _ = self.database.get_order(order_id)
+        if order["status"] != "Brouillon":
+            messagebox.showinfo(
+                "Supprimer",
+                "Seuls les brouillons peuvent être supprimés.",
+                parent=self,
+            )
+            return
+        if not messagebox.askyesno(
+            "Supprimer le brouillon",
+            (
+                f"Supprimer définitivement le brouillon "
+                f"{order['order_number']} ?\n\n"
+                "La suppression sera répercutée sur les autres postes."
+            ),
+            icon="warning",
+            parent=self,
+        ):
+            return
+        with self.app.locked_order(order_id) as allowed:
+            if not allowed:
+                return
+            try:
+                delete_draft(self.database, order_id)
+            except (OSError, ValueError) as exc:
+                messagebox.showerror(
+                    "Supprimer le brouillon", str(exc), parent=self
+                )
+                return
+            self.app.publish_order(order_id)
+        self.app.refresh_pages()
         self.refresh()
 
     def show_audit(self) -> None:

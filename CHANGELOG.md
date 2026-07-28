@@ -1,5 +1,20 @@
 # Historique des versions
 
+## 1.0.0-rc2
+
+- ajout de **Supprimer le brouillon** dans l'historique ;
+- limitation stricte de la suppression aux commandes encore au statut
+  **Brouillon**, avec confirmation explicite ;
+- utilisation du verrou collaboratif avant suppression pour empêcher
+  l'effacement d'un brouillon ouvert sur un autre poste ;
+- propagation de la suppression aux autres installations grâce à un marqueur
+  versionné, empêchant le brouillon de réapparaître après synchronisation ;
+- suppression des lignes, pièces jointes, copies d'envoi, fichiers partagés et
+  anciennes révisions du brouillon ;
+- conservation du numéro consommé afin de garantir la stabilité de la
+  numérotation et de l'historique technique ;
+- passage du schéma de base en version 10 avec migration automatique.
+
 ## 1.0.0-rc1
 
 - ajout d'un diagnostic accessible depuis **Paramètres > Collaboration** ;

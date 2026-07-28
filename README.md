@@ -189,6 +189,13 @@ Pour repartir d'une ancienne commande, sélectionnez-la dans **Historique** puis
 cliquez sur **Dupliquer**. Un nouveau brouillon daté du jour est créé avec les
 prix et conditionnements de la commande d'origine.
 
+Un brouillon devenu inutile peut être retiré avec **Supprimer le brouillon**.
+L'application demande une confirmation et, en mode collaboratif, vérifie
+d'abord que le brouillon n'est pas ouvert sur un autre poste. La suppression
+est ensuite synchronisée et le brouillon ne réapparaît pas lorsqu'un poste
+resté hors ligne se reconnecte. Les commandes générées, préparées ou envoyées
+ne sont pas supprimables afin de préserver la traçabilité.
+
 L'historique affiche la date de création, le créateur, l'état de
 synchronisation et la première date d'envoi. Cette dernière est renseignée avec
 **Marquer envoyée**. La date propre au bon reste conservée dans la base et

@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS orders (
     created_by TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
     sent_by TEXT NOT NULL DEFAULT '',
+    deleted_at TEXT NOT NULL DEFAULT '',
+    deleted_by TEXT NOT NULL DEFAULT '',
     last_synced_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -331,7 +333,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 9")
+            connection.execute("PRAGMA user_version = 10")
 
     @staticmethod
     def _ensure_column(
@@ -369,6 +371,8 @@ class Database:
             ("created_by", "TEXT NOT NULL DEFAULT ''"),
             ("updated_by", "TEXT NOT NULL DEFAULT ''"),
             ("sent_by", "TEXT NOT NULL DEFAULT ''"),
+            ("deleted_at", "TEXT NOT NULL DEFAULT ''"),
+            ("deleted_by", "TEXT NOT NULL DEFAULT ''"),
             ("last_synced_at", "TEXT NOT NULL DEFAULT ''"),
         ):
             self._ensure_column(connection, "orders", column, declaration)
@@ -451,7 +455,10 @@ class Database:
                     "SELECT COUNT(*) FROM products WHERE favorite = 1"
                 ).fetchone()[0],
                 "orders": connection.execute(
-                    "SELECT COUNT(*) FROM orders"
+                    """
+                    SELECT COUNT(*) FROM orders
+                    WHERE deleted_at = ''
+                    """
                 ).fetchone()[0],
             }
             latest = connection.execute(
@@ -1184,7 +1191,7 @@ class Database:
         status: str = "",
         limit: int = 500,
     ) -> list[sqlite3.Row]:
-        filters = []
+        filters = ["COALESCE(o.deleted_at, '') = ''"]
         parameters: list[object] = []
         query = query.strip()
         if query:
@@ -1208,7 +1215,7 @@ class Database:
         if status:
             filters.append("o.status = ?")
             parameters.append(status)
-        where = " AND ".join(filters) if filters else "1 = 1"
+        where = " AND ".join(filters)
         with self.connect() as connection:
             return list(
                 connection.execute(
@@ -1265,6 +1272,57 @@ class Database:
                 )
             )
 
+    def delete_draft(self, order_id: int) -> list[str]:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            order = connection.execute(
+                "SELECT status, deleted_at FROM orders WHERE id = ?",
+                (order_id,),
+            ).fetchone()
+            if order is None or order["deleted_at"]:
+                raise ValueError("Brouillon introuvable.")
+            if order["status"] != "Brouillon":
+                raise ValueError(
+                    "Seuls les brouillons peuvent être supprimés."
+                )
+            stored_paths = [
+                str(row["stored_path"] or "")
+                for row in connection.execute(
+                    """
+                    SELECT stored_path FROM order_attachments
+                    WHERE order_id = ?
+                    """,
+                    (order_id,),
+                )
+            ]
+            self._record_order_audit(
+                connection,
+                order_id,
+                "Brouillon supprimé",
+                occurred_at=now,
+            )
+            connection.execute(
+                """
+                UPDATE orders
+                SET deleted_at = ?, deleted_by = ?, updated_at = ?,
+                    updated_by = ?, shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', notes = '',
+                    total_ht = 0, total_vat = 0, total_ttc = 0,
+                    pdf_path = ''
+                WHERE id = ?
+                """,
+                (now, actor_name, now, actor_name, order_id),
+            )
+            connection.execute(
+                "DELETE FROM order_lines WHERE order_id = ?", (order_id,)
+            )
+            connection.execute(
+                "DELETE FROM order_attachments WHERE order_id = ?",
+                (order_id,),
+            )
+        return stored_paths
+
     def duplicate_order(
         self,
         order_id: int,
@@ -1316,6 +1374,7 @@ class Database:
                     WHERE supplier_id = ?
                       AND order_date = ?
                       AND id <= ?
+                      AND deleted_at = ''
                     """,
                     (
                         order["supplier_id"],
@@ -1890,6 +1949,8 @@ class Database:
                 "created_by",
                 "updated_by",
                 "sent_by",
+                "deleted_at",
+                "deleted_by",
                 "created_at",
                 "updated_at",
             )
@@ -2012,6 +2073,8 @@ class Database:
                 order.get("created_by") or "",
                 order.get("updated_by") or "",
                 order.get("sent_by") or "",
+                order.get("deleted_at") or "",
+                order.get("deleted_by") or "",
                 now,
                 order.get("created_at") or now,
                 order.get("updated_at") or now,
@@ -2024,10 +2087,11 @@ class Database:
                         total_ht, total_vat, total_ttc, pdf_path,
                         email_prepared_at, sent_at, shared_uid,
                         shared_revision, sync_state, catalog_hash,
-                        created_by, updated_by, sent_by, last_synced_at,
+                        created_by, updated_by, sent_by, deleted_at, deleted_by,
+                        last_synced_at,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                              ?, ?, ?, ?, ?)
+                              ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values,
                 )
@@ -2042,7 +2106,8 @@ class Database:
                         total_ttc = ?, pdf_path = ?, email_prepared_at = ?,
                         sent_at = ?, shared_uid = ?, shared_revision = ?,
                         sync_state = ?, catalog_hash = ?, created_by = ?,
-                        updated_by = ?, sent_by = ?, last_synced_at = ?,
+                        updated_by = ?, sent_by = ?, deleted_at = ?,
+                        deleted_by = ?, last_synced_at = ?,
                         created_at = ?, updated_at = ?
                     WHERE id = ?
                     """,
@@ -2135,7 +2200,11 @@ class Database:
             return [
                 int(row["id"])
                 for row in connection.execute(
-                    "SELECT id FROM orders ORDER BY id"
+                    """
+                    SELECT id FROM orders
+                    WHERE deleted_at = ''
+                    ORDER BY id
+                    """
                 )
             ]
 
@@ -2340,7 +2409,18 @@ class Database:
                 ),
                 "orders": int(
                     connection.execute(
-                        "SELECT COUNT(*) FROM orders"
+                        """
+                        SELECT COUNT(*) FROM orders
+                        WHERE deleted_at = ''
+                        """
+                    ).fetchone()[0]
+                ),
+                "deleted_drafts": int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM orders
+                        WHERE deleted_at <> ''
+                        """
                     ).fetchone()[0]
                 ),
                 "pending_orders": int(
