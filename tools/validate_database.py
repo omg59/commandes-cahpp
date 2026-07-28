@@ -25,6 +25,7 @@ def main() -> None:
         supplier_count = connection.execute(
             "SELECT COUNT(*) FROM suppliers"
         ).fetchone()[0]
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     started = time.perf_counter()
     results = database.search_products("gant toilette molletonne")
     duration = (time.perf_counter() - started) * 1000
@@ -47,4 +48,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

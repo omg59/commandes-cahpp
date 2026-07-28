@@ -70,21 +70,24 @@ def _safe(value: object) -> str:
     return escape(str(value or ""))
 
 
-def _page_footer(canvas, document) -> None:
-    canvas.saveState()
-    canvas.setStrokeColor(colors.HexColor("#D9E2EC"))
-    canvas.line(18 * mm, 13 * mm, 192 * mm, 13 * mm)
-    canvas.setFont(REGULAR_FONT, 8)
-    canvas.setFillColor(GREY)
-    canvas.drawString(
-        18 * mm,
-        8 * mm,
-        "Bon de commande généré localement avec Commandes CAHPP",
-    )
-    canvas.drawRightString(
-        192 * mm, 8 * mm, f"Page {canvas.getPageNumber()}"
-    )
-    canvas.restoreState()
+def _make_page_footer(footer_text: str, show_page_number: bool):
+    def page_footer(canvas, document) -> None:
+        if not footer_text and not show_page_number:
+            return
+        canvas.saveState()
+        canvas.setStrokeColor(colors.HexColor("#D9E2EC"))
+        canvas.line(18 * mm, 13 * mm, 192 * mm, 13 * mm)
+        canvas.setFont(REGULAR_FONT, 8)
+        canvas.setFillColor(GREY)
+        if footer_text:
+            canvas.drawString(18 * mm, 8 * mm, footer_text[:110])
+        if show_page_number:
+            canvas.drawRightString(
+                192 * mm, 8 * mm, f"Page {canvas.getPageNumber()}"
+            )
+        canvas.restoreState()
+
+    return page_footer
 
 
 def generate_order_pdf(
@@ -96,6 +99,9 @@ def generate_order_pdf(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     order, lines = database.get_order(order_id)
     settings = database.get_settings()
+    pdf_title = settings.get("pdf_title", "").strip() or "BON DE COMMANDE"
+    footer_text = settings.get("pdf_footer_text", "").strip()
+    show_page_number = settings.get("pdf_show_page_number", "1") != "0"
 
     document = SimpleDocTemplate(
         str(output_path),
@@ -104,7 +110,7 @@ def generate_order_pdf(
         rightMargin=18 * mm,
         topMargin=15 * mm,
         bottomMargin=18 * mm,
-        title=f"Bon de commande {order['order_number']}",
+        title=f"{pdf_title.title()} {order['order_number']}",
         author=settings.get("establishment_name") or "Commandes CAHPP",
     )
     styles = getSampleStyleSheet()
@@ -238,7 +244,7 @@ def generate_order_pdf(
     title_table = Table(
         [
             [
-                Paragraph("BON DE COMMANDE", heading),
+                Paragraph(_safe(pdf_title), heading),
                 Paragraph(
                     f"<b>{_safe(order['order_number'])}</b><br/>Date : {order_date}",
                     ParagraphStyle(
@@ -450,6 +456,11 @@ def generate_order_pdf(
     )
     story.append(KeepTogether(summary))
 
-    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    page_footer = _make_page_footer(footer_text, show_page_number)
+    document.build(
+        story,
+        onFirstPage=page_footer,
+        onLaterPages=page_footer,
+    )
     database.update_order_pdf(order_id, str(output_path))
     return output_path

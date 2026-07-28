@@ -101,7 +101,57 @@ class WorkflowTest(unittest.TestCase):
             self.database, order_id, self.root / "bon-test.pdf"
         )
         self.assertTrue(pdf_path.is_file())
-        self.assertEqual(len(PdfReader(pdf_path).pages), 1)
+        reader = PdfReader(pdf_path)
+        self.assertEqual(len(reader.pages), 1)
+        pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertNotIn(
+            "Bon de commande généré localement avec Commandes CAHPP",
+            pdf_text,
+        )
+
+        original_order, _ = self.database.get_order(order_id)
+        edited_lines = [
+            {
+                "product_id": products[0]["id"],
+                "code_cahpp": products[0]["code_cahpp"],
+                "supplier_ref": products[0]["supplier_ref"],
+                "designation": products[0]["designation"],
+                "cartons": 3,
+                "units_per_carton": products[0]["conditionnement"],
+                "unit_price": products[0]["unit_price"],
+                "vat": products[0]["vat"],
+            }
+        ]
+        edited_order_id = self.database.save_order(
+            supplier_id,
+            edited_lines,
+            notes="Brouillon modifié",
+            order_id=order_id,
+        )
+        edited_order, edited_order_lines = self.database.get_order(edited_order_id)
+        self.assertEqual(edited_order_id, order_id)
+        self.assertEqual(
+            edited_order["order_number"], original_order["order_number"]
+        )
+        self.assertEqual(edited_order_lines[0]["cartons"], 3)
+        self.assertEqual(edited_order["notes"], "Brouillon modifié")
+
+        self.database.save_settings(
+            {
+                "pdf_title": "COMMANDE FOURNISSEUR",
+                "pdf_footer_text": "Document interne",
+                "pdf_show_page_number": "0",
+            }
+        )
+        custom_pdf = generate_order_pdf(
+            self.database, order_id, self.root / "bon-personnalise.pdf"
+        )
+        custom_text = "\n".join(
+            page.extract_text() or "" for page in PdfReader(custom_pdf).pages
+        )
+        self.assertIn("COMMANDE FOURNISSEUR", custom_text)
+        self.assertIn("Document interne", custom_text)
+        self.assertNotIn("Page 1", custom_text)
 
         second_path = self.root / "catalogue-2.xlsx"
         create_catalog(

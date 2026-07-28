@@ -6,7 +6,7 @@ import re
 import subprocess
 import threading
 import tkinter as tk
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -561,6 +561,13 @@ class OrderPage(BasePage):
         )
         self.franco_label = ttk.Label(top, text="", style="Subtitle.TLabel")
         self.franco_label.pack(side="left")
+        self.mode_label = ttk.Label(top, text="", style="Subtitle.TLabel")
+        self.mode_label.pack(side="right", padx=(8, 0))
+        ttk.Button(
+            top,
+            text="Nouvelle / vider",
+            command=self.reset_order,
+        ).pack(side="right")
 
         panes = ttk.Panedwindow(self, orient="horizontal")
         panes.pack(fill="both", expand=True)
@@ -688,6 +695,8 @@ class OrderPage(BasePage):
         self.cart: list[dict[str, object]] = []
         self._search_after = None
         self._previous_supplier = ""
+        self.current_order_id: int | None = None
+        self.current_order_date: date | None = None
 
     def _schedule_search(self, event=None) -> None:
         if self._search_after:
@@ -902,6 +911,60 @@ class OrderPage(BasePage):
             self.cart.pop(int(selected[0]))
             self.refresh_cart()
 
+    def load_order(self, order_id: int) -> None:
+        order, lines = self.database.get_order(order_id)
+        if order["status"] != "Brouillon":
+            raise ValueError("Seuls les brouillons peuvent être modifiés.")
+        self.current_order_id = order_id
+        self.current_order_date = date.fromisoformat(order["order_date"])
+        self.supplier_var.set(order["supplier_name"])
+        self._previous_supplier = order["supplier_name"]
+        self.notes_var.set(order["notes"] or "")
+        self.cart = [
+            {
+                "product_id": line["product_id"],
+                "code_cahpp": line["code_cahpp"],
+                "supplier_ref": line["supplier_ref"],
+                "designation": line["designation"],
+                "cartons": line["cartons"],
+                "units_per_carton": line["units_per_carton"],
+                "unit_price": line["unit_price"],
+                "vat": line["vat"],
+            }
+            for line in lines
+        ]
+        self.mode_label.configure(
+            text=f"Modification de {order['order_number']}"
+        )
+        supplier = self.database.get_supplier(order["supplier_id"])
+        if supplier and supplier["franco_ht"] is not None:
+            self.franco_label.configure(
+                text=f"Franco : {format_price(supplier['franco_ht'], 2)} HT"
+            )
+        else:
+            self.franco_label.configure(text="Franco non renseigné")
+        self.search_products()
+        self.refresh_cart()
+
+    def reset_order(self, confirm: bool = True) -> None:
+        if confirm and (self.cart or self.current_order_id):
+            if not messagebox.askyesno(
+                "Nouvelle commande",
+                "Effacer la commande affichée et repartir de zéro ?",
+                parent=self,
+            ):
+                return
+        self.current_order_id = None
+        self.current_order_date = None
+        self.cart.clear()
+        self.notes_var.set("")
+        self.supplier_var.set("")
+        self._previous_supplier = ""
+        self.mode_label.configure(text="")
+        self.franco_label.configure(text="")
+        self.product_tree.delete(*self.product_tree.get_children())
+        self.refresh_cart()
+
     def _save(self, generate_pdf: bool) -> None:
         supplier_id = self.selected_supplier_id()
         if not supplier_id:
@@ -914,10 +977,13 @@ class OrderPage(BasePage):
                 "Commande", "Ajoutez au moins un article.", parent=self
             )
             return
+        editing_order_id = self.current_order_id
         order_id = self.database.save_order(
             supplier_id=supplier_id,
             lines=self.cart,
             notes=self.notes_var.get(),
+            order_id=editing_order_id,
+            selected_date=self.current_order_date,
         )
         if generate_pdf:
             order, _ = self.database.get_order(order_id)
@@ -935,12 +1001,14 @@ class OrderPage(BasePage):
         else:
             messagebox.showinfo(
                 "Commande",
-                "Le brouillon a été enregistré.",
+                (
+                    "Le brouillon a été mis à jour."
+                    if editing_order_id
+                    else "Le brouillon a été enregistré."
+                ),
                 parent=self,
             )
-        self.cart.clear()
-        self.notes_var.set("")
-        self.refresh_cart()
+        self.reset_order(confirm=False)
         self.app.refresh_pages()
 
     def save_draft(self) -> None:
@@ -1047,8 +1115,15 @@ class OrdersPage(BasePage):
                 anchor="w" if column == "supplier" else "center",
             )
         self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<Double-1>", lambda event: self.edit_draft())
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(10, 0))
+        ttk.Button(
+            actions,
+            text="Modifier le brouillon",
+            style="Accent.TButton",
+            command=self.edit_draft,
+        ).pack(side="left")
         ttk.Button(
             actions, text="Regénérer le PDF", command=self.regenerate_pdf
         ).pack(side="right")
@@ -1059,6 +1134,23 @@ class OrdersPage(BasePage):
     def selected_order(self):
         selected = self.tree.selection()
         return int(selected[0]) if selected else None
+
+    def edit_draft(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            return
+        order, _ = self.database.get_order(order_id)
+        if order["status"] != "Brouillon":
+            messagebox.showinfo(
+                "Modification",
+                "Cette commande a déjà été générée. Seuls les brouillons "
+                "peuvent être modifiés.",
+                parent=self,
+            )
+            return
+        self.app.show_page("new_order")
+        order_page: OrderPage = self.app.pages["new_order"]  # type: ignore[assignment]
+        order_page.load_order(order_id)
 
     def open_pdf(self) -> None:
         order_id = self.selected_order()
@@ -1429,6 +1521,8 @@ class SettingsPage(BasePage):
             ("FINESS", "finess"),
             ("SIRET", "siret"),
             ("Code APE", "ape"),
+            ("Titre du document PDF", "pdf_title"),
+            ("Texte du pied de page PDF", "pdf_footer_text"),
         ]
         self.vars = {key: tk.StringVar() for _, key in fields}
         for row, (label, key) in enumerate(fields):
@@ -1451,6 +1545,13 @@ class SettingsPage(BasePage):
         ttk.Button(logo_row, text="Parcourir", command=self.browse_logo).pack(
             side="left", padx=(7, 0)
         )
+        row += 1
+        self.show_page_number_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            surface,
+            text="Afficher le numéro de page sur le PDF",
+            variable=self.show_page_number_var,
+        ).grid(row=row, column=1, sticky="w", padx=(14, 0), pady=5)
         ttk.Button(
             surface,
             text="Enregistrer",
@@ -1479,6 +1580,9 @@ class SettingsPage(BasePage):
     def save(self) -> None:
         values = {key: variable.get() for key, variable in self.vars.items()}
         values["logo_path"] = self.logo_var.get()
+        values["pdf_show_page_number"] = (
+            "1" if self.show_page_number_var.get() else "0"
+        )
         self.database.save_settings(values)
         messagebox.showinfo(
             "Paramètres", "Les paramètres ont été enregistrés.", parent=self
@@ -1499,4 +1603,7 @@ class SettingsPage(BasePage):
         for key, variable in self.vars.items():
             variable.set(settings.get(key, ""))
         self.logo_var.set(settings.get("logo_path", ""))
+        self.show_page_number_var.set(
+            settings.get("pdf_show_page_number", "1") != "0"
+        )
         self._valid = True

@@ -53,6 +53,27 @@ Fermer l'application, puis copier le fichier
 4. Marquer les articles habituels comme favoris.
 5. Préparer une commande et générer le PDF.
 
+## Personnalisation du PDF
+
+Dans **Paramètres**, il est possible de modifier :
+
+- le nom, l'adresse et les identifiants de l'établissement ;
+- le logo ;
+- le titre du document ;
+- le texte du pied de page, qui peut rester vide ;
+- l'affichage du numéro de page.
+
+## Modifier un brouillon
+
+1. Ouvrir **Historique**.
+2. Sélectionner une commande ayant le statut **Brouillon**.
+3. Cliquer sur **Modifier le brouillon** ou double-cliquer sur la ligne.
+4. Modifier les articles, quantités ou la note.
+5. Enregistrer à nouveau le brouillon ou générer le PDF.
+
+Une commande déjà générée reste figée. Cela évite de modifier par erreur un bon
+qui aurait déjà été envoyé au fournisseur.
+
 ## Limitation du prototype
 
 L'exécutable Windows doit être compilé sur Windows : PyInstaller ne permet pas
