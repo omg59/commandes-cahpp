@@ -12,6 +12,20 @@ from .database import Database
 from .paths import DATABASE_PATH, DOCUMENTS_DIR, MAIL_PREP_DIR, ROOT_DIR
 
 
+MAIL_TEMPLATE_VARIABLES = {
+    "order_number": "numéro du bon de commande",
+    "date": "date du bon au format JJ/MM/AAAA",
+    "order_date": "date du bon au format AAAA-MM-JJ",
+    "supplier": "nom du fournisseur",
+    "supplier_email": "adresse e-mail du fournisseur",
+    "customer_number": "numéro client chez le fournisseur",
+    "total_ht": "montant total HT",
+    "total_ttc": "montant total TTC",
+    "establishment_name": "nom de l'établissement",
+    "establishment_subtitle": "service ou sous-titre de l'établissement",
+}
+
+
 def safe_filename(value: str) -> str:
     forbidden = '<>:"/\\|?*'
     cleaned = "".join("-" if char in forbidden else char for char in value)
@@ -126,24 +140,34 @@ def _render_template(template: str, values: dict[str, object]) -> str:
     return template.format_map(_SafeTemplate(values))
 
 
-def _gmail_compose_url(
+def _mail_compose_url(
     base_url: str, recipient: str, subject: str, body: str
 ) -> str:
     parsed = urlparse(base_url)
     parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    parameters.update(
-        {
-            "view": "cm",
-            "fs": "1",
-            "to": recipient,
-            "su": subject,
-            "body": body,
-        }
-    )
+    if parsed.scheme.lower() == "mailto":
+        parameters.update({"subject": subject, "body": body})
+        return urlunparse(
+            parsed._replace(path=recipient, query=urlencode(parameters))
+        )
+    if "mail.google." in parsed.netloc.lower():
+        parameters.update(
+            {
+                "view": "cm",
+                "fs": "1",
+                "to": recipient,
+                "su": subject,
+                "body": body,
+            }
+        )
+    else:
+        parameters.update(
+            {"to": recipient, "subject": subject, "body": body}
+        )
     return urlunparse(parsed._replace(query=urlencode(parameters)))
 
 
-def prepare_gmail_order(
+def prepare_mail_order(
     database: Database, order_id: int
 ) -> tuple[str, Path, list[Path]]:
     order, _ = database.get_order(order_id)
@@ -174,20 +198,27 @@ def prepare_gmail_order(
         prepared.append(destination)
 
     settings = database.get_settings()
+    order_date = datetime.fromisoformat(order["order_date"]).strftime("%d/%m/%Y")
     values: dict[str, object] = {
         "order_number": order["order_number"],
+        "date": order_date,
         "order_date": order["order_date"],
         "supplier": order["supplier_name"],
+        "supplier_email": order["supplier_email"],
         "total_ht": f"{float(order['total_ht']):.2f}".replace(".", ","),
+        "total_ttc": f"{float(order['total_ttc']):.2f}".replace(".", ","),
         "establishment_name": settings.get("establishment_name", ""),
+        "establishment_subtitle": settings.get(
+            "establishment_subtitle", ""
+        ),
         "customer_number": order["customer_number"] or "",
     }
     subject = _render_template(
         settings.get("email_subject_template", ""), values
     )
     body = _render_template(settings.get("email_body_template", ""), values)
-    compose_url = _gmail_compose_url(
-        settings.get("gmail_compose_url", DEFAULT_GMAIL_URL),
+    compose_url = _mail_compose_url(
+        settings.get("mail_compose_url", DEFAULT_MAIL_URL),
         order["supplier_email"],
         subject,
         body,
@@ -195,4 +226,7 @@ def prepare_gmail_order(
     return compose_url, staging, prepared
 
 
-DEFAULT_GMAIL_URL = "https://mail.google.com/mail/?view=cm&fs=1"
+DEFAULT_MAIL_URL = "https://mail.google.com/mail/?view=cm&fs=1"
+
+# Alias conservé pour les scripts créés avec les prototypes précédents.
+prepare_gmail_order = prepare_mail_order

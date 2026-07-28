@@ -17,13 +17,14 @@ de commande PDF.
 - recherche dans tout l'historique, y compris les références et désignations ;
 - suivi des changements de prix et de conditionnement des articles commandés ;
 - rattachement des bons de livraison et autres documents ;
-- préparation des e-mails dans Gmail sans mot de passe ni droit administrateur ;
+- préparation des e-mails sans mot de passe ni droit administrateur ;
 - sauvegarde complète de la base et des documents liés ;
 - bon PDF commun à tous les fournisseurs.
 
 ## Confort d'utilisation
 
 La section actuellement ouverte reste mise en évidence dans la barre latérale.
+Le numéro de version du logiciel est affiché en bas de cette barre.
 Après un enregistrement réussi, le bouton concerné passe temporairement au vert
 et confirme l'action sans ouvrir de fenêtre supplémentaire.
 
@@ -55,9 +56,8 @@ copié sur un autre poste. Les données restent dans
 ## Première utilisation
 
 1. Ouvrir **Paramètres** et renseigner l'établissement.
-2. Le paquet fourni contient déjà le catalogue transmis lors de la création du
-   prototype. Pour une version plus récente, ouvrir **Mise à jour CAHPP** et
-   sélectionner le nouvel Excel.
+2. Ouvrir **Mise à jour CAHPP** et sélectionner le fichier Excel du catalogue
+   à utiliser.
 3. Configurer les fournisseurs utilisés : numéro client, adresse e-mail et
    montant du franco.
 4. Marquer les articles habituels comme favoris.
@@ -71,6 +71,20 @@ fournisseur.
 Les favoris du fournisseur sont affichés en premier dans la préparation d'une
 commande. En l'absence de recherche, la liste est limitée aux favoris s'il en
 existe.
+
+## Corriger et gérer les articles
+
+Dans **Catalogue**, le bouton **Modifier l'article** permet de corriger la
+référence fournisseur, la désignation, le conditionnement, son détail, le prix
+et la TVA.
+
+Pour un article CAHPP, la correction est enregistrée séparément de la valeur
+importée. Elle reste active après les imports suivants. La mention `CAHPP ✎`
+signale une correction et **Rétablir CAHPP** supprime les corrections locales.
+
+Les références créées avec **Article hors catalogue** sont identifiées par
+`Local`. Elles peuvent être modifiées ou supprimées. La suppression les archive
+sans modifier les anciennes commandes.
 
 ## Personnalisation du PDF
 
@@ -88,6 +102,8 @@ indiquez simplement `assets/logo.png` dans les paramètres.
 
 Lors de chaque génération ou régénération, une fenêtre **Enregistrer sous**
 permet de modifier librement le nom et la destination du PDF.
+Le PDF contient uniquement la référence utile au fournisseur ; le code interne
+CAHPP n'y est pas affiché.
 
 Le nom proposé suit le format :
 
@@ -119,27 +135,34 @@ Pour repartir d'une ancienne commande, sélectionnez-la dans **Historique** puis
 cliquez sur **Dupliquer**. Un nouveau brouillon daté du jour est créé avec les
 prix et conditionnements de la commande d'origine.
 
-## Préparer une commande dans Gmail
+L'historique affiche séparément la date du bon, sa date de création et sa
+première date d'envoi. Cette dernière est renseignée avec **Marquer envoyée**.
 
-Dans **Fournisseurs**, renseignez l'adresse e-mail de commande. Les modèles
-d'objet et de message peuvent être modifiés dans **Paramètres** avec les
-variables suivantes :
+## Préparer une commande par e-mail
+
+Dans **Fournisseurs**, renseignez l'adresse e-mail de commande. L'adresse de
+composition, l'objet et le message peuvent être modifiés dans **Paramètres**.
+La liste des expressions disponibles y est affichée :
 
 ```text
-{order_number} {order_date} {supplier} {total_ht}
-{establishment_name} {customer_number}
+{order_number} {date} {order_date} {supplier} {supplier_email}
+{customer_number} {total_ht} {total_ttc}
+{establishment_name} {establishment_subtitle}
 ```
 
-Dans **Historique**, le bouton **Préparer dans Gmail** :
+`{date}` correspond à la date du bon au format `JJ/MM/AAAA`, tandis que
+`{order_date}` conserve le format `AAAA-MM-JJ`.
 
-1. ouvre un message Gmail avec le destinataire, l'objet et le texte préremplis ;
+Dans **Historique**, le bouton **Préparer le mail** :
+
+1. ouvre un message avec le destinataire, l'objet et le texte préremplis ;
 2. ouvre un dossier contenant le PDF et toutes les pièces marquées
    **Joint au mail** ;
-3. permet de joindre l'ensemble par `Ctrl+A`, puis glisser-déposer dans Gmail.
+3. permet de joindre l'ensemble par `Ctrl+A`, puis glisser-déposer.
 
-L'ajout final des fichiers reste manuel car Gmail Web interdit à une application
-locale de déposer silencieusement des pièces jointes sans autorisation OAuth de
-l'organisation. Aucun identifiant ni mot de passe Google n'est enregistré.
+Gmail reste configuré par défaut. Une URL de composition générique ou `mailto:`
+peut également être utilisée. L'ajout final des pièces jointes reste manuel :
+aucun identifiant ni mot de passe de messagerie n'est enregistré.
 
 ## Documents et bons de livraison
 
@@ -148,7 +171,7 @@ Dans **Historique**, sélectionnez une commande puis ouvrez
 `documents\<numero de commande>` à côté de l'application. Ils restent ainsi
 liés à la commande même si le fichier original du scanner est déplacé.
 
-Une pièce peut être incluse ou exclue de la préparation Gmail. Les bons de
+Une pièce peut être incluse ou exclue de la préparation e-mail. Les bons de
 livraison ne sont pas joints au mail par défaut.
 
 ## Mise à jour des tarifs

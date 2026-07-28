@@ -312,7 +312,6 @@ def generate_order_pdf(
         [
             Paragraph("Désignation", header_cell),
             Paragraph("Référence", header_cell),
-            Paragraph("Code CAHPP", header_cell),
             Paragraph("Cartons", header_cell),
             Paragraph("Unités / carton", header_cell),
             Paragraph("PU HT", header_cell),
@@ -325,7 +324,6 @@ def generate_order_pdf(
             [
                 Paragraph(_safe(designation), cell),
                 Paragraph(_safe(line["supplier_ref"]), cell_center),
-                Paragraph(_safe(line["code_cahpp"]), cell_center),
                 Paragraph(_quantity(line["cartons"]), cell_center),
                 Paragraph(_quantity(line["units_per_carton"]), cell_center),
                 Paragraph(_currency(line["unit_price"], 4), cell_right),
@@ -336,13 +334,12 @@ def generate_order_pdf(
     line_table = Table(
         table_data,
         colWidths=[
-            50 * mm,
-            23 * mm,
-            21 * mm,
+            70 * mm,
+            28 * mm,
             15 * mm,
             20 * mm,
+            20 * mm,
             21 * mm,
-            24 * mm,
         ],
         repeatRows=1,
         hAlign="LEFT",

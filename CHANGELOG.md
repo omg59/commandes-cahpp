@@ -1,5 +1,21 @@
 # Historique des versions
 
+## 0.8.0
+
+- ajout des dates de création et de premier envoi dans l'historique des
+  commandes ;
+- conservation de la première date d'envoi lorsqu'une commande est marquée
+  plusieurs fois comme envoyée ;
+- corrections locales des articles CAHPP sans modifier les valeurs importées,
+  avec possibilité de rétablir les valeurs du catalogue ;
+- modification et archivage des références créées par l'utilisateur ;
+- suppression du code CAHPP dans le tableau du bon de commande PDF ;
+- affichage automatique de la version du logiciel dans la barre latérale ;
+- préparation des e-mails rendue plus générique, avec prise en charge de Gmail,
+  des URL de composition génériques et des liens `mailto:` ;
+- aide intégrée recensant les expressions utilisables dans l'objet et le corps
+  des e-mails, dont `{date}` et `{total_ttc}`.
+
 ## 0.7.0
 
 - remplacement des fenêtres de confirmation après enregistrement par un retour

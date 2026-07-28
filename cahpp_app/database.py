@@ -88,6 +88,17 @@ CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id, active
 CREATE INDEX IF NOT EXISTS idx_products_supplier_ref ON products(supplier_ref);
 CREATE INDEX IF NOT EXISTS idx_products_favorite ON products(favorite, supplier_id);
 
+CREATE TABLE IF NOT EXISTS product_overrides (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+    supplier_ref TEXT,
+    designation TEXT,
+    conditionnement REAL,
+    unit_packaging TEXT,
+    unit_price REAL,
+    vat REAL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS price_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL REFERENCES products(id),
@@ -165,7 +176,7 @@ DEFAULT_SETTINGS = {
     "pdf_footer_text": "",
     "pdf_show_page_number": "1",
     "pdf_default_directory": "",
-    "gmail_compose_url": "https://mail.google.com/mail/?view=cm&fs=1",
+    "mail_compose_url": "https://mail.google.com/mail/?view=cm&fs=1",
     "email_subject_template": "Bon de commande {order_number} - {supplier}",
     "email_body_template": (
         "Bonjour,\n\n"
@@ -173,6 +184,25 @@ DEFAULT_SETTINGS = {
         "Cordialement,\n{establishment_name}"
     ),
 }
+
+PRODUCT_OVERRIDE_FIELDS = (
+    "supplier_ref",
+    "designation",
+    "conditionnement",
+    "unit_packaging",
+    "unit_price",
+    "vat",
+)
+
+PRODUCT_SELECT = """
+    p.*,
+    po.supplier_ref AS override_supplier_ref,
+    po.designation AS override_designation,
+    po.conditionnement AS override_conditionnement,
+    po.unit_packaging AS override_unit_packaging,
+    po.unit_price AS override_unit_price,
+    po.vat AS override_vat
+"""
 
 
 def money(value: Decimal | float | int | str | None) -> Decimal:
@@ -230,7 +260,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 6")
+            connection.execute("PRAGMA user_version = 8")
 
     @staticmethod
     def _ensure_column(
@@ -262,6 +292,22 @@ class Database:
             ("sent_at", "TEXT NOT NULL DEFAULT ''"),
         ):
             self._ensure_column(connection, "orders", column, declaration)
+        legacy_mail_url = connection.execute(
+            "SELECT value FROM settings WHERE key = 'gmail_compose_url'"
+        ).fetchone()
+        current_mail_url = connection.execute(
+            "SELECT value FROM settings WHERE key = 'mail_compose_url'"
+        ).fetchone()
+        if legacy_mail_url and (
+            current_mail_url is None or not current_mail_url["value"].strip()
+        ):
+            connection.execute(
+                """
+                INSERT INTO settings(key, value) VALUES ('mail_compose_url', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (legacy_mail_url["value"],),
+            )
 
     def dashboard_stats(self) -> dict[str, object]:
         with self.connect() as connection:
@@ -380,7 +426,7 @@ class Database:
         favorite_only: bool = False,
         limit: int = 200,
         include_inactive: bool = False,
-    ) -> list[sqlite3.Row]:
+    ) -> list[dict[str, object]]:
         filters = []
         parameters: list[object] = []
         if not include_inactive:
@@ -398,42 +444,70 @@ class Database:
                 fts = self._fts_query(query)
                 if fts:
                     sql = f"""
-                        SELECT p.*
+                        SELECT {PRODUCT_SELECT}
                         FROM product_search
                         JOIN products p ON p.id = product_search.rowid
+                        LEFT JOIN product_overrides po ON po.product_id = p.id
                         WHERE product_search MATCH ? AND {where}
-                        ORDER BY p.favorite DESC, bm25(product_search), p.designation
+                        ORDER BY p.favorite DESC, bm25(product_search),
+                                 COALESCE(po.designation, p.designation)
                         LIMIT ?
                     """
-                    return list(connection.execute(sql, [fts, *parameters, limit]))
+                    rows = connection.execute(
+                        sql, [fts, *parameters, limit]
+                    )
+                    return [self._effective_product(row) for row in rows]
 
             if query:
                 like = f"%{query}%"
                 where += """
                     AND (
-                        p.code_cahpp LIKE ? OR p.supplier_ref LIKE ?
-                        OR p.designation LIKE ? OR p.supplier_name LIKE ?
+                        p.code_cahpp LIKE ?
+                        OR COALESCE(po.supplier_ref, p.supplier_ref) LIKE ?
+                        OR COALESCE(po.designation, p.designation) LIKE ?
+                        OR p.supplier_name LIKE ?
                     )
                 """
                 parameters.extend([like, like, like, like])
-            return list(
-                connection.execute(
-                    f"""
-                    SELECT p.*
-                    FROM products p
-                    WHERE {where}
-                    ORDER BY p.favorite DESC, p.supplier_name, p.designation
-                    LIMIT ?
-                    """,
-                    [*parameters, limit],
-                )
+            rows = connection.execute(
+                f"""
+                SELECT {PRODUCT_SELECT}
+                FROM products p
+                LEFT JOIN product_overrides po ON po.product_id = p.id
+                WHERE {where}
+                ORDER BY p.favorite DESC, p.supplier_name,
+                         COALESCE(po.designation, p.designation)
+                LIMIT ?
+                """,
+                [*parameters, limit],
             )
+            return [self._effective_product(row) for row in rows]
 
-    def get_product(self, product_id: int) -> sqlite3.Row | None:
+    @staticmethod
+    def _effective_product(row: sqlite3.Row) -> dict[str, object]:
+        product = dict(row)
+        has_override = False
+        for field in PRODUCT_OVERRIDE_FIELDS:
+            product[f"catalog_{field}"] = product[field]
+            override = product.get(f"override_{field}")
+            if override is not None:
+                product[field] = override
+                has_override = True
+        product["has_override"] = has_override
+        return product
+
+    def get_product(self, product_id: int) -> dict[str, object] | None:
         with self.connect() as connection:
-            return connection.execute(
-                "SELECT * FROM products WHERE id = ?", (product_id,)
+            row = connection.execute(
+                f"""
+                SELECT {PRODUCT_SELECT}
+                FROM products p
+                LEFT JOIN product_overrides po ON po.product_id = p.id
+                WHERE p.id = ?
+                """,
+                (product_id,),
             ).fetchone()
+            return self._effective_product(row) if row else None
 
     def set_favorite(
         self,
@@ -467,6 +541,7 @@ class Database:
         conditionnement: float,
         unit_price: float,
         vat: float,
+        unit_packaging: str = "",
     ) -> int:
         now = datetime.now().isoformat(timespec="seconds")
         code = f"LOCAL-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
@@ -479,8 +554,9 @@ class Database:
                 INSERT INTO products(
                     code_cahpp, supplier_id, supplier_cahpp_id, supplier_name, supplier_ref,
                     designation, conditionnement, qml, vat, unit_price,
-                    active, source, favorite, usual_cartons, created_at, updated_at
-                ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, 'LOCAL', 1, 1, ?, ?)
+                    unit_packaging, active, source, favorite, usual_cartons,
+                    created_at, updated_at
+                ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'LOCAL', 1, 1, ?, ?)
                 """,
                 (
                     code,
@@ -492,6 +568,7 @@ class Database:
                     conditionnement,
                     vat,
                     unit_price,
+                    unit_packaging.strip(),
                     now,
                     now,
                 ),
@@ -500,20 +577,180 @@ class Database:
             self._add_product_to_search(connection, product_id)
             return int(product_id)
 
+    def update_manual_product(
+        self,
+        product_id: int,
+        supplier_ref: str,
+        designation: str,
+        conditionnement: float,
+        unit_packaging: str,
+        unit_price: float,
+        vat: float,
+    ) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self.session() as connection:
+            product = connection.execute(
+                "SELECT source FROM products WHERE id = ?", (product_id,)
+            ).fetchone()
+            if product is None or product["source"] != "LOCAL":
+                raise ValueError("Cette référence n'est pas un article local.")
+            connection.execute(
+                """
+                UPDATE products
+                SET supplier_ref = ?, designation = ?, conditionnement = ?,
+                    qml = ?, unit_packaging = ?, unit_price = ?, vat = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    supplier_ref.strip(),
+                    designation.strip(),
+                    conditionnement,
+                    conditionnement,
+                    unit_packaging.strip(),
+                    unit_price,
+                    vat,
+                    now,
+                    product_id,
+                ),
+            )
+            self._add_product_to_search(connection, product_id)
+
+    def archive_manual_product(self, product_id: int) -> None:
+        with self.session() as connection:
+            product = connection.execute(
+                "SELECT source FROM products WHERE id = ?", (product_id,)
+            ).fetchone()
+            if product is None or product["source"] != "LOCAL":
+                raise ValueError("Seules les références locales sont supprimables.")
+            connection.execute(
+                """
+                UPDATE products
+                SET active = 0, favorite = 0, updated_at = ?
+                WHERE id = ?
+                """,
+                (datetime.now().isoformat(timespec="seconds"), product_id),
+            )
+            self._remove_product_from_search(connection, product_id)
+
+    def set_product_override(
+        self,
+        product_id: int,
+        supplier_ref: str,
+        designation: str,
+        conditionnement: float,
+        unit_packaging: str,
+        unit_price: float,
+        vat: float,
+    ) -> None:
+        product = self.get_product(product_id)
+        if product is None or product["source"] != "CAHPP":
+            raise ValueError("Cette référence n'est pas issue du catalogue CAHPP.")
+
+        edited: dict[str, object] = {
+            "supplier_ref": supplier_ref.strip(),
+            "designation": designation.strip(),
+            "conditionnement": conditionnement,
+            "unit_packaging": unit_packaging.strip(),
+            "unit_price": unit_price,
+            "vat": vat,
+        }
+        overrides: dict[str, object | None] = {}
+        for field, value in edited.items():
+            catalog_value = product[f"catalog_{field}"]
+            if field in {"conditionnement", "unit_price", "vat"}:
+                same = money(value) == money(catalog_value)
+            else:
+                same = str(value or "").strip() == str(
+                    catalog_value or ""
+                ).strip()
+            overrides[field] = None if same else value
+
+        now = datetime.now().isoformat(timespec="seconds")
+        with self.session() as connection:
+            if all(value is None for value in overrides.values()):
+                connection.execute(
+                    "DELETE FROM product_overrides WHERE product_id = ?",
+                    (product_id,),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO product_overrides(
+                        product_id, supplier_ref, designation, conditionnement,
+                        unit_packaging, unit_price, vat, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(product_id) DO UPDATE SET
+                        supplier_ref = excluded.supplier_ref,
+                        designation = excluded.designation,
+                        conditionnement = excluded.conditionnement,
+                        unit_packaging = excluded.unit_packaging,
+                        unit_price = excluded.unit_price,
+                        vat = excluded.vat,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        product_id,
+                        overrides["supplier_ref"],
+                        overrides["designation"],
+                        overrides["conditionnement"],
+                        overrides["unit_packaging"],
+                        overrides["unit_price"],
+                        overrides["vat"],
+                        now,
+                    ),
+                )
+            connection.execute(
+                "UPDATE products SET updated_at = ? WHERE id = ?",
+                (now, product_id),
+            )
+            self._add_product_to_search(connection, product_id)
+
+    def reset_product_override(self, product_id: int) -> None:
+        with self.session() as connection:
+            connection.execute(
+                "DELETE FROM product_overrides WHERE product_id = ?",
+                (product_id,),
+            )
+            connection.execute(
+                "UPDATE products SET updated_at = ? WHERE id = ?",
+                (datetime.now().isoformat(timespec="seconds"), product_id),
+            )
+            self._add_product_to_search(connection, product_id)
+
     @staticmethod
     def _add_product_to_search(
         connection: sqlite3.Connection, product_id: int
     ) -> None:
         try:
             connection.execute(
+                "DELETE FROM product_search WHERE rowid = ?", (product_id,)
+            )
+            connection.execute(
                 """
                 INSERT INTO product_search(
                     rowid, code_cahpp, supplier_ref, designation, supplier_name
                 )
-                SELECT id, code_cahpp, supplier_ref, designation, supplier_name
-                FROM products WHERE id = ?
+                SELECT p.id, p.code_cahpp,
+                       COALESCE(po.supplier_ref, p.supplier_ref),
+                       COALESCE(po.designation, p.designation),
+                       p.supplier_name
+                FROM products p
+                LEFT JOIN product_overrides po ON po.product_id = p.id
+                WHERE p.id = ?
                 """,
                 (product_id,),
+            )
+        except sqlite3.OperationalError:
+            pass
+
+    @staticmethod
+    def _remove_product_from_search(
+        connection: sqlite3.Connection, product_id: int
+    ) -> None:
+        try:
+            connection.execute(
+                "DELETE FROM product_search WHERE rowid = ?", (product_id,)
             )
         except sqlite3.OperationalError:
             pass
@@ -789,7 +1026,9 @@ class Database:
             sets.append("email_prepared_at = ?")
             values.append(now)
         if status == "Envoyée":
-            sets.append("sent_at = ?")
+            sets.append(
+                "sent_at = CASE WHEN sent_at = '' THEN ? ELSE sent_at END"
+            )
             values.append(now)
         values.append(order_id)
         with self.session() as connection:
@@ -973,8 +1212,12 @@ class Database:
                 INSERT INTO product_search(
                     rowid, code_cahpp, supplier_ref, designation, supplier_name
                 )
-                SELECT id, code_cahpp, supplier_ref, designation, supplier_name
-                FROM products
+                SELECT p.id, p.code_cahpp,
+                       COALESCE(po.supplier_ref, p.supplier_ref),
+                       COALESCE(po.designation, p.designation),
+                       p.supplier_name
+                FROM products p
+                LEFT JOIN product_overrides po ON po.product_id = p.id
                 """
             )
             if owns_connection:

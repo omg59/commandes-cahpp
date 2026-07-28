@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -17,7 +18,7 @@ from cahpp_app import local_services
 from cahpp_app.local_services import (
     attach_document,
     create_complete_backup,
-    prepare_gmail_order,
+    prepare_mail_order,
     remove_document,
 )
 from cahpp_app.pdf_export import generate_order_pdf
@@ -190,6 +191,8 @@ class WorkflowTest(unittest.TestCase):
         reader = PdfReader(pdf_path)
         self.assertEqual(len(reader.pages), 1)
         pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertNotIn("Code CAHPP", pdf_text)
+        self.assertNotIn("DM001", pdf_text)
         self.assertNotIn(
             "Bon de commande généré localement avec Commandes CAHPP",
             pdf_text,
@@ -223,7 +226,7 @@ class WorkflowTest(unittest.TestCase):
                 attachments[0]["stored_path"]
             ).is_file()
         )
-        compose_url, mail_folder, prepared = prepare_gmail_order(
+        compose_url, mail_folder, prepared = prepare_mail_order(
             self.database, order_id
         )
         compose_query = parse_qs(urlparse(compose_url).query)
@@ -365,13 +368,153 @@ class WorkflowTest(unittest.TestCase):
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(orders)")
             }
+            tables = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
             version = connection.execute("PRAGMA user_version").fetchone()[0]
         self.assertTrue(
             {"contact_name", "address", "website", "minimum_order_ht"}
             <= supplier_columns
         )
         self.assertTrue({"email_prepared_at", "sent_at"} <= order_columns)
-        self.assertEqual(version, 6)
+        self.assertIn("product_overrides", tables)
+        self.assertTrue(migrated.get_settings()["mail_compose_url"])
+        self.assertEqual(version, 8)
+
+    def test_product_edits_dates_and_mail_variables(self):
+        catalog_path = self.root / "catalogue.xlsx"
+        create_catalog(
+            catalog_path,
+            [self.row("DM100", "REF-100", "ARTICLE CAHPP", 1.25, 50)],
+        )
+        CatalogImporter(self.database).import_file(catalog_path)
+        product = self.database.search_products("DM100")[0]
+        supplier_id = int(product["supplier_id"])
+
+        self.database.set_product_override(
+            int(product["id"]),
+            supplier_ref="REF-CORRIGEE",
+            designation="ARTICLE CORRIGÉ",
+            conditionnement=24,
+            unit_packaging="Boîte de 24",
+            unit_price=1.10,
+            vat=5.5,
+        )
+        corrected = self.database.get_product(int(product["id"]))
+        self.assertTrue(corrected["has_override"])
+        self.assertEqual(corrected["supplier_ref"], "REF-CORRIGEE")
+        self.assertEqual(corrected["catalog_supplier_ref"], "REF-100")
+        self.assertEqual(float(corrected["conditionnement"]), 24)
+        self.assertEqual(
+            self.database.search_products("CORRIGÉE")[0]["id"], product["id"]
+        )
+
+        updated_catalog = self.root / "catalogue-2.xlsx"
+        create_catalog(
+            updated_catalog,
+            [self.row("DM100", "REF-NEW", "ARTICLE CAHPP NOUVEAU", 1.50, 60)],
+        )
+        CatalogImporter(self.database).import_file(updated_catalog)
+        after_import = self.database.get_product(int(product["id"]))
+        self.assertEqual(after_import["supplier_ref"], "REF-CORRIGEE")
+        self.assertEqual(after_import["catalog_supplier_ref"], "REF-NEW")
+        self.assertEqual(float(after_import["conditionnement"]), 24)
+
+        self.database.reset_product_override(int(product["id"]))
+        reset = self.database.get_product(int(product["id"]))
+        self.assertFalse(reset["has_override"])
+        self.assertEqual(reset["supplier_ref"], "REF-NEW")
+        self.assertEqual(float(reset["conditionnement"]), 60)
+
+        local_id = self.database.create_manual_product(
+            supplier_id,
+            "LOCAL-REF",
+            "ARTICLE LOCAL",
+            10,
+            2.0,
+            20,
+        )
+        self.database.update_manual_product(
+            local_id,
+            supplier_ref="LOCAL-MOD",
+            designation="ARTICLE LOCAL MODIFIÉ",
+            conditionnement=12,
+            unit_packaging="Carton de 12",
+            unit_price=2.5,
+            vat=10,
+        )
+        local_product = self.database.get_product(local_id)
+        self.assertEqual(local_product["supplier_ref"], "LOCAL-MOD")
+        self.assertEqual(float(local_product["conditionnement"]), 12)
+        self.database.archive_manual_product(local_id)
+        self.assertEqual(self.database.get_product(local_id)["active"], 0)
+        self.assertEqual(self.database.search_products("LOCAL-MOD"), [])
+
+        self.database.update_supplier(
+            supplier_id,
+            customer_number="CLIENT-8",
+            email="commandes@example.test",
+            phone="",
+            franco_ht=None,
+            notes="",
+        )
+        order_id = self.database.save_order(
+            supplier_id,
+            [
+                {
+                    "product_id": reset["id"],
+                    "code_cahpp": reset["code_cahpp"],
+                    "supplier_ref": reset["supplier_ref"],
+                    "designation": reset["designation"],
+                    "cartons": 1,
+                    "units_per_carton": reset["conditionnement"],
+                    "unit_price": reset["unit_price"],
+                    "vat": reset["vat"],
+                }
+            ],
+        )
+        order, _ = self.database.get_order(order_id)
+        self.assertTrue(order["created_at"])
+        with self.database.session() as connection:
+            connection.execute(
+                "UPDATE orders SET sent_at = '2026-01-02T03:04:05' WHERE id = ?",
+                (order_id,),
+            )
+        self.database.update_order_status(order_id, "Envoyée")
+        sent_order, _ = self.database.get_order(order_id)
+        self.assertEqual(sent_order["sent_at"], "2026-01-02T03:04:05")
+
+        pdf_path = generate_order_pdf(
+            self.database, order_id, self.root / "commande-mail.pdf"
+        )
+        self.assertTrue(pdf_path.is_file())
+        self.database.save_settings(
+            {
+                "mail_compose_url": "mailto:",
+                "email_subject_template": (
+                    "Commande {order_number} du {date} - {supplier}"
+                ),
+                "email_body_template": (
+                    "{establishment_name} / {customer_number} / "
+                    "{total_ht} / {total_ttc}"
+                ),
+                "establishment_name": "Clinique test",
+            }
+        )
+        compose_url, _, prepared = prepare_mail_order(self.database, order_id)
+        parsed = urlparse(compose_url)
+        query = parse_qs(parsed.query)
+        self.assertEqual(parsed.scheme, "mailto")
+        self.assertEqual(parsed.path, "commandes@example.test")
+        self.assertIn(
+            datetime.fromisoformat(order["order_date"]).strftime("%d/%m/%Y"),
+            query["subject"][0],
+        )
+        self.assertIn("Clinique test", query["body"][0])
+        self.assertEqual(len(prepared), 1)
 
 
 if __name__ == "__main__":

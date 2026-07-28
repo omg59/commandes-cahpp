@@ -13,13 +13,15 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Callable
 
+from . import __version__
 from .catalog_importer import CatalogImporter, ImportResult
 from .database import Database
 from .local_services import (
+    MAIL_TEMPLATE_VARIABLES,
     attach_document,
     create_complete_backup,
     portable_path,
-    prepare_gmail_order,
+    prepare_mail_order,
     remove_document,
     resolve_portable_path,
 )
@@ -114,6 +116,15 @@ def format_price(value: object, decimals: int = 4) -> str:
     if value is None:
         return "Prix absent"
     return f"{Decimal(str(value)):.{decimals}f}".replace(".", ",") + " €"
+
+
+def format_timestamp(value: object) -> str:
+    if not value:
+        return "—"
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return str(value)
 
 
 def format_pack(row) -> str:
@@ -262,7 +273,7 @@ class App(ttk.Frame):
 
         tk.Label(
             self.sidebar,
-            text="Local • hors ligne",
+            text=f"Version {__version__}",
             bg=COLORS["nav"],
             fg="#BDD6E5",
             font=("Segoe UI", 8),
@@ -531,6 +542,7 @@ class CatalogPage(BasePage):
         table_frame.pack(fill="both", expand=True)
         columns = (
             "favorite",
+            "source",
             "supplier",
             "reference",
             "code",
@@ -547,6 +559,7 @@ class CatalogPage(BasePage):
         )
         headings = {
             "favorite": "★",
+            "source": "Origine",
             "supplier": "Fournisseur",
             "reference": "Référence",
             "code": "Code CAHPP",
@@ -557,7 +570,8 @@ class CatalogPage(BasePage):
         }
         widths = {
             "favorite": 38,
-            "supplier": 150,
+            "source": 72,
+            "supplier": 135,
             "reference": 95,
             "code": 90,
             "designation": 480,
@@ -580,7 +594,10 @@ class CatalogPage(BasePage):
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        self.tree.bind("<Double-1>", lambda event: self.toggle_favorite())
+        self.tree.bind("<Double-1>", lambda event: self.edit_product())
+        self.tree.bind(
+            "<<TreeviewSelect>>", lambda event: self.update_product_actions()
+        )
 
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", pady=(10, 0))
@@ -598,6 +615,26 @@ class CatalogPage(BasePage):
             text="Configurer le favori",
             command=self.edit_favorite,
         ).pack(side="right", padx=8)
+        self.delete_product_button = ttk.Button(
+            bottom,
+            text="Supprimer",
+            command=self.delete_product,
+            state="disabled",
+        )
+        self.delete_product_button.pack(side="right")
+        self.reset_product_button = ttk.Button(
+            bottom,
+            text="Rétablir CAHPP",
+            command=self.reset_product,
+            state="disabled",
+        )
+        self.reset_product_button.pack(side="right", padx=8)
+        self.edit_product_button = ttk.Button(
+            bottom,
+            text="Modifier l'article",
+            command=self.edit_product,
+        )
+        self.edit_product_button.pack(side="right")
         ttk.Button(
             bottom,
             text="Commander cet article",
@@ -640,9 +677,16 @@ class CatalogPage(BasePage):
                 iid=str(row["id"]),
                 values=(
                     "★" if row["favorite"] else "",
+                    (
+                        "Local"
+                        if row["source"] == "LOCAL"
+                        else "CAHPP ✎"
+                        if row["has_override"]
+                        else "CAHPP"
+                    ),
                     row["supplier_name"],
                     row["supplier_ref"],
-                    row["code_cahpp"],
+                    "—" if row["source"] == "LOCAL" else row["code_cahpp"],
                     designation,
                     format_pack(row),
                     format_price(row["unit_price"]),
@@ -653,10 +697,78 @@ class CatalogPage(BasePage):
         self.result_label.configure(
             text=f"{len(rows)} résultat(s){suffix}"
         )
+        self.update_product_actions()
 
     def selected_product_id(self) -> int | None:
         selected = self.tree.selection()
         return int(selected[0]) if selected else None
+
+    def update_product_actions(self) -> None:
+        product_id = self.selected_product_id()
+        product = self.database.get_product(product_id) if product_id else None
+        self.delete_product_button.configure(
+            state=(
+                "normal"
+                if product and product["source"] == "LOCAL"
+                else "disabled"
+            )
+        )
+        self.reset_product_button.configure(
+            state=(
+                "normal"
+                if product and product["has_override"]
+                else "disabled"
+            )
+        )
+        self.edit_product_button.configure(
+            state="normal" if product else "disabled"
+        )
+
+    def edit_product(self) -> None:
+        product_id = self.selected_product_id()
+        if not product_id:
+            messagebox.showinfo(
+                "Article", "Sélectionnez d'abord un article.", parent=self
+            )
+            return
+        dialog = ProductEditDialog(self, self.database, product_id)
+        self.wait_window(dialog)
+        if dialog.saved:
+            self.search()
+            self.app.pages["dashboard"].invalidate()
+
+    def reset_product(self) -> None:
+        product_id = self.selected_product_id()
+        if not product_id:
+            return
+        if not messagebox.askyesno(
+            "Rétablir les valeurs CAHPP",
+            "Supprimer toutes les corrections locales de cet article ?",
+            parent=self,
+        ):
+            return
+        self.database.reset_product_override(product_id)
+        self.search()
+
+    def delete_product(self) -> None:
+        product_id = self.selected_product_id()
+        if not product_id:
+            return
+        product = self.database.get_product(product_id)
+        if product is None or product["source"] != "LOCAL":
+            return
+        if not messagebox.askyesno(
+            "Supprimer la référence locale",
+            (
+                f"Supprimer « {product['designation']} » du catalogue ?\n\n"
+                "Les anciennes commandes conserveront cette référence."
+            ),
+            parent=self,
+        ):
+            return
+        self.database.archive_manual_product(product_id)
+        self.search()
+        self.app.pages["dashboard"].invalidate()
 
     def toggle_favorite(self) -> None:
         product_id = self.selected_product_id()
@@ -712,6 +824,125 @@ class CatalogPage(BasePage):
         self._load_suppliers()
         self.search()
         self._valid = True
+
+
+class ProductEditDialog(tk.Toplevel):
+    def __init__(self, parent, database: Database, product_id: int):
+        super().__init__(parent)
+        self.database = database
+        self.product_id = product_id
+        self.product = database.get_product(product_id)
+        self.saved = False
+        if self.product is None:
+            self.destroy()
+            return
+
+        source_label = (
+            "Référence créée par l'utilisateur"
+            if self.product["source"] == "LOCAL"
+            else "Article CAHPP — les valeurs d'origine restent conservées"
+        )
+        self.title("Modifier l'article")
+        self.geometry("650x500")
+        self.minsize(580, 450)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+
+        surface = ttk.Frame(self, padding=20)
+        surface.pack(fill="both", expand=True)
+        ttk.Label(
+            surface,
+            text=str(self.product["designation"]),
+            font=("Segoe UI Semibold", 14),
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(
+            surface,
+            text=source_label,
+            style="Subtitle.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 14))
+
+        definitions = [
+            ("Référence fournisseur", "supplier_ref"),
+            ("Désignation", "designation"),
+            ("Conditionnement", "conditionnement"),
+            ("Détail du conditionnement", "unit_packaging"),
+            ("Prix unitaire HT", "unit_price"),
+            ("TVA (%)", "vat"),
+        ]
+        self.vars: dict[str, tk.StringVar] = {}
+        for row, (label, key) in enumerate(definitions, start=2):
+            ttk.Label(surface, text=label).grid(
+                row=row, column=0, sticky="w", pady=7
+            )
+            value = self.product[key]
+            variable = tk.StringVar(
+                value="" if value is None else str(value).replace(".", ",")
+            )
+            ttk.Entry(surface, textvariable=variable, width=52).grid(
+                row=row, column=1, sticky="ew", padx=(14, 0), pady=7
+            )
+            self.vars[key] = variable
+
+        if self.product["source"] == "CAHPP":
+            ttk.Label(
+                surface,
+                text=(
+                    "Les champs identiques au catalogue ne créent aucune "
+                    "correction locale. Le bouton « Rétablir CAHPP » permet "
+                    "ensuite d'annuler toutes les corrections."
+                ),
+                style="Subtitle.TLabel",
+                wraplength=570,
+            ).grid(
+                row=8, column=0, columnspan=2, sticky="w", pady=(12, 0)
+            )
+
+        actions = ttk.Frame(surface)
+        actions.grid(row=9, column=0, columnspan=2, sticky="e", pady=(20, 0))
+        ttk.Button(actions, text="Annuler", command=self.destroy).pack(
+            side="left"
+        )
+        ttk.Button(
+            actions,
+            text="Enregistrer",
+            style="Accent.TButton",
+            command=self.save,
+        ).pack(side="left", padx=(8, 0))
+        surface.columnconfigure(1, weight=1)
+
+    def save(self) -> None:
+        try:
+            designation = self.vars["designation"].get().strip()
+            if not designation:
+                raise ValueError("La désignation est obligatoire.")
+            conditionnement = float(
+                self.vars["conditionnement"].get().replace(",", ".")
+            )
+            unit_price = float(
+                self.vars["unit_price"].get().replace(",", ".")
+            )
+            vat = float(self.vars["vat"].get().replace(",", "."))
+            if conditionnement <= 0:
+                raise ValueError("Le conditionnement doit être supérieur à zéro.")
+            if unit_price < 0 or vat < 0:
+                raise ValueError("Le prix et la TVA ne peuvent pas être négatifs.")
+
+            values = {
+                "supplier_ref": self.vars["supplier_ref"].get(),
+                "designation": designation,
+                "conditionnement": conditionnement,
+                "unit_packaging": self.vars["unit_packaging"].get(),
+                "unit_price": unit_price,
+                "vat": vat,
+            }
+            if self.product["source"] == "LOCAL":
+                self.database.update_manual_product(self.product_id, **values)
+            else:
+                self.database.set_product_override(self.product_id, **values)
+            self.saved = True
+            self.destroy()
+        except ValueError as exc:
+            messagebox.showerror("Article", str(exc), parent=self)
 
 
 class OrderPage(BasePage):
@@ -1308,6 +1539,7 @@ class ManualProductDialog(tk.Toplevel):
             ("Référence fournisseur", "reference"),
             ("Désignation", "designation"),
             ("Unités par carton", "pack"),
+            ("Détail du conditionnement", "unit_packaging"),
             ("Prix unitaire HT", "price"),
             ("TVA (%)", "vat"),
         ]
@@ -1341,6 +1573,14 @@ class ManualProductDialog(tk.Toplevel):
             pack = float(self.vars["pack"].get().replace(",", "."))
             price = float(self.vars["price"].get().replace(",", "."))
             vat = float(self.vars["vat"].get().replace(",", "."))
+            if pack <= 0:
+                raise ValueError(
+                    "Le conditionnement doit être supérieur à zéro."
+                )
+            if price < 0 or vat < 0:
+                raise ValueError(
+                    "Le prix et la TVA ne peuvent pas être négatifs."
+                )
             self.product_id = self.database.create_manual_product(
                 self.supplier_id,
                 self.vars["reference"].get(),
@@ -1348,6 +1588,7 @@ class ManualProductDialog(tk.Toplevel):
                 pack,
                 price,
                 vat,
+                self.vars["unit_packaging"].get(),
             )
             self.destroy()
         except ValueError as exc:
@@ -1583,16 +1824,27 @@ class OrdersPage(BasePage):
         frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(
             frame,
-            columns=("number", "date", "supplier", "status", "ht", "ttc"),
+            columns=(
+                "number",
+                "date",
+                "created",
+                "sent",
+                "supplier",
+                "status",
+                "ht",
+                "ttc",
+            ),
             show="headings",
         )
         for column, title, width in (
             ("number", "N° commande", 125),
-            ("date", "Date", 90),
-            ("supplier", "Fournisseur", 270),
+            ("date", "Date du BC", 88),
+            ("created", "Créée le", 128),
+            ("sent", "Envoyée le", 128),
+            ("supplier", "Fournisseur", 220),
             ("status", "Statut", 95),
-            ("ht", "Total HT", 100),
-            ("ttc", "Total TTC", 100),
+            ("ht", "Total HT", 90),
+            ("ttc", "Total TTC", 90),
         ):
             self.tree.heading(column, text=title)
             self.tree.column(
@@ -1628,7 +1880,7 @@ class OrdersPage(BasePage):
         ).pack(side="left")
         ttk.Button(
             actions,
-            text="Préparer dans Gmail",
+            text="Préparer le mail",
             style="Accent.TButton",
             command=self.prepare_email,
         ).pack(side="right")
@@ -1731,26 +1983,26 @@ class OrdersPage(BasePage):
         order_id = self.selected_order()
         if not order_id:
             messagebox.showinfo(
-                "Gmail", "Sélectionnez une commande.", parent=self
+                "E-mail", "Sélectionnez une commande.", parent=self
             )
             return
         try:
-            compose_url, folder, prepared = prepare_gmail_order(
+            compose_url, folder, prepared = prepare_mail_order(
                 self.database, order_id
             )
         except (ValueError, OSError) as exc:
-            messagebox.showwarning("Gmail", str(exc), parent=self)
+            messagebox.showwarning("E-mail", str(exc), parent=self)
             return
         self.database.update_order_status(order_id, "E-mail préparé")
         webbrowser.open(compose_url)
         open_path(folder)
         self.refresh()
         messagebox.showinfo(
-            "Gmail",
-            "Le brouillon Gmail est prérempli et le dossier contenant "
+            "E-mail",
+            "Le nouveau message est prérempli et le dossier contenant "
             f"{len(prepared)} pièce(s) jointe(s) est ouvert.\n\n"
             "Dans ce dossier : Ctrl+A, puis faites glisser les fichiers "
-            "dans le message Gmail.",
+            "dans le message.",
             parent=self,
         )
 
@@ -1779,6 +2031,8 @@ class OrdersPage(BasePage):
                 values=(
                     order["order_number"],
                     order_date,
+                    format_timestamp(order["created_at"]),
+                    format_timestamp(order["sent_at"]),
                     order["supplier_name"],
                     order["status"],
                     format_price(order["total_ht"], 2),
@@ -2221,7 +2475,7 @@ class SettingsPage(BasePage):
         super().__init__(parent, app)
         self.header(
             "Paramètres",
-            "Établissement, PDF, préparation Gmail et sauvegardes.",
+            "Établissement, PDF, préparation des e-mails et sauvegardes.",
         )
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True)
@@ -2252,7 +2506,7 @@ class SettingsPage(BasePage):
         ]
         email_fields = [
             ("Objet de l'e-mail", "email_subject_template"),
-            ("Adresse de composition Gmail", "gmail_compose_url"),
+            ("Adresse de composition mail", "mail_compose_url"),
         ]
         fields = identity_fields + pdf_fields + email_fields
         self.vars = {key: tk.StringVar() for _, key in fields}
@@ -2343,13 +2597,33 @@ class SettingsPage(BasePage):
         self.email_body.grid(
             row=row, column=1, sticky="ew", padx=(14, 0), pady=5
         )
+        variables_text = "  •  ".join(
+            f"{{{name}}} : {description}"
+            for name, description in MAIL_TEMPLATE_VARIABLES.items()
+        )
+        ttk.Label(
+            email,
+            text=(
+                "Expressions utilisables dans l'objet et le message :\n"
+                + variables_text
+            ),
+            style="Surface.TLabel",
+            wraplength=820,
+            justify="left",
+        ).grid(
+            row=row + 1,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(14, 0),
+        )
         self.email_save_button = FeedbackButton(
             email,
             text="Enregistrer",
             command=self.save,
         )
         self.email_save_button.grid(
-            row=row + 1, column=1, sticky="e", pady=(18, 0)
+            row=row + 2, column=1, sticky="e", pady=(18, 0)
         )
 
         ttk.Label(
