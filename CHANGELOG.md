@@ -1,5 +1,10 @@
 # Historique des versions
 
+## 0.4.0
+
+- nouveau nom PDF : `BC-AAAA-MM-JJ_Fournisseur.pdf` ;
+- incrément journalier par fournisseur à partir de la deuxième commande.
+
 ## 0.3.0
 
 - recherche par saisie dans la liste des fournisseurs ;

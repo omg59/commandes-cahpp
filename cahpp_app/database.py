@@ -612,6 +612,35 @@ class Database:
             )
             return order, lines
 
+    def daily_supplier_order_sequence(self, order_id: int) -> int:
+        with self.connect() as connection:
+            order = connection.execute(
+                """
+                SELECT id, supplier_id, order_date
+                FROM orders
+                WHERE id = ?
+                """,
+                (order_id,),
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable")
+            return int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM orders
+                    WHERE supplier_id = ?
+                      AND order_date = ?
+                      AND id <= ?
+                    """,
+                    (
+                        order["supplier_id"],
+                        order["order_date"],
+                        order["id"],
+                    ),
+                ).fetchone()[0]
+            )
+
     def update_order_pdf(self, order_id: int, pdf_path: str) -> None:
         with self.session() as connection:
             connection.execute(

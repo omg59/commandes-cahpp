@@ -72,6 +72,21 @@ Dans **Paramètres**, il est possible de modifier :
 Lors de chaque génération ou régénération, une fenêtre **Enregistrer sous**
 permet de modifier librement le nom et la destination du PDF.
 
+Le nom proposé suit le format :
+
+```text
+BC-AAAA-MM-JJ_Fournisseur.pdf
+```
+
+S'il existe plusieurs commandes le même jour pour le même fournisseur, le
+compteur est ajouté automatiquement :
+
+```text
+BC-2026-07-28_Hartmann.pdf
+BC-2026-07-28_2_Hartmann.pdf
+BC-2026-07-28_3_Hartmann.pdf
+```
+
 ## Modifier un brouillon
 
 1. Ouvrir **Historique**.

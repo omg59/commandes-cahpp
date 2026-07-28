@@ -11,7 +11,11 @@ from pypdf import PdfReader
 from cahpp_app.catalog_importer import CatalogImporter, EXPECTED_COLUMNS
 from cahpp_app.database import Database
 from cahpp_app.pdf_export import generate_order_pdf
-from cahpp_app.ui import configured_pdf_directory, filter_supplier_names
+from cahpp_app.ui import (
+    configured_pdf_directory,
+    filter_supplier_names,
+    suggested_pdf_filename,
+)
 
 
 def create_catalog(path: Path, rows: list[dict[str, object]]) -> None:
@@ -112,6 +116,35 @@ class WorkflowTest(unittest.TestCase):
                     "vat": products[0]["vat"],
                 }
             ],
+        )
+        first_order, _ = self.database.get_order(order_id)
+        self.assertEqual(
+            suggested_pdf_filename(self.database, first_order),
+            f"BC-{first_order['order_date']}_Hartmann.pdf",
+        )
+        second_order_id = self.database.save_order(
+            supplier_id,
+            [
+                {
+                    "product_id": products[0]["id"],
+                    "code_cahpp": products[0]["code_cahpp"],
+                    "supplier_ref": products[0]["supplier_ref"],
+                    "designation": products[0]["designation"],
+                    "cartons": 1,
+                    "units_per_carton": products[0]["conditionnement"],
+                    "unit_price": products[0]["unit_price"],
+                    "vat": products[0]["vat"],
+                }
+            ],
+        )
+        second_order, _ = self.database.get_order(second_order_id)
+        self.assertEqual(
+            suggested_pdf_filename(self.database, second_order),
+            f"BC-{second_order['order_date']}_2_Hartmann.pdf",
+        )
+        self.assertEqual(
+            suggested_pdf_filename(self.database, first_order),
+            f"BC-{first_order['order_date']}_Hartmann.pdf",
         )
         pdf_path = generate_order_pdf(
             self.database, order_id, self.root / "bon-test.pdf"

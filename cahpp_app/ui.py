@@ -80,11 +80,15 @@ def configured_pdf_directory(database: Database) -> Path:
     return EXPORT_DIR
 
 
+def suggested_pdf_filename(database: Database, order) -> str:
+    sequence = database.daily_supplier_order_sequence(int(order["id"]))
+    suffix = "" if sequence == 1 else f"_{sequence}"
+    supplier = safe_filename(str(order["supplier_name"]).title())
+    return f"BC-{order['order_date']}{suffix}_{supplier}.pdf"
+
+
 def choose_pdf_path(parent, database: Database, order) -> Path | None:
-    default_name = (
-        f"{order['order_number']}-"
-        f"{safe_filename(order['supplier_name'])}.pdf"
-    )
+    default_name = suggested_pdf_filename(database, order)
     selected = filedialog.asksaveasfilename(
         parent=parent,
         title="Enregistrer le bon de commande",
