@@ -1,5 +1,16 @@
 # Historique des versions
 
+## 0.7.0
+
+- remplacement des fenêtres de confirmation après enregistrement par un retour
+  visuel temporaire directement sur le bouton concerné ;
+- confirmation non bloquante pour les paramètres, les fournisseurs, les
+  brouillons, la génération ou régénération des PDF et les sauvegardes ;
+- affichage permanent de la section active dans la navigation latérale avec
+  fond renforcé, texte en gras et liseré coloré ;
+- conservation des fenêtres uniquement pour les erreurs, avertissements,
+  décisions importantes et bilans détaillés.
+
 ## 0.6.1
 
 - correction de la fenêtre des documents liés : la barre d'actions reste

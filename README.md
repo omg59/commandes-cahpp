@@ -21,6 +21,15 @@ de commande PDF.
 - sauvegarde complète de la base et des documents liés ;
 - bon PDF commun à tous les fournisseurs.
 
+## Confort d'utilisation
+
+La section actuellement ouverte reste mise en évidence dans la barre latérale.
+Après un enregistrement réussi, le bouton concerné passe temporairement au vert
+et confirme l'action sans ouvrir de fenêtre supplémentaire.
+
+Les fenêtres restent utilisées lorsqu'une décision, une erreur, un
+avertissement ou un bilan détaillé nécessite l'attention de l'utilisateur.
+
 ## Lancement depuis les sources
 
 Python 3.11 ou 3.12 est recommandé.

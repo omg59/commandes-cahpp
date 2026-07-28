@@ -30,6 +30,8 @@ from .pdf_export import generate_order_pdf
 COLORS = {
     "nav": "#123A5A",
     "nav_hover": "#1A5276",
+    "nav_active": "#0B2B43",
+    "nav_indicator": "#65C7E8",
     "accent": "#1F6F9F",
     "accent_light": "#E8F2F8",
     "background": "#F3F6F8",
@@ -41,6 +43,61 @@ COLORS = {
     "warning": "#A36400",
     "danger": "#A33A3A",
 }
+
+
+class FeedbackButton(tk.Button):
+    """Bouton d'action avec confirmation visuelle temporaire non bloquante."""
+
+    def __init__(
+        self,
+        parent,
+        *,
+        text: str,
+        command: Callable[[], bool],
+        success_text: str = "✓ Enregistré",
+    ):
+        self._action = command
+        self._default_text = text
+        self._success_text = success_text
+        self._restore_after_id: str | None = None
+        super().__init__(
+            parent,
+            text=text,
+            command=self._run_action,
+            bg=COLORS["accent"],
+            activebackground=COLORS["nav_hover"],
+            fg="white",
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            font=("Segoe UI Semibold", 9),
+            padx=12,
+            pady=7,
+            cursor="hand2",
+        )
+
+    def _run_action(self) -> None:
+        if self._action():
+            self.show_success()
+
+    def show_success(self) -> None:
+        if self._restore_after_id:
+            self.after_cancel(self._restore_after_id)
+        self.configure(
+            text=self._success_text,
+            bg=COLORS["success"],
+            activebackground=COLORS["success"],
+        )
+        self._restore_after_id = self.after(2000, self._restore)
+
+    def _restore(self) -> None:
+        self.configure(
+            text=self._default_text,
+            bg=COLORS["accent"],
+            activebackground=COLORS["nav_hover"],
+        )
+        self._restore_after_id = None
 
 
 def format_number(value: object, decimals: int = 0) -> str:
@@ -157,6 +214,10 @@ class App(ttk.Frame):
         ).pack(fill="x")
 
         self.pages: dict[str, BasePage] = {}
+        self.nav_buttons: dict[str, tk.Button] = {}
+        self.nav_indicators: dict[str, tk.Frame] = {}
+        self.nav_rows: dict[str, tk.Frame] = {}
+        self.active_page = ""
         definitions = [
             ("dashboard", "Vue d'ensemble", DashboardPage),
             ("catalog", "Catalogue", CatalogPage),
@@ -167,8 +228,17 @@ class App(ttk.Frame):
             ("settings", "Paramètres", SettingsPage),
         ]
         for key, label, page_class in definitions:
+            nav_row = tk.Frame(self.sidebar, bg=COLORS["nav"])
+            nav_row.pack(fill="x")
+            indicator = tk.Frame(
+                nav_row,
+                bg=COLORS["nav"],
+                width=4,
+            )
+            indicator.pack(side="left", fill="y")
+            indicator.pack_propagate(False)
             button = tk.Button(
-                self.sidebar,
+                nav_row,
                 text=label,
                 anchor="w",
                 bg=COLORS["nav"],
@@ -178,11 +248,14 @@ class App(ttk.Frame):
                 bd=0,
                 highlightthickness=0,
                 font=("Segoe UI", 10),
-                padx=20,
+                padx=16,
                 pady=11,
                 command=lambda selected=key: self.show_page(selected),
             )
-            button.pack(fill="x")
+            button.pack(side="left", fill="x", expand=True)
+            self.nav_rows[key] = nav_row
+            self.nav_indicators[key] = indicator
+            self.nav_buttons[key] = button
             page = page_class(self.content, self)
             page.grid(row=0, column=0, sticky="nsew")
             self.pages[key] = page
@@ -223,6 +296,12 @@ class App(ttk.Frame):
             foreground=COLORS["text"],
         )
         style.configure(
+            "Success.Surface.TLabel",
+            background=COLORS["surface"],
+            foreground=COLORS["success"],
+            font=("Segoe UI Semibold", 9),
+        )
+        style.configure(
             "Title.TLabel",
             font=("Segoe UI Semibold", 20),
             foreground=COLORS["text"],
@@ -255,6 +334,24 @@ class App(ttk.Frame):
         style.configure("TCombobox", padding=4)
 
     def show_page(self, name: str) -> None:
+        for key, button in self.nav_buttons.items():
+            selected = key == name
+            background = (
+                COLORS["nav_active"] if selected else COLORS["nav"]
+            )
+            self.nav_rows[key].configure(bg=background)
+            self.nav_indicators[key].configure(
+                bg=COLORS["nav_indicator"] if selected else COLORS["nav"]
+            )
+            button.configure(
+                bg=background,
+                font=(
+                    ("Segoe UI Semibold", 10)
+                    if selected
+                    else ("Segoe UI", 10)
+                ),
+            )
+        self.active_page = name
         page = self.pages[name]
         page.tkraise()
         page.refresh()
@@ -759,17 +856,20 @@ class OrderPage(BasePage):
         ttk.Entry(notes_frame, textvariable=self.notes_var).pack(
             side="left", fill="x", expand=True, padx=8
         )
-        ttk.Button(
+        self.save_draft_button = FeedbackButton(
             notes_frame,
             text="Enregistrer le brouillon",
             command=self.save_draft,
-        ).pack(side="right")
-        ttk.Button(
+            success_text="✓ Brouillon enregistré",
+        )
+        self.save_draft_button.pack(side="right")
+        self.generate_button = FeedbackButton(
             notes_frame,
             text="Générer le PDF",
-            style="Accent.TButton",
             command=self.save_and_generate,
-        ).pack(side="right", padx=(0, 8))
+            success_text="✓ PDF généré",
+        )
+        self.generate_button.pack(side="right", padx=(0, 8))
 
         self.supplier_map: dict[str, int] = {}
         self._all_supplier_names: list[str] = []
@@ -1135,20 +1235,20 @@ class OrderPage(BasePage):
             parent=self,
         )
 
-    def _save(self, generate_pdf: bool) -> None:
+    def _save(self, generate_pdf: bool) -> bool:
         supplier_id = self.selected_supplier_id()
         if not supplier_id:
             messagebox.showwarning(
                 "Commande", "Choisissez un fournisseur.", parent=self
             )
-            return
+            return False
         if not self.cart:
             messagebox.showwarning(
                 "Commande", "Ajoutez au moins un article.", parent=self
             )
-            return
+            return False
         if not self._confirm_order_warnings(supplier_id):
-            return
+            return False
         editing_order_id = self.current_order_id
         order_id = self.database.save_order(
             supplier_id=supplier_id,
@@ -1173,32 +1273,18 @@ class OrderPage(BasePage):
                     parent=self,
                 )
                 self.app.refresh_pages()
-                return
+                return False
             generate_order_pdf(self.database, order_id, output)
-            messagebox.showinfo(
-                "Bon généré",
-                f"Le bon de commande a été créé :\n{output}",
-                parent=self,
-            )
             open_path(output.parent)
-        else:
-            messagebox.showinfo(
-                "Commande",
-                (
-                    "Le brouillon a été mis à jour."
-                    if editing_order_id
-                    else "Le brouillon a été enregistré."
-                ),
-                parent=self,
-            )
         self.reset_order(confirm=False)
         self.app.refresh_pages()
+        return True
 
-    def save_draft(self) -> None:
-        self._save(generate_pdf=False)
+    def save_draft(self) -> bool:
+        return self._save(generate_pdf=False)
 
-    def save_and_generate(self) -> None:
-        self._save(generate_pdf=True)
+    def save_and_generate(self) -> bool:
+        return self._save(generate_pdf=True)
 
     def refresh(self) -> None:
         self.load_suppliers()
@@ -1552,9 +1638,13 @@ class OrdersPage(BasePage):
         ttk.Button(
             actions, text="Ouvrir le PDF", command=self.open_pdf
         ).pack(side="right")
-        ttk.Button(
-            actions, text="Regénérer le PDF", command=self.regenerate_pdf
-        ).pack(side="right", padx=6)
+        self.regenerate_button = FeedbackButton(
+            actions,
+            text="Regénérer le PDF",
+            command=self.regenerate_pdf,
+            success_text="✓ PDF régénéré",
+        )
+        self.regenerate_button.pack(side="right", padx=6)
         self._refresh_after = None
 
     def _schedule_refresh(self, event=None) -> None:
@@ -1624,17 +1714,18 @@ class OrdersPage(BasePage):
                 "PDF", "Aucun PDF n'a encore été généré.", parent=self
             )
 
-    def regenerate_pdf(self) -> None:
+    def regenerate_pdf(self) -> bool:
         order_id = self.selected_order()
         if not order_id:
-            return
+            return False
         order, _ = self.database.get_order(order_id)
         output = choose_pdf_path(self, self.database, order)
         if output is None:
-            return
+            return False
         generate_order_pdf(self.database, order_id, output)
         self.refresh()
-        messagebox.showinfo("PDF", f"PDF généré :\n{output}", parent=self)
+        open_path(output.parent)
+        return True
 
     def prepare_email(self) -> None:
         order_id = self.selected_order()
@@ -1771,12 +1862,15 @@ class SuppliersPage(BasePage):
         )
         right.columnconfigure(1, weight=1)
         right.rowconfigure(notes_row, weight=1)
-        ttk.Button(
+        self.save_button = FeedbackButton(
             right,
             text="Enregistrer",
-            style="Accent.TButton",
             command=self.save,
-        ).grid(row=notes_row + 1, column=1, sticky="e", pady=(12, 0))
+            success_text="✓ Fournisseur enregistré",
+        )
+        self.save_button.grid(
+            row=notes_row + 1, column=1, sticky="e", pady=(12, 0)
+        )
         self.all_suppliers = []
 
     def filter_suppliers(self) -> None:
@@ -1799,13 +1893,13 @@ class SuppliersPage(BasePage):
         self.notes.delete("1.0", "end")
         self.notes.insert("1.0", supplier["notes"] or "")
 
-    def save(self) -> None:
+    def save(self) -> bool:
         selected = self.tree.selection()
         if not selected:
             messagebox.showinfo(
                 "Fournisseur", "Sélectionnez un fournisseur.", parent=self
             )
-            return
+            return False
         franco_text = self.fields["franco_ht"].get().strip().replace(",", ".")
         minimum_text = (
             self.fields["minimum_order_ht"].get().strip().replace(",", ".")
@@ -1819,7 +1913,7 @@ class SuppliersPage(BasePage):
                 "Le minimum et le franco doivent être des nombres.",
                 parent=self,
             )
-            return
+            return False
         self.database.update_supplier(
             int(selected[0]),
             self.fields["customer_number"].get(),
@@ -1832,9 +1926,7 @@ class SuppliersPage(BasePage):
             website=self.fields["website"].get(),
             minimum_order_ht=minimum,
         )
-        messagebox.showinfo(
-            "Fournisseur", "Configuration enregistrée.", parent=self
-        )
+        return True
 
     def refresh(self) -> None:
         self.all_suppliers = self.database.list_suppliers(used_only=True)
@@ -2189,12 +2281,14 @@ class SettingsPage(BasePage):
         ttk.Button(logo_row, text="Parcourir", command=self.browse_logo).pack(
             side="left", padx=(7, 0)
         )
-        ttk.Button(
+        self.identity_save_button = FeedbackButton(
             identity,
             text="Enregistrer",
-            style="Accent.TButton",
             command=self.save,
-        ).grid(row=row + 1, column=1, sticky="e", pady=(18, 0))
+        )
+        self.identity_save_button.grid(
+            row=row + 1, column=1, sticky="e", pady=(18, 0)
+        )
 
         row = add_fields(pdf, pdf_fields)
         ttk.Label(
@@ -2222,12 +2316,14 @@ class SettingsPage(BasePage):
             text="Afficher le numéro de page sur le PDF",
             variable=self.show_page_number_var,
         ).grid(row=row, column=1, sticky="w", padx=(14, 0), pady=7)
-        ttk.Button(
+        self.pdf_save_button = FeedbackButton(
             pdf,
             text="Enregistrer",
-            style="Accent.TButton",
             command=self.save,
-        ).grid(row=row + 1, column=1, sticky="e", pady=(18, 0))
+        )
+        self.pdf_save_button.grid(
+            row=row + 1, column=1, sticky="e", pady=(18, 0)
+        )
 
         row = add_fields(email, email_fields)
         ttk.Label(
@@ -2247,12 +2343,14 @@ class SettingsPage(BasePage):
         self.email_body.grid(
             row=row, column=1, sticky="ew", padx=(14, 0), pady=5
         )
-        ttk.Button(
+        self.email_save_button = FeedbackButton(
             email,
             text="Enregistrer",
-            style="Accent.TButton",
             command=self.save,
-        ).grid(row=row + 1, column=1, sticky="e", pady=(18, 0))
+        )
+        self.email_save_button.grid(
+            row=row + 1, column=1, sticky="e", pady=(18, 0)
+        )
 
         ttk.Label(
             backup,
@@ -2269,12 +2367,20 @@ class SettingsPage(BasePage):
             style="Surface.TLabel",
             wraplength=700,
         ).pack(anchor="w", pady=(7, 20))
-        ttk.Button(
+        self.backup_button = FeedbackButton(
             backup,
             text="Exporter une sauvegarde complète",
-            style="Accent.TButton",
             command=self.backup,
-        ).pack(anchor="w")
+            success_text="✓ Sauvegarde créée",
+        )
+        self.backup_button.pack(anchor="w")
+        self.backup_status = ttk.Label(
+            backup,
+            text="",
+            style="Success.Surface.TLabel",
+            wraplength=760,
+        )
+        self.backup_status.pack(anchor="w", pady=(10, 0))
 
     def browse_logo(self) -> None:
         path = filedialog.askopenfilename(
@@ -2299,7 +2405,7 @@ class SettingsPage(BasePage):
         if path:
             self.pdf_directory_var.set(path)
 
-    def save(self) -> None:
+    def save(self) -> bool:
         values = {key: variable.get() for key, variable in self.vars.items()}
         values["logo_path"] = self.logo_var.get()
         values["pdf_default_directory"] = self.pdf_directory_var.get()
@@ -2310,11 +2416,9 @@ class SettingsPage(BasePage):
             "1" if self.show_page_number_var.get() else "0"
         )
         self.database.save_settings(values)
-        messagebox.showinfo(
-            "Paramètres", "Les paramètres ont été enregistrés.", parent=self
-        )
+        return True
 
-    def backup(self) -> None:
+    def backup(self) -> bool:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         selected = filedialog.asksaveasfilename(
             parent=self,
@@ -2325,14 +2429,12 @@ class SettingsPage(BasePage):
             filetypes=[("Archive ZIP", "*.zip")],
         )
         if not selected:
-            return
+            return False
         destination = create_complete_backup(self.database, selected)
-        messagebox.showinfo(
-            "Sauvegarde",
-            "La base et tous les documents liés ont été sauvegardés :\n"
-            f"{destination}",
-            parent=self,
+        self.backup_status.configure(
+            text=f"Sauvegarde complète créée : {destination}"
         )
+        return True
 
     def refresh(self) -> None:
         settings = self.database.get_settings()
