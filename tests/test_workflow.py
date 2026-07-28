@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+from openpyxl import Workbook
+from pypdf import PdfReader
+
+from cahpp_app.catalog_importer import CatalogImporter, EXPECTED_COLUMNS
+from cahpp_app.database import Database
+from cahpp_app.pdf_export import generate_order_pdf
+
+
+def create_catalog(path: Path, rows: list[dict[str, object]]) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "TARIF_BASECOMPLETE"
+    sheet.append(list(EXPECTED_COLUMNS))
+    for row in rows:
+        sheet.append([row.get(column) for column in EXPECTED_COLUMNS])
+    workbook.save(path)
+
+
+class WorkflowTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.database = Database(self.root / "test.sqlite3")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def row(self, code, reference, designation, price, pack=100):
+        return {
+            "Catalogue": "DM",
+            "IDFournisseur": 11020,
+            "NomFournisseur": "HARTMANN",
+            "CodeCahpp": code,
+            "RéférenceArticle": reference,
+            "DésignationArticle": designation,
+            "Conditionnement": pack,
+            "Qml": pack,
+            "TVA": 20,
+            "Nom_Classif": "CLADIMED",
+            "Code_Classif": "TEST",
+            "PrixUnitaireCahpp": price,
+        }
+
+    def test_import_search_order_and_pdf(self):
+        first_path = self.root / "catalogue-1.xlsx"
+        create_catalog(
+            first_path,
+            [
+                self.row("DM001", "REF-A", "COMPRESSE TEST", 0.12, 100),
+                self.row("DM002", "REF-B", "GANT TEST", 0.03, 1000),
+            ],
+        )
+        first = CatalogImporter(self.database).import_file(first_path)
+        self.assertEqual(first.row_count, 2)
+        self.assertEqual(first.added_count, 2)
+
+        products = self.database.search_products("compresse")
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]["supplier_ref"], "REF-A")
+        supplier_id = products[0]["supplier_id"]
+        self.database.update_supplier(
+            supplier_id,
+            customer_number="CLIENT-42",
+            email="commandes@example.test",
+            phone="",
+            franco_ht=50,
+            notes="",
+        )
+        self.database.save_settings(
+            {
+                "establishment_name": "Établissement de démonstration",
+                "establishment_subtitle": "Service de soins",
+                "address_line1": "1 rue du Test",
+                "postal_city": "59000 Lille",
+                "finess": "590000000",
+            }
+        )
+        order_id = self.database.save_order(
+            supplier_id,
+            [
+                {
+                    "product_id": products[0]["id"],
+                    "code_cahpp": products[0]["code_cahpp"],
+                    "supplier_ref": products[0]["supplier_ref"],
+                    "designation": products[0]["designation"],
+                    "cartons": 2,
+                    "units_per_carton": products[0]["conditionnement"],
+                    "unit_price": products[0]["unit_price"],
+                    "vat": products[0]["vat"],
+                }
+            ],
+        )
+        pdf_path = generate_order_pdf(
+            self.database, order_id, self.root / "bon-test.pdf"
+        )
+        self.assertTrue(pdf_path.is_file())
+        self.assertEqual(len(PdfReader(pdf_path).pages), 1)
+
+        second_path = self.root / "catalogue-2.xlsx"
+        create_catalog(
+            second_path,
+            [
+                self.row("DM001", "REF-A", "COMPRESSE TEST", 0.14, 120),
+                self.row("DM003", "REF-C", "PANSEMENT TEST", 0.50, 20),
+            ],
+        )
+        second = CatalogImporter(self.database).import_file(second_path)
+        self.assertEqual(second.added_count, 1)
+        self.assertEqual(second.updated_count, 1)
+        self.assertEqual(second.missing_count, 1)
+        self.assertEqual(
+            float(self.database.search_products("REF-A")[0]["unit_price"]), 0.14
+        )
+        old_product = self.database.search_products(
+            "REF-B", include_inactive=True
+        )[0]
+        self.assertEqual(old_product["active"], 0)
+        backup_path = self.database.backup(self.root / "backup.sqlite3")
+        self.assertTrue(backup_path.is_file())
+        self.assertEqual(
+            Database(backup_path).dashboard_stats()["products"], 2
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
