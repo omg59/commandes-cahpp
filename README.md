@@ -42,11 +42,18 @@ Un numéro de commande est réservé de manière commune. Une commande ou un art
 en cours de modification est temporairement verrouillé au nom de l'utilisateur.
 Les autres commandes restent utilisables en parallèle.
 
-La synchronisation s'effectue au démarrage, toutes les 30 secondes, après les
-actions importantes et à la demande. Les PDF et documents reçus sont aussi mis
-en cache localement. Si le réseau disparaît, l'historique reste consultable ;
-les modifications nécessitant un verrou sont bloquées jusqu'au retour du
-partage afin d'éviter les conflits.
+La synchronisation s'effectue au démarrage, selon le délai choisi, après les
+actions importantes et à la demande. Le délai automatique est configurable
+dans **Paramètres > Collaboration**, de 15 secondes à 10 minutes.
+
+Par défaut, la synchronisation automatique se met en pause dès que la fiche
+établissement ou une fiche fournisseur contient une saisie non enregistrée.
+Le formulaire affiché est également protégé contre un rafraîchissement déjà en
+cours. L'enregistrement déclenche ensuite immédiatement la synchronisation.
+
+Les PDF et documents reçus sont aussi mis en cache localement. Si le réseau
+disparaît, l'historique reste consultable ; les modifications nécessitant un
+verrou sont bloquées jusqu'au retour du partage afin d'éviter les conflits.
 
 ## Confort d'utilisation
 
@@ -267,7 +274,8 @@ Les coordonnées, le minimum de commande et le franco se configurent dans
 - le franco n'est pas atteint.
 
 L'utilisateur peut confirmer et continuer si le fournisseur accepte une
-exception.
+exception. Ces vérifications sont strictement internes : le PDF envoyé au
+fournisseur ne mentionne jamais si le franco est atteint ou non.
 
 ## Sauvegarde complète
 

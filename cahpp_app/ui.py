@@ -60,6 +60,15 @@ COLORS = {
     "danger": "#A33A3A",
 }
 
+SYNC_INTERVAL_OPTIONS = {
+    "15 secondes": "15",
+    "30 secondes": "30",
+    "1 minute": "60",
+    "2 minutes": "120",
+    "5 minutes": "300",
+    "10 minutes": "600",
+}
+
 
 class FeedbackButton(tk.Button):
     """Bouton d'action avec confirmation visuelle temporaire non bloquante."""
@@ -214,6 +223,7 @@ class App(ttk.Frame):
         self._syncing = False
         self._catalog_prompted_hash = ""
         self._periodic_started = False
+        self._periodic_after_id: str | None = None
         self.last_sync_result: dict[str, object] | None = None
         self.last_sync_error = ""
         self.collaboration: CollaborationManager | None = None
@@ -430,13 +440,58 @@ class App(ttk.Frame):
         if self._periodic_started:
             return
         self._periodic_started = True
-        self.root.after(30000, self._periodic_collaboration)
+        self._schedule_periodic_collaboration()
+
+    def _sync_interval_ms(self) -> int:
+        raw = self.database.get_settings().get(
+            "sync_interval_seconds", "60"
+        )
+        try:
+            seconds = int(raw)
+        except ValueError:
+            seconds = 60
+        return max(15, min(seconds, 3600)) * 1000
+
+    def _schedule_periodic_collaboration(self) -> None:
+        self._periodic_after_id = self.root.after(
+            self._sync_interval_ms(), self._periodic_collaboration
+        )
+
+    def reschedule_periodic_collaboration(self) -> None:
+        if self._periodic_after_id:
+            self.root.after_cancel(self._periodic_after_id)
+            self._periodic_after_id = None
+        if self.collaboration:
+            self._periodic_started = True
+            self._schedule_periodic_collaboration()
+        else:
+            self._periodic_started = False
+
+    def _has_unsaved_team_changes(self) -> bool:
+        for name in ("settings", "suppliers"):
+            page = self.pages.get(name)
+            if page and page.has_unsaved_changes():
+                return True
+        return False
 
     def _periodic_collaboration(self) -> None:
+        self._periodic_after_id = None
         if self.collaboration:
             self.collaboration.refresh_active_locks()
-            self.sync_collaboration()
-            self.root.after(30000, self._periodic_collaboration)
+            pause = (
+                self.database.get_settings().get(
+                    "pause_sync_while_editing", "1"
+                )
+                != "0"
+            )
+            if pause and self._has_unsaved_team_changes():
+                self.sync_label.configure(
+                    text="Synchro en pause • saisie en cours",
+                    fg="#F0C36A",
+                )
+            else:
+                self.sync_collaboration()
+            self._schedule_periodic_collaboration()
         else:
             self._periodic_started = False
 
@@ -476,7 +531,10 @@ class App(ttk.Frame):
                 messagebox.showwarning(
                     "Synchronisation", str(error), parent=self.root
                 )
-            if self.active_page == "settings":
+            if (
+                self.active_page == "settings"
+                and not self.pages["settings"].has_unsaved_changes()
+            ):
                 self.pages["settings"].refresh()
             return
         self.last_sync_result = result
@@ -493,7 +551,10 @@ class App(ttk.Frame):
                 fg="#9FE0BE",
             )
         self.refresh_pages()
-        if self.active_page == "settings":
+        if (
+            self.active_page == "settings"
+            and not self.pages["settings"].has_unsaved_changes()
+        ):
             self.pages["settings"].refresh()
         if result and result.get("catalog_pending"):
             self._offer_shared_catalog()
@@ -750,6 +811,9 @@ class BasePage(ttk.Frame):
 
     def invalidate(self) -> None:
         self._valid = False
+
+    def has_unsaved_changes(self) -> bool:
+        return False
 
     def refresh(self) -> None:
         self._valid = True
@@ -2633,6 +2697,9 @@ class OrdersPage(BasePage):
 class SuppliersPage(BasePage):
     def __init__(self, parent, app):
         super().__init__(parent, app)
+        self._supplier_baseline: dict[str, object] | None = None
+        self._loaded_supplier_id: int | None = None
+        self._restoring_selection = False
         self.header(
             "Fournisseurs",
             "Coordonnées, destinataire des commandes et seuils commerciaux.",
@@ -2724,15 +2791,56 @@ class SuppliersPage(BasePage):
                 )
 
     def load_selected(self) -> None:
+        if self._restoring_selection:
+            return
         selected = self.tree.selection()
         if not selected:
             return
-        supplier = self.database.get_supplier(int(selected[0]))
+        supplier_id = int(selected[0])
+        if (
+            self._loaded_supplier_id is not None
+            and supplier_id != self._loaded_supplier_id
+            and self.has_unsaved_changes()
+        ):
+            discard = messagebox.askyesno(
+                "Modifications non enregistrées",
+                (
+                    "Abandonner les modifications en cours et ouvrir "
+                    "un autre fournisseur ?"
+                ),
+                icon="warning",
+                parent=self,
+            )
+            if not discard:
+                self._restoring_selection = True
+                self.tree.selection_set(str(self._loaded_supplier_id))
+                self.tree.see(str(self._loaded_supplier_id))
+                self._restoring_selection = False
+                return
+        supplier = self.database.get_supplier(supplier_id)
+        if supplier is None:
+            return
+        self._loaded_supplier_id = supplier_id
         for key, variable in self.fields.items():
             value = supplier[key]
             variable.set("" if value is None else str(value).replace(".", ","))
         self.notes.delete("1.0", "end")
         self.notes.insert("1.0", supplier["notes"] or "")
+        self._supplier_baseline = self._current_supplier_values()
+
+    def _current_supplier_values(self) -> dict[str, object]:
+        values: dict[str, object] = {
+            key: variable.get() for key, variable in self.fields.items()
+        }
+        values["notes"] = self.notes.get("1.0", "end").strip()
+        values["supplier_id"] = self._loaded_supplier_id
+        return values
+
+    def has_unsaved_changes(self) -> bool:
+        return (
+            self._supplier_baseline is not None
+            and self._current_supplier_values() != self._supplier_baseline
+        )
 
     def save(self) -> bool:
         selected = self.tree.selection()
@@ -2767,12 +2875,21 @@ class SuppliersPage(BasePage):
             website=self.fields["website"].get(),
             minimum_order_ht=minimum,
         )
+        self._supplier_baseline = self._current_supplier_values()
         self.app.sync_team_data()
         return True
 
     def refresh(self) -> None:
+        if self.has_unsaved_changes():
+            self._valid = True
+            return
+        selected_id = self._loaded_supplier_id
         self.all_suppliers = self.database.list_suppliers(used_only=True)
         self.filter_suppliers()
+        if selected_id is not None and self.tree.exists(str(selected_id)):
+            self.tree.selection_set(str(selected_id))
+            self.tree.see(str(selected_id))
+            self.load_selected()
         self._valid = True
 
 
@@ -3119,6 +3236,7 @@ class ImportPage(BasePage):
 class SettingsPage(BasePage):
     def __init__(self, parent, app):
         super().__init__(parent, app)
+        self._form_baseline: dict[str, object] | None = None
         self.header(
             "Paramètres",
             "Établissement, PDF, préparation des e-mails et sauvegardes.",
@@ -3354,12 +3472,41 @@ class SettingsPage(BasePage):
             text="Parcourir",
             command=self.browse_shared_directory,
         ).grid(row=4, column=2, sticky="e", padx=(7, 0), pady=7)
+        ttk.Label(
+            collaboration,
+            text="Synchronisation automatique",
+            style="Surface.TLabel",
+        ).grid(row=5, column=0, sticky="w", pady=7)
+        self.sync_interval_var = tk.StringVar(value="1 minute")
+        ttk.Combobox(
+            collaboration,
+            textvariable=self.sync_interval_var,
+            values=tuple(SYNC_INTERVAL_OPTIONS),
+            state="readonly",
+            width=20,
+        ).grid(row=5, column=1, sticky="w", padx=(14, 0), pady=7)
+        self.pause_sync_editing_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            collaboration,
+            text=(
+                "Mettre la synchronisation en pause pendant une saisie "
+                "non enregistrée"
+            ),
+            variable=self.pause_sync_editing_var,
+        ).grid(
+            row=6,
+            column=1,
+            columnspan=2,
+            sticky="w",
+            padx=(14, 0),
+            pady=7,
+        )
         collaboration.columnconfigure(1, weight=1)
         collab_actions = ttk.Frame(
             collaboration, style="Surface.TFrame"
         )
         collab_actions.grid(
-            row=5, column=1, columnspan=2, sticky="w", padx=(14, 0), pady=(12, 0)
+            row=7, column=1, columnspan=2, sticky="w", padx=(14, 0), pady=(12, 0)
         )
         ttk.Button(
             collab_actions,
@@ -3396,7 +3543,7 @@ class SettingsPage(BasePage):
             justify="left",
         )
         self.collaboration_status.grid(
-            row=6,
+            row=8,
             column=0,
             columnspan=3,
             sticky="w",
@@ -3528,7 +3675,14 @@ class SettingsPage(BasePage):
             "1" if self.collaboration_enabled_var.get() else "0"
         )
         values["shared_workspace_path"] = shared_path
+        values["sync_interval_seconds"] = SYNC_INTERVAL_OPTIONS.get(
+            self.sync_interval_var.get(), "60"
+        )
+        values["pause_sync_while_editing"] = (
+            "1" if self.pause_sync_editing_var.get() else "0"
+        )
         self.database.save_settings(values)
+        self._form_baseline = self._current_form_values()
         collaboration_changed = any(
             previous.get(key, "") != values.get(key, "")
             for key in (
@@ -3549,7 +3703,39 @@ class SettingsPage(BasePage):
                 return False
         elif self.app.collaboration:
             self.app.sync_team_data()
+        self.app.reschedule_periodic_collaboration()
         return True
+
+    def _current_form_values(self) -> dict[str, object]:
+        values: dict[str, object] = {
+            key: variable.get() for key, variable in self.vars.items()
+        }
+        values.update(
+            {
+                "logo_path": self.logo_var.get(),
+                "pdf_default_directory": self.pdf_directory_var.get(),
+                "email_body_template": self.email_body.get(
+                    "1.0", "end"
+                ).strip(),
+                "pdf_show_page_number": self.show_page_number_var.get(),
+                "user_name": self.user_name_var.get(),
+                "collaboration_enabled": (
+                    self.collaboration_enabled_var.get()
+                ),
+                "shared_workspace_path": self.shared_path_var.get(),
+                "sync_interval": self.sync_interval_var.get(),
+                "pause_sync_while_editing": (
+                    self.pause_sync_editing_var.get()
+                ),
+            }
+        )
+        return values
+
+    def has_unsaved_changes(self) -> bool:
+        return (
+            self._form_baseline is not None
+            and self._current_form_values() != self._form_baseline
+        )
 
     def backup(self) -> bool:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -3570,6 +3756,9 @@ class SettingsPage(BasePage):
         return True
 
     def refresh(self) -> None:
+        if self.has_unsaved_changes():
+            self._valid = True
+            return
         settings = self.database.get_settings()
         for key, variable in self.vars.items():
             variable.set(settings.get(key, ""))
@@ -3588,6 +3777,19 @@ class SettingsPage(BasePage):
         self.shared_path_var.set(settings.get("shared_workspace_path", ""))
         self.collaboration_enabled_var.set(
             settings.get("collaboration_enabled", "0") == "1"
+        )
+        interval_seconds = settings.get("sync_interval_seconds", "60")
+        interval_label = next(
+            (
+                label
+                for label, seconds in SYNC_INTERVAL_OPTIONS.items()
+                if seconds == interval_seconds
+            ),
+            "1 minute",
+        )
+        self.sync_interval_var.set(interval_label)
+        self.pause_sync_editing_var.set(
+            settings.get("pause_sync_while_editing", "1") != "0"
         )
         if self.app.collaboration:
             last_sync = settings.get("collaboration_last_sync_at", "")
@@ -3628,6 +3830,7 @@ class SettingsPage(BasePage):
             self.collaboration_status.configure(
                 text="Mode local.", foreground=COLORS["muted"]
             )
+        self._form_baseline = self._current_form_values()
         self._valid = True
 
 

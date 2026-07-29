@@ -64,7 +64,7 @@ généré, envoyé ou documenté une commande.
 La synchronisation s'exécute :
 
 - au lancement ;
-- toutes les 30 secondes ;
+- selon le délai configuré dans les paramètres ;
 - après une modification importante ;
 - avec **Synchroniser maintenant**.
 
@@ -108,4 +108,3 @@ Dans **Paramètres > Collaboration**, choisir le nouvel emplacement, tester
 l'accès puis enregistrer. Pour conserver l'historique commun, copier auparavant
 l'intégralité de l'ancien dossier partagé vers le nouveau lorsque les deux
 applications sont fermées.
-

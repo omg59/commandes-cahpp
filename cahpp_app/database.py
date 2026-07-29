@@ -229,6 +229,8 @@ DEFAULT_SETTINGS = {
     "collaboration_last_sync_at": "",
     "collaboration_catalog_hash": "",
     "collaboration_catalog_version": "",
+    "sync_interval_seconds": "60",
+    "pause_sync_while_editing": "1",
     "team_settings_updated_at": "",
     "team_settings_updated_by": "",
 }
@@ -481,7 +483,7 @@ class Database:
         if any(key in TEAM_SETTING_KEYS for key in prepared):
             prepared.setdefault(
                 "team_settings_updated_at",
-                datetime.now().isoformat(timespec="seconds"),
+                datetime.now().isoformat(timespec="microseconds"),
             )
             prepared.setdefault(
                 "team_settings_updated_by", self.current_user_name
@@ -558,7 +560,7 @@ class Database:
                     franco_ht,
                     minimum_order_ht,
                     notes.strip(),
-                    datetime.now().isoformat(timespec="seconds"),
+                    datetime.now().isoformat(timespec="microseconds"),
                     actor_name,
                     supplier_id,
                 ),

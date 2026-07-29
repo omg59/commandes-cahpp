@@ -1,0 +1,56 @@
+COMMANDES CAHPP — CANDIDATE V1.0.0 RC3
+======================================
+
+Cette candidate reprend toutes les fonctions de la RC2 et protège les
+formulaires contre les synchronisations effectuées pendant une saisie.
+
+MIGRATION DE LA BASE
+--------------------
+
+Le schéma reste en version 10. Les bases 0.9.0, RC1 et RC2 sont migrées
+automatiquement sans réimporter le catalogue.
+
+INSTALLATION
+------------
+
+1. Fermer la version précédente.
+2. Sauvegarder data\commandes_cahpp.sqlite3, documents\ et assets\.
+3. Compiler la candidate avec build_windows.bat.
+4. Installer le dossier portable localement sur chaque PC.
+5. Restaurer la base et les dossiers uniquement sur le poste correspondant.
+6. Ne jamais copier une base déjà personnalisée d'un utilisateur vers l'autre.
+7. Vérifier le nom d'utilisateur et le dossier partagé.
+
+SYNCHRONISATION PENDANT LA SAISIE
+--------------------------------
+
+Dans Paramètres > Collaboration :
+
+- choisir un délai entre 15 secondes et 10 minutes ;
+- conserver de préférence l'option de pause pendant une saisie non enregistrée.
+
+Cette protection concerne la fiche établissement, les réglages associés et les
+fiches fournisseurs. Le texte « Synchro en pause - saisie en cours » apparaît
+dans la barre latérale lorsqu'une échéance est différée.
+
+Après Enregistrer, les données sont synchronisées immédiatement.
+
+FRANCO DE PORT
+--------------
+
+Le contrôle du minimum de commande et du franco reste affiché dans
+l'application avant la commande. Aucune mention du franco atteint ou non
+atteint n'est désormais inscrite sur le PDF destiné au fournisseur.
+
+DIAGNOSTIC ET VALIDATION
+------------------------
+
+Ouvrir Paramètres > Collaboration > Diagnostic puis suivre
+CHECKLIST_VALIDATION_V1.md sur les deux postes.
+
+En cas de problème :
+
+1. ne pas supprimer manuellement les fichiers du dossier partagé ;
+2. exporter le diagnostic de chaque poste ;
+3. noter l'action qui vient d'être effectuée ;
+4. revenir temporairement à la copie sauvegardée si nécessaire.

@@ -1,5 +1,23 @@
 # Historique des versions
 
+## 1.0.0-rc3
+
+- ajout d'un délai de synchronisation automatique configurable de 15 secondes
+  à 10 minutes, avec une minute par défaut ;
+- ajout de l'option, activée par défaut, mettant la synchronisation automatique
+  en pause lorsqu'une fiche contient des modifications non enregistrées ;
+- détection des saisies en cours dans les paramètres de l'établissement et
+  dans les fiches fournisseurs ;
+- protection contre le rafraîchissement d'un formulaire modifié, y compris
+  lorsqu'une synchronisation avait déjà commencé avant la saisie ;
+- reprise et synchronisation immédiate après l'enregistrement ;
+- avertissement avant d'abandonner une fiche fournisseur non enregistrée ;
+- précision accrue des horodatages collaboratifs afin qu'une sauvegarde faite
+  juste après une réception soit toujours considérée comme la plus récente ;
+- suppression de toute mention du franco atteint ou non atteint dans le PDF ;
+- conservation du contrôle du franco uniquement dans l'interface, avant
+  l'enregistrement ou la génération de la commande.
+
 ## 1.0.0-rc2
 
 - ajout de **Supprimer le brouillon** dans l'historique ;

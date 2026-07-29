@@ -22,6 +22,12 @@ un même dossier partagé.
 - [ ] Les favoris, corrections et produits hors catalogue sont récupérés.
 - [ ] Les anciennes commandes du poste principal apparaissent sur le second.
 - [ ] Après synchronisation, aucun poste n'indique de commande en attente.
+- [ ] Le délai automatique choisi dans les paramètres est conservé après
+      redémarrage.
+- [ ] Une fiche établissement non enregistrée ne se vide pas pendant une
+      synchronisation.
+- [ ] Une fiche fournisseur non enregistrée ne se vide pas pendant une
+      synchronisation.
 
 ## Commandes et numérotation
 
@@ -58,6 +64,8 @@ un même dossier partagé.
 ## PDF et documents
 
 - [ ] Le PDF d'une commande est ouvrable depuis l'autre poste.
+- [ ] Le PDF ne contient aucune mention « Franco atteint » ou
+      « Franco non atteint ».
 - [ ] Un bon de livraison ajouté sur A est visible et ouvrable sur B.
 - [ ] Une pièce marquée « Joint au mail » est proposée sur l'autre poste.
 - [ ] Le rapport de diagnostic ne contient aucun nom d'article ou tarif.

@@ -204,6 +204,8 @@ class WorkflowTest(unittest.TestCase):
             "Bon de commande généré localement avec Commandes CAHPP",
             pdf_text,
         )
+        self.assertNotIn("Franco non atteint", pdf_text)
+        self.assertNotIn("Franco atteint", pdf_text)
 
         duplicated_id = self.database.duplicate_order(order_id)
         duplicated_order, duplicated_lines = self.database.get_order(
@@ -398,7 +400,10 @@ class WorkflowTest(unittest.TestCase):
         )
         self.assertTrue({"email_prepared_at", "sent_at"} <= order_columns)
         self.assertIn("product_overrides", tables)
-        self.assertTrue(migrated.get_settings()["mail_compose_url"])
+        migrated_settings = migrated.get_settings()
+        self.assertTrue(migrated_settings["mail_compose_url"])
+        self.assertEqual(migrated_settings["sync_interval_seconds"], "60")
+        self.assertEqual(migrated_settings["pause_sync_while_editing"], "1")
         self.assertEqual(version, 10)
 
     def test_product_edits_dates_and_mail_variables(self):
@@ -688,7 +693,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.0-rc1",
+            "1.0.0-rc3",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,

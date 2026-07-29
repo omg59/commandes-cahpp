@@ -34,7 +34,6 @@ MID_BLUE = colors.HexColor("#D5E6F3")
 DARK = colors.HexColor("#1F2933")
 GREY = colors.HexColor("#64748B")
 LIGHT_GREY = colors.HexColor("#F6F8FA")
-WARNING = colors.HexColor("#FFF1D6")
 
 REGULAR_FONT = "Helvetica"
 BOLD_FONT = "Helvetica-Bold"
@@ -400,39 +399,6 @@ def generate_order_pdf(
     )
 
     notes = []
-    franco = order["franco_ht"]
-    if franco is not None:
-        if _decimal(order["total_ht"]) < _decimal(franco):
-            remaining = _decimal(franco) - _decimal(order["total_ht"])
-            notes.append(
-                Table(
-                    [
-                        [
-                            Paragraph(
-                                "<b>Franco non atteint</b><br/>"
-                                f"Il manque {_currency(remaining)} pour atteindre "
-                                f"le seuil de {_currency(franco)}.",
-                                body,
-                            )
-                        ]
-                    ],
-                    colWidths=[96 * mm],
-                    style=TableStyle(
-                        [
-                            ("BACKGROUND", (0, 0), (-1, -1), WARNING),
-                            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#E5B85C")),
-                            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                            ("TOPPADDING", (0, 0), (-1, -1), 7),
-                            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-                        ]
-                    ),
-                )
-            )
-        else:
-            notes.append(
-                Paragraph(f"Franco atteint : {_currency(franco)} HT.", small)
-            )
     if order["notes"]:
         notes.append(Paragraph(f"<b>Note :</b> {_safe(order['notes'])}", body))
     summary = Table(
