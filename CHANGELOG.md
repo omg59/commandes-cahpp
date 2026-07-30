@@ -1,5 +1,23 @@
 # Historique des versions
 
+## 1.0.0-rc4c
+
+- remplacement du menu déroulant natif ouvert pendant la recherche d'un
+  fournisseur par une liste de suggestions intégrée qui ne prend pas le focus
+  clavier ;
+- saisie continue de plusieurs lettres sans devoir recliquer dans le champ ;
+- navigation possible dans les suggestions avec les flèches, la touche Entrée
+  ou la souris ;
+- réorganisation des actions de l'historique sur deux lignes afin d'éviter les
+  boutons tronqués avec la mise à l'échelle de Windows ;
+- remplacement de **Regénérer le PDF** par
+  **Régénérer la commande** ;
+- remplacement de **Documents / bon de livraison** par
+  **Documents associés** ;
+- suppression du raccourci redondant **Ajouter un bon de livraison** dans la
+  fenêtre des documents ; le type reste disponible avec
+  **Ajouter un document…**.
+
 ## 1.0.0-rc4b
 
 - remplacement du libellé **Générer le PDF** par

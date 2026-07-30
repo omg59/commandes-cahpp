@@ -726,7 +726,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.0-rc4b",
+            "1.0.0-rc4c",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,

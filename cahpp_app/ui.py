@@ -1614,6 +1614,18 @@ class OrderPage(BasePage):
             "<<ComboboxSelected>>", lambda event: self.supplier_changed()
         )
         self.supplier_box.bind("<KeyRelease>", self._filter_suppliers)
+        self.supplier_box.bind("<Down>", self._move_supplier_suggestion)
+        self.supplier_box.bind(
+            "<Up>",
+            lambda event: self._move_supplier_suggestion(event, -1),
+        )
+        self.supplier_box.bind(
+            "<FocusOut>",
+            lambda event: self.after(
+                120, self._hide_supplier_suggestions_if_unused
+            ),
+            add="+",
+        )
         self.franco_label = ttk.Label(top, text="", style="Subtitle.TLabel")
         self.franco_label.pack(side="left")
         self.mode_label = ttk.Label(top, text="", style="Subtitle.TLabel")
@@ -1809,6 +1821,24 @@ class OrderPage(BasePage):
         )
         self.generate_button.pack(side="right", padx=(0, 8))
 
+        self.supplier_suggestions = tk.Listbox(
+            self,
+            activestyle="dotbox",
+            exportselection=False,
+            font=("Segoe UI", 9),
+            bg="white",
+            fg=COLORS["text"],
+            selectbackground=COLORS["accent"],
+            selectforeground="white",
+            relief="solid",
+            borderwidth=1,
+            highlightthickness=0,
+        )
+        self.supplier_suggestions.bind(
+            "<ButtonRelease-1>",
+            self._choose_supplier_suggestion,
+        )
+        self._supplier_matches: list[str] = []
         self.supplier_map: dict[str, int] = {}
         self._all_supplier_names: list[str] = []
         self.cart: list[dict[str, object]] = []
@@ -1832,13 +1862,14 @@ class OrderPage(BasePage):
             self.supplier_var.set("")
 
     def _filter_suppliers(self, event=None) -> None:
+        if event and event.keysym in {"Escape", "Tab"}:
+            self._hide_supplier_suggestions()
+            return
         if event and event.keysym in {
             "Up",
             "Down",
             "Left",
             "Right",
-            "Escape",
-            "Tab",
             "Shift_L",
             "Shift_R",
         }:
@@ -1853,31 +1884,90 @@ class OrderPage(BasePage):
             elif len(matches) == 1:
                 self.supplier_var.set(matches[0])
                 self.supplier_changed()
+            else:
+                self._accept_selected_supplier()
+            self._hide_supplier_suggestions()
             return
         if self.supplier_var.get().strip() and matches:
-            self.after_idle(self._open_supplier_dropdown)
-        elif not matches:
-            self._close_supplier_dropdown()
+            self._show_supplier_suggestions(matches)
+        else:
+            self._hide_supplier_suggestions()
 
-    def _open_supplier_dropdown(self) -> None:
-        if self.focus_get() != self.supplier_box:
-            return
-        try:
-            self.supplier_box.tk.call(
-                "ttk::combobox::Post",
-                str(self.supplier_box),
-            )
-        except tk.TclError:
-            self.supplier_box.event_generate("<Down>")
+    def _show_supplier_suggestions(self, matches: list[str]) -> None:
+        self._supplier_matches = matches
+        self.supplier_suggestions.delete(0, tk.END)
+        for name in matches:
+            self.supplier_suggestions.insert(tk.END, name)
+        rows = min(9, len(matches))
+        self.supplier_suggestions.configure(height=rows)
+        self.update_idletasks()
+        x = self.supplier_box.winfo_rootx() - self.winfo_rootx()
+        y = (
+            self.supplier_box.winfo_rooty()
+            - self.winfo_rooty()
+            + self.supplier_box.winfo_height()
+        )
+        width = max(220, self.supplier_box.winfo_width())
+        row_height = max(20, self.supplier_box.winfo_height())
+        self.supplier_suggestions.place(
+            x=x,
+            y=y,
+            width=width,
+            height=rows * row_height + 2,
+        )
+        self.supplier_suggestions.lift()
+        self.supplier_suggestions.selection_clear(0, tk.END)
+        self.supplier_suggestions.selection_set(0)
+        self.supplier_suggestions.activate(0)
 
-    def _close_supplier_dropdown(self) -> None:
-        try:
-            self.supplier_box.tk.call(
-                "ttk::combobox::Unpost",
-                str(self.supplier_box),
+    def _hide_supplier_suggestions(self) -> None:
+        self.supplier_suggestions.place_forget()
+        self._supplier_matches = []
+
+    def _hide_supplier_suggestions_if_unused(self) -> None:
+        focused = self.focus_get()
+        if focused not in (self.supplier_box, self.supplier_suggestions):
+            self._hide_supplier_suggestions()
+
+    def _move_supplier_suggestion(self, event=None, direction: int = 1):
+        if not self._supplier_matches:
+            matches = filter_supplier_names(
+                self._all_supplier_names,
+                self.supplier_var.get(),
             )
-        except tk.TclError:
-            pass
+            if matches:
+                self._show_supplier_suggestions(matches)
+        if not self._supplier_matches:
+            return "break"
+        selected = self.supplier_suggestions.curselection()
+        current = selected[0] if selected else (-1 if direction > 0 else 0)
+        target = max(
+            0,
+            min(len(self._supplier_matches) - 1, current + direction),
+        )
+        self.supplier_suggestions.selection_clear(0, tk.END)
+        self.supplier_suggestions.selection_set(target)
+        self.supplier_suggestions.activate(target)
+        self.supplier_suggestions.see(target)
+        return "break"
+
+    def _accept_selected_supplier(self) -> bool:
+        selected = self.supplier_suggestions.curselection()
+        if not selected or not self._supplier_matches:
+            return False
+        self.supplier_var.set(self._supplier_matches[selected[0]])
+        self.supplier_changed()
+        return True
+
+    def _choose_supplier_suggestion(self, event=None) -> None:
+        if event is not None:
+            index = self.supplier_suggestions.nearest(event.y)
+            self.supplier_suggestions.selection_clear(0, tk.END)
+            self.supplier_suggestions.selection_set(index)
+        self._accept_selected_supplier()
+        self._hide_supplier_suggestions()
+        self.supplier_box.focus_set()
+        self.supplier_box.icursor(tk.END)
 
     def selected_supplier_id(self) -> int | None:
         return self.supplier_map.get(self.supplier_var.get())
@@ -1916,6 +2006,7 @@ class OrderPage(BasePage):
         )
 
     def supplier_changed(self) -> None:
+        self._hide_supplier_suggestions()
         if self.cart:
             if not messagebox.askyesno(
                 "Changer de fournisseur",
@@ -2159,6 +2250,7 @@ class OrderPage(BasePage):
         self.cart.clear()
         self.notes_var.set("")
         self.supplier_var.set("")
+        self._hide_supplier_suggestions()
         self._previous_supplier = ""
         self.mode_label.configure(text="")
         self.franco_label.configure(text="")
@@ -2489,15 +2581,10 @@ class OrderDocumentsDialog(tk.Toplevel):
         actions.pack(side="bottom", fill="x", padx=18, pady=14)
         ttk.Button(
             actions,
-            text="Ajouter un bon de livraison",
-            style="Accent.TButton",
-            command=lambda: self.add_files("Bon de livraison", False),
-        ).pack(side="left")
-        ttk.Button(
-            actions,
             text="Ajouter un document…",
+            style="Accent.TButton",
             command=self.add_document,
-        ).pack(side="left", padx=6)
+        ).pack(side="left")
         ttk.Button(
             actions,
             text="Ouvrir",
@@ -2703,7 +2790,7 @@ class OrdersPage(BasePage):
         super().__init__(parent, app)
         self.header(
             "Historique des commandes",
-            "Recherchez, dupliquez et rattachez les documents de livraison.",
+            "Recherchez, dupliquez et consultez les documents associés.",
         )
         filters = ttk.Frame(self)
         filters.pack(fill="x", pady=(0, 10))
@@ -2770,49 +2857,54 @@ class OrdersPage(BasePage):
         self.tree.bind("<Double-1>", lambda event: self.edit_draft())
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(10, 0))
+        management_actions = ttk.Frame(actions)
+        management_actions.pack(fill="x")
         ttk.Button(
-            actions,
+            management_actions,
             text="Modifier le brouillon",
             style="Accent.TButton",
             command=self.edit_draft,
         ).pack(side="left")
         ttk.Button(
-            actions,
+            management_actions,
             text="Dupliquer",
             command=self.duplicate,
         ).pack(side="left", padx=6)
         ttk.Button(
-            actions,
+            management_actions,
             text="Supprimer le brouillon",
             command=self.delete_selected_draft,
         ).pack(side="left")
         ttk.Button(
-            actions,
-            text="Documents / bon de livraison",
+            management_actions,
+            text="Documents associés",
             command=self.manage_documents,
         ).pack(side="left", padx=6)
         ttk.Button(
-            actions,
+            management_actions,
             text="Journal",
             command=self.show_audit,
         ).pack(side="left", padx=6)
+
+        order_actions = ttk.Frame(actions)
+        order_actions.pack(fill="x", pady=(6, 0))
         ttk.Button(
-            actions,
+            order_actions,
             text="Préparer le mail",
             style="Accent.TButton",
             command=self.prepare_email,
         ).pack(side="right")
         ttk.Button(
-            actions, text="Marquer envoyée", command=self.mark_sent
+            order_actions, text="Marquer envoyée", command=self.mark_sent
         ).pack(side="right", padx=6)
         ttk.Button(
-            actions, text="Ouvrir le PDF", command=self.open_pdf
+            order_actions, text="Ouvrir le PDF", command=self.open_pdf
         ).pack(side="right")
         self.regenerate_button = FeedbackButton(
-            actions,
-            text="Regénérer le PDF",
+            order_actions,
+            text="Régénérer la commande",
             command=self.regenerate_pdf,
-            success_text="✓ PDF régénéré",
+            success_text="✓ Commande régénérée",
         )
         self.regenerate_button.pack(side="right", padx=6)
         self._refresh_after = None

@@ -61,7 +61,7 @@ if errorlevel 1 (
 
 echo.
 echo Installeur termine :
-echo %CD%\dist-installer\CommandesCAHPP-Setup-1.0.0-rc4b.exe
+echo %CD%\dist-installer\CommandesCAHPP-Setup-1.0.0-rc4c.exe
 echo.
 echo Cet EXE remplace uniquement l'application et conserve la base,
 echo les documents, le logo, les PDF et les sauvegardes.

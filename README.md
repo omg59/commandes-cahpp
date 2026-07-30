@@ -102,7 +102,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.0.0-rc4b.exe
+dist-installer\CommandesCAHPP-Setup-1.0.0-rc4c.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
@@ -273,7 +273,7 @@ la commande sont conservés à leur emplacement habituel.
 ## Documents et bons de livraison
 
 Dans **Historique**, sélectionnez une commande puis ouvrez
-**Documents / bon de livraison**. Les fichiers choisis sont copiés dans
+**Documents associés**. Les fichiers choisis sont copiés dans
 `documents\<numero de commande>` à côté de l'application. En mode collaboratif,
 une copie est publiée dans l'espace partagé puis mise en cache sur l'autre
 poste. Ils restent ainsi liés à la commande même si le fichier original du
@@ -331,7 +331,7 @@ d'équipe ; il ne remplace pas une sauvegarde régulière.
 
 ## Mise à niveau depuis une ancienne version
 
-Avec l'installeur RC4b, fermez l'application puis lancez le nouvel EXE en
+Avec l'installeur RC4c, fermez l'application puis lancez le nouvel EXE en
 conservant le même dossier d'installation. La base et les documents ne sont pas
 remplacés. Une sauvegarde complète préalable reste conseillée.
 
