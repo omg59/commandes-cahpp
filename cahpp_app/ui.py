@@ -69,6 +69,78 @@ SYNC_INTERVAL_OPTIONS = {
     "10 minutes": "600",
 }
 
+DOCUMENT_TYPES = (
+    "Bon de livraison",
+    "Confirmation de commande",
+    "Facture",
+    "Devis",
+    "Avoir",
+    "Correspondance",
+    "Pièce jointe e-mail",
+    "Autre…",
+)
+
+
+class TreeviewSorter:
+    def __init__(
+        self,
+        tree: ttk.Treeview,
+        headings: dict[str, str],
+        numeric_columns: set[str] | None = None,
+    ):
+        self.tree = tree
+        self.headings = headings
+        self.numeric_columns = numeric_columns or set()
+        self.column = ""
+        self.reverse = False
+        for column, title in headings.items():
+            self.tree.heading(
+                column,
+                text=title,
+                command=lambda selected=column: self.sort(selected),
+            )
+
+    @staticmethod
+    def _number(value: str) -> tuple[int, float]:
+        normalized = (
+            value.replace("\u00a0", " ")
+            .replace("€", "")
+            .replace("%", "")
+            .replace(" ", "")
+            .replace(",", ".")
+        )
+        match = re.search(r"-?\d+(?:\.\d+)?", normalized)
+        return (0, float(match.group(0))) if match else (1, 0.0)
+
+    def _key(self, item_id: str, column: str):
+        value = str(self.tree.set(item_id, column) or "").strip()
+        if column in self.numeric_columns:
+            return self._number(value)
+        return value.casefold()
+
+    def sort(self, column: str) -> None:
+        self.reverse = not self.reverse if self.column == column else False
+        self.column = column
+        items = list(self.tree.get_children(""))
+        items.sort(
+            key=lambda item_id: self._key(item_id, column),
+            reverse=self.reverse,
+        )
+        for index, item_id in enumerate(items):
+            self.tree.move(item_id, "", index)
+        for name, title in self.headings.items():
+            marker = (
+                " ▼" if self.reverse else " ▲"
+            ) if name == self.column else ""
+            self.tree.heading(name, text=title + marker)
+
+    def reapply(self) -> None:
+        if not self.column:
+            return
+        previous_reverse = self.reverse
+        self.reverse = not previous_reverse
+        self.sort(self.column)
+
 
 class FeedbackButton(tk.Button):
     """Bouton d'action avec confirmation visuelle temporaire non bloquante."""
@@ -1025,6 +1097,11 @@ class CatalogPage(BasePage):
         self.tree.bind(
             "<<TreeviewSelect>>", lambda event: self.update_product_actions()
         )
+        self.tree_sorter = TreeviewSorter(
+            self.tree,
+            headings,
+            numeric_columns={"pack", "price", "vat"},
+        )
 
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", pady=(10, 0))
@@ -1124,6 +1201,7 @@ class CatalogPage(BasePage):
         self.result_label.configure(
             text=f"{len(rows)} résultat(s){suffix}"
         )
+        self.tree_sorter.reapply()
         self.update_product_actions()
 
     def selected_product_id(self) -> int | None:
@@ -1458,6 +1536,12 @@ class OrderPage(BasePage):
             selectmode="browse",
             height=14,
         )
+        product_headings = {
+            "ref": "Référence",
+            "designation": "Désignation",
+            "pack": "Conditionnement",
+            "price": "PU HT",
+        }
         for column, title, width in (
             ("ref", "Référence", 90),
             ("designation", "Désignation", 260),
@@ -1471,6 +1555,11 @@ class OrderPage(BasePage):
                 stretch=column == "designation",
                 anchor="w" if column == "designation" else "center",
             )
+        self.product_sorter = TreeviewSorter(
+            self.product_tree,
+            product_headings,
+            numeric_columns={"pack", "price"},
+        )
         self.product_tree.pack(fill="both", expand=True)
         self.product_tree.bind("<Double-1>", lambda event: self.add_product())
         left_buttons = ttk.Frame(left, style="Surface.TFrame")
@@ -1497,6 +1586,14 @@ class OrderPage(BasePage):
             selectmode="browse",
             height=15,
         )
+        cart_headings = {
+            "designation": "Désignation",
+            "ref": "Réf.",
+            "cartons": "Cartons",
+            "pack": "Unités/carton",
+            "price": "PU HT",
+            "total": "Total HT",
+        }
         for column, title, width in (
             ("designation", "Désignation", 270),
             ("ref", "Réf.", 90),
@@ -1512,6 +1609,11 @@ class OrderPage(BasePage):
                 stretch=column == "designation",
                 anchor="w" if column == "designation" else "center",
             )
+        self.cart_sorter = TreeviewSorter(
+            self.cart_tree,
+            cart_headings,
+            numeric_columns={"cartons", "pack", "price", "total"},
+        )
         self.cart_tree.pack(fill="both", expand=True, pady=(8, 0))
         self.cart_tree.bind("<Double-1>", lambda event: self.edit_quantity())
 
@@ -1678,6 +1780,7 @@ class OrderPage(BasePage):
                     format_price(row["unit_price"]),
                 ),
             )
+        self.product_sorter.reapply()
 
     def add_product(self) -> None:
         selected = self.product_tree.selection()
@@ -1805,6 +1908,7 @@ class OrderPage(BasePage):
                     format_price(line_total, 2),
                 ),
             )
+        self.cart_sorter.reapply()
         self.total_label.configure(text=f"Total HT : {format_price(total, 2)}")
         self._update_threshold_label(total)
 
@@ -2075,6 +2179,104 @@ class ManualProductDialog(tk.Toplevel):
             messagebox.showerror("Article", str(exc), parent=self)
 
 
+class DocumentPropertiesDialog(tk.Toplevel):
+    def __init__(
+        self,
+        parent,
+        initial_kind: str = "Confirmation de commande",
+        include_in_email: bool = False,
+        title: str = "Classer le document",
+    ):
+        super().__init__(parent)
+        self.result_kind: str | None = None
+        self.result_include_in_email = include_in_email
+        self.title(title)
+        self.transient(parent)
+        self.grab_set()
+        self.resizable(False, False)
+
+        frame = ttk.Frame(self, padding=18)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Type de document").grid(
+            row=0, column=0, sticky="w", pady=6
+        )
+        self.kind_var = tk.StringVar()
+        known_kind = initial_kind if initial_kind in DOCUMENT_TYPES[:-1] else "Autre…"
+        self.kind_var.set(known_kind)
+        kind_box = ttk.Combobox(
+            frame,
+            textvariable=self.kind_var,
+            values=DOCUMENT_TYPES,
+            state="readonly",
+            width=34,
+        )
+        kind_box.grid(row=0, column=1, sticky="ew", padx=(12, 0), pady=6)
+        kind_box.bind("<<ComboboxSelected>>", lambda event: self._update_custom())
+
+        ttk.Label(frame, text="Type personnalisé").grid(
+            row=1, column=0, sticky="w", pady=6
+        )
+        self.custom_var = tk.StringVar(
+            value="" if known_kind != "Autre…" else initial_kind
+        )
+        self.custom_entry = ttk.Entry(
+            frame, textvariable=self.custom_var, width=36
+        )
+        self.custom_entry.grid(
+            row=1, column=1, sticky="ew", padx=(12, 0), pady=6
+        )
+
+        self.email_var = tk.BooleanVar(value=include_in_email)
+        ttk.Checkbutton(
+            frame,
+            text="Inclure ce document lors de la préparation du mail",
+            variable=self.email_var,
+        ).grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(10, 6),
+        )
+        buttons = ttk.Frame(frame)
+        buttons.grid(
+            row=3, column=0, columnspan=2, sticky="e", pady=(12, 0)
+        )
+        ttk.Button(buttons, text="Annuler", command=self.destroy).pack(
+            side="left"
+        )
+        ttk.Button(
+            buttons,
+            text="Valider",
+            style="Accent.TButton",
+            command=self.validate,
+        ).pack(side="left", padx=(7, 0))
+        self._update_custom()
+
+    def _update_custom(self) -> None:
+        custom = self.kind_var.get() == "Autre…"
+        self.custom_entry.configure(state="normal" if custom else "disabled")
+        if custom:
+            self.custom_entry.focus_set()
+
+    def validate(self) -> None:
+        kind = (
+            self.custom_var.get().strip()
+            if self.kind_var.get() == "Autre…"
+            else self.kind_var.get().strip()
+        )
+        if not kind:
+            messagebox.showerror(
+                "Document",
+                "Indiquez un type de document.",
+                parent=self,
+            )
+            return
+        self.result_kind = kind
+        self.result_include_in_email = self.email_var.get()
+        self.destroy()
+
+
 class OrderDocumentsDialog(tk.Toplevel):
     def __init__(self, parent, database: Database, order_id: int):
         super().__init__(parent)
@@ -2112,8 +2314,8 @@ class OrderDocumentsDialog(tk.Toplevel):
         ).pack(side="left")
         ttk.Button(
             actions,
-            text="Ajouter une pièce au mail",
-            command=lambda: self.add_files("Pièce jointe e-mail", True),
+            text="Ajouter un document…",
+            command=self.add_document,
         ).pack(side="left", padx=6)
         ttk.Button(
             actions,
@@ -2127,8 +2329,8 @@ class OrderDocumentsDialog(tk.Toplevel):
         ).pack(side="right", padx=6)
         ttk.Button(
             actions,
-            text="Inclure / exclure du mail",
-            command=self.toggle_email,
+            text="Type / mail…",
+            command=self.edit_properties,
         ).pack(side="right")
 
         frame = ttk.Frame(self)
@@ -2191,7 +2393,11 @@ class OrderDocumentsDialog(tk.Toplevel):
             parent=self,
             title=f"Ajouter — {kind}",
             filetypes=[
-                ("Documents", "*.pdf;*.png;*.jpg;*.jpeg;*.doc;*.docx;*.xlsx"),
+                (
+                    "Documents",
+                    "*.pdf *.png *.jpg *.jpeg *.doc *.docx *.odt *.rtf "
+                    "*.xls *.xlsx *.ods *.csv *.txt *.eml *.msg *.zip",
+                ),
                 ("Tous les fichiers", "*.*"),
             ],
         )
@@ -2218,6 +2424,15 @@ class OrderDocumentsDialog(tk.Toplevel):
                 parent=self,
             )
 
+    def add_document(self) -> None:
+        dialog = DocumentPropertiesDialog(self)
+        self.wait_window(dialog)
+        if dialog.result_kind:
+            self.add_files(
+                dialog.result_kind,
+                dialog.result_include_in_email,
+            )
+
     def open_selected(self) -> None:
         attachment_id = self.selected_attachment_id()
         if not attachment_id:
@@ -2239,6 +2454,36 @@ class OrderDocumentsDialog(tk.Toplevel):
         self.database.set_attachment_email(
             attachment_id, not bool(attachment["include_in_email"])
         )
+        self.refresh()
+
+    def edit_properties(self) -> None:
+        attachment_id = self.selected_attachment_id()
+        if not attachment_id:
+            messagebox.showinfo(
+                "Document", "Sélectionnez un document.", parent=self
+            )
+            return
+        attachment = self.database.get_order_attachment(attachment_id)
+        if attachment is None:
+            return
+        dialog = DocumentPropertiesDialog(
+            self,
+            initial_kind=str(attachment["kind"] or ""),
+            include_in_email=bool(attachment["include_in_email"]),
+            title="Modifier le type du document",
+        )
+        self.wait_window(dialog)
+        if not dialog.result_kind:
+            return
+        try:
+            self.database.update_attachment_properties(
+                attachment_id,
+                dialog.result_kind,
+                dialog.result_include_in_email,
+            )
+        except ValueError as exc:
+            messagebox.showerror("Document", str(exc), parent=self)
+            return
         self.refresh()
 
     def remove_selected(self) -> None:

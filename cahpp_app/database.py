@@ -1529,6 +1529,42 @@ class Database:
                     occurred_at=now,
                 )
 
+    def update_attachment_properties(
+        self,
+        attachment_id: int,
+        kind: str,
+        include_in_email: bool,
+    ) -> None:
+        kind = kind.strip()
+        if not kind:
+            raise ValueError("Le type de document est obligatoire.")
+        now = datetime.now().isoformat(timespec="seconds")
+        with self.session() as connection:
+            attachment = connection.execute(
+                """
+                SELECT order_id, display_name FROM order_attachments
+                WHERE id = ?
+                """,
+                (attachment_id,),
+            ).fetchone()
+            if attachment is None:
+                raise ValueError("Document introuvable.")
+            connection.execute(
+                """
+                UPDATE order_attachments
+                SET kind = ?, include_in_email = ?
+                WHERE id = ?
+                """,
+                (kind, int(include_in_email), attachment_id),
+            )
+            self._touch_order(connection, attachment["order_id"], now)
+            self._record_order_audit(
+                connection,
+                attachment["order_id"],
+                f"Document reclassé : {attachment['display_name']} ({kind})",
+                occurred_at=now,
+            )
+
     def delete_order_attachment(self, attachment_id: int) -> None:
         now = datetime.now().isoformat(timespec="seconds")
         with self.session() as connection:

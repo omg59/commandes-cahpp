@@ -1,0 +1,61 @@
+COMMANDES CAHPP — CANDIDATE V1.0.0 RC4
+======================================
+
+Cette candidate ajoute le classement des documents, le tri des tableaux et un
+installeur Windows destiné aux installations et mises à jour.
+
+MIGRATION DE LA BASE
+--------------------
+
+Le schéma reste en version 10. Les bases 0.9.0, RC1, RC2 et RC3 sont reconnues
+automatiquement. Aucune réimportation du catalogue n'est nécessaire.
+
+DOCUMENTS ASSOCIÉS
+------------------
+
+Le bouton « Ajouter un document… » permet de choisir notamment :
+
+- bon de livraison ;
+- confirmation de commande ;
+- facture ;
+- devis ;
+- avoir ;
+- correspondance ;
+- pièce jointe e-mail ;
+- ou un type personnalisé.
+
+Le bouton « Type / mail… » permet ensuite de modifier le classement d'un
+document existant et de décider séparément s'il doit être joint lors de la
+préparation du mail.
+
+TRI DES TABLEAUX
+----------------
+
+Dans le catalogue et pendant la préparation d'une commande, cliquer sur le
+titre d'une colonne pour trier. Un second clic inverse le sens. La flèche
+affichée dans le titre indique le tri actif.
+
+INSTALLATION ET MISE À JOUR PAR EXE
+-----------------------------------
+
+Sur le PC qui compile :
+
+1. installer une fois Python 3.12 64 bits et Inno Setup 6 ;
+2. lancer build_installer_windows.bat ;
+3. récupérer dist-installer\CommandesCAHPP-Setup-1.0.0-rc4.exe.
+
+Sur chaque poste utilisateur :
+
+1. fermer Commandes CAHPP ;
+2. effectuer une sauvegarde complète par précaution ;
+3. lancer l'installeur ;
+4. lors de la première mise à jour d'une ancienne installation portable,
+   sélectionner son dossier actuel ;
+5. aux mises à jour suivantes, le dossier sera repris automatiquement.
+
+L'installeur remplace seulement CommandesCAHPP.exe et le dossier _internal.
+Il conserve data, documents, assets, envois, exports et sauvegardes.
+
+Il s'agit d'une mise à jour locale simplifiée, sans téléchargement automatique.
+Le même EXE peut être déposé dans le dossier partagé puis lancé manuellement
+sur chaque poste.

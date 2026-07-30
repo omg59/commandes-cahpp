@@ -54,6 +54,10 @@ un même dossier partagé.
 
 ## Produits et catalogue
 
+- [ ] Un clic sur chaque en-tête utile trie le catalogue dans le bon sens.
+- [ ] Un second clic inverse le sens et la flèche affichée correspond.
+- [ ] Le tri choisi est conservé après une nouvelle recherche.
+- [ ] Le même comportement fonctionne dans les deux listes d'une commande.
 - [ ] Un favori ajouté sur A apparaît sur B.
 - [ ] Une quantité habituelle modifiée sur B apparaît sur A.
 - [ ] Une correction de conditionnement CAHPP est synchronisée.
@@ -67,8 +71,22 @@ un même dossier partagé.
 - [ ] Le PDF ne contient aucune mention « Franco atteint » ou
       « Franco non atteint ».
 - [ ] Un bon de livraison ajouté sur A est visible et ouvrable sur B.
+- [ ] Une confirmation, une facture et un devis peuvent être classés
+      séparément.
+- [ ] Un type personnalisé peut être saisi puis modifié.
+- [ ] Le type et le choix « Joint au mail » peuvent être modifiés
+      indépendamment après l'ajout.
 - [ ] Une pièce marquée « Joint au mail » est proposée sur l'autre poste.
 - [ ] Le rapport de diagnostic ne contient aucun nom d'article ou tarif.
+
+## Mise à jour de l'application
+
+- [ ] L'installeur RC4 s'exécute sans demander de droit administrateur.
+- [ ] La première installation dans le dossier choisi démarre correctement.
+- [ ] Une réinstallation RC4 remplace l'application sans effacer la base.
+- [ ] Les dossiers `documents`, `assets`, `exports` et `sauvegardes` sont
+      conservés.
+- [ ] Les raccourcis ouvrent l'application avec le bon dossier de travail.
 
 ## Coupure et reprise réseau
 

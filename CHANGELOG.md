@@ -1,5 +1,24 @@
 # Historique des versions
 
+## 1.0.0-rc4
+
+- ajout de catégories explicites pour les documents liés : bon de livraison,
+  confirmation de commande, facture, devis, avoir, correspondance et pièce
+  jointe e-mail ;
+- ajout d'un type personnalisé pour classer les autres documents ;
+- modification après ajout du type d'un document et de son inclusion dans la
+  préparation du mail, désormais deux propriétés indépendantes ;
+- élargissement du sélecteur aux principaux formats bureautiques, images,
+  messages enregistrés et archives ;
+- tri ascendant ou descendant par clic sur les en-têtes du catalogue, de la
+  liste d'articles disponibles et du contenu de la commande ;
+- maintien du tri choisi après une recherche ou un rafraîchissement ;
+- ajout d'un script créant un installeur Windows unique sans droit
+  administrateur ;
+- lors d'une mise à jour par l'installeur, remplacement limité à l'exécutable
+  et à ses dépendances, sans effacer la base locale, les documents, le logo,
+  les PDF ni les sauvegardes.
+
 ## 1.0.0-rc3
 
 - ajout d'un délai de synchronisation automatique configurable de 15 secondes

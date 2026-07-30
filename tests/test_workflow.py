@@ -30,6 +30,7 @@ from cahpp_app.local_services import (
 )
 from cahpp_app.pdf_export import generate_order_pdf
 from cahpp_app.ui import (
+    TreeviewSorter,
     configured_pdf_directory,
     filter_supplier_names,
     fractional_carton_lines,
@@ -84,6 +85,11 @@ class WorkflowTest(unittest.TestCase):
             "Code_Classif": "TEST",
             "PrixUnitaireCahpp": price,
         }
+
+    def test_treeview_sorter_numbers(self):
+        self.assertEqual(TreeviewSorter._number("1 234,50 €"), (0, 1234.5))
+        self.assertEqual(TreeviewSorter._number("20 %"), (0, 20.0))
+        self.assertEqual(TreeviewSorter._number("—"), (1, 0.0))
 
     def test_import_search_order_and_pdf(self):
         self.assertEqual(
@@ -235,6 +241,14 @@ class WorkflowTest(unittest.TestCase):
                 attachments[0]["stored_path"]
             ).is_file()
         )
+        self.database.update_attachment_properties(
+            attachment_id,
+            "Facture",
+            True,
+        )
+        attachment = self.database.get_order_attachment(attachment_id)
+        self.assertEqual(attachment["kind"], "Facture")
+        self.assertTrue(attachment["include_in_email"])
         compose_url, mail_folder, prepared = prepare_mail_order(
             self.database, order_id
         )
@@ -693,7 +707,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.0-rc3",
+            "1.0.0-rc4",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,

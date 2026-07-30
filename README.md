@@ -14,6 +14,7 @@ travailler ensemble à travers un simple dossier partagé, sans serveur.
   précédente ;
 - conservation des tarifs historiques et des lignes de commandes déjà créées ;
 - recherche par fournisseur, code CAHPP, référence ou désignation ;
+- tri des tableaux par clic sur les titres de colonnes ;
 - favoris et quantités habituelles ;
 - duplication des commandes récurrentes ;
 - recherche dans tout l'historique, y compris les références et désignations ;
@@ -87,6 +88,31 @@ Le résultat se trouve dans `dist\CommandesCAHPP-portable`. Copiez séparément 
 dossier sur chaque poste. Les données de chaque utilisateur restent dans
 `data\commandes_cahpp.sqlite3`, à côté de son application. Le script de
 compilation ne copie aucune base de développement.
+
+## Création de l'installeur Windows
+
+Pour obtenir un seul fichier `.exe` d'installation et de mise à jour, installez
+une fois [Inno Setup 6](https://jrsoftware.org/isinfo.php) sur le PC Windows qui
+sert à compiler, puis lancez :
+
+```bat
+build_installer_windows.bat
+```
+
+Le fichier obtenu se trouve dans :
+
+```text
+dist-installer\CommandesCAHPP-Setup-1.0.0-rc4.exe
+```
+
+L'installeur fonctionne sans droit administrateur. Il remplace uniquement
+`CommandesCAHPP.exe` et `_internal` ; il conserve la base `data`, les documents,
+le logo et les autres fichiers utilisateur. Lors de la première mise à jour
+d'une installation portable existante, choisissez son dossier actuel. Les
+mises à jour suivantes réutiliseront automatiquement ce dossier.
+
+Il ne s'agit pas d'une mise à jour téléchargée automatiquement : l'EXE peut
+être placé dans le dossier partagé, puis lancé manuellement sur chaque poste.
 
 ## Première utilisation
 
@@ -248,8 +274,21 @@ une copie est publiée dans l'espace partagé puis mise en cache sur l'autre
 poste. Ils restent ainsi liés à la commande même si le fichier original du
 scanner est déplacé ou si le partage est temporairement indisponible.
 
-Une pièce peut être incluse ou exclue de la préparation e-mail. Les bons de
-livraison ne sont pas joints au mail par défaut.
+**Ajouter un document…** permet de classer le fichier comme bon de livraison,
+confirmation de commande, facture, devis, avoir, correspondance, pièce jointe
+e-mail ou avec un type personnalisé. Les PDF, images, fichiers bureautiques,
+messages `.eml`/`.msg`, textes et archives peuvent être conservés.
+
+Le type du document et son inclusion au mail sont indépendants. Sélectionnez
+une ligne puis cliquez sur **Type / mail…** pour modifier l'un ou l'autre après
+l'ajout. Les bons de livraison ne sont pas joints au mail par défaut.
+
+## Trier les articles
+
+Dans **Catalogue** et **Nouvelle commande**, cliquez sur le titre d'une colonne
+— référence, désignation, fournisseur, prix, conditionnement ou quantité — pour
+trier le tableau. Un second clic inverse le sens du tri. La flèche `▲` ou `▼`
+indique le classement actif, qui est conservé lors des recherches suivantes.
 
 ## Mise à jour des tarifs
 
@@ -287,9 +326,15 @@ d'équipe ; il ne remplace pas une sauvegarde régulière.
 
 ## Mise à niveau depuis une ancienne version
 
-Conservez votre fichier `data\commandes_cahpp.sqlite3` et le dossier
-`documents` s'il existe, puis copiez-les dans le nouveau dossier portable
-local. L'application met automatiquement la base à niveau au premier démarrage.
+Avec l'installeur RC4, fermez l'application puis lancez le nouvel EXE en
+conservant le même dossier d'installation. La base et les documents ne sont pas
+remplacés. Une sauvegarde complète préalable reste conseillée.
+
+Pour une mise à niveau manuelle, conservez votre fichier
+`data\commandes_cahpp.sqlite3` et le dossier `documents`, puis remplacez
+uniquement `CommandesCAHPP.exe` et `_internal`. L'application met
+automatiquement la base à niveau au premier démarrage.
+
 Ne placez ni l'exécutable ni `data\commandes_cahpp.sqlite3` dans le dossier
 réseau ; configurez uniquement ce dernier depuis l'application.
 

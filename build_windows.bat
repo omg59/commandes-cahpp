@@ -45,4 +45,5 @@ echo.
 echo Important pour la collaboration :
 echo installez ce dossier sur chaque PC et configurez uniquement
 echo le dossier partage depuis les parametres de l'application.
+if /I "%~1"=="--no-pause" exit /b 0
 pause
