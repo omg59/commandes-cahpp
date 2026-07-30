@@ -38,5 +38,12 @@ Sur le PC de compilation, lancer build_installer_windows.bat. Le résultat est :
 
 dist-installer\CommandesCAHPP-Setup-1.0.0-rc4b.exe
 
+Inno Setup est également recherché dans AppData\Local lorsqu'il est installé
+uniquement pour l'utilisateur courant. Si un emplacement totalement
+personnalisé est utilisé, il peut être indiqué avant la compilation :
+
+set "INNO_SETUP_ISCC=C:\chemin\vers\ISCC.exe"
+build_installer_windows.bat
+
 Comme pour la RC4, l'installeur remplace uniquement l'application et conserve
 la base, les documents, le logo, les PDF et les sauvegardes.

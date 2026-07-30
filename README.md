@@ -105,6 +105,11 @@ Le fichier obtenu se trouve dans :
 dist-installer\CommandesCAHPP-Setup-1.0.0-rc4b.exe
 ```
 
+Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
+`%LOCALAPPDATA%\Programs\Inno Setup 6`, ainsi que dans les emplacements WinGet,
+Scoop et les entrées de registre habituelles. Une installation limitée au
+compte utilisateur est donc prise en charge.
+
 L'installeur fonctionne sans droit administrateur. Il remplace uniquement
 `CommandesCAHPP.exe` et `_internal` ; il conserve la base `data`, les documents,
 le logo et les autres fichiers utilisateur. Lors de la première mise à jour

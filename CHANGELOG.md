@@ -11,7 +11,9 @@
 - application de ce comportement au catalogue, aux articles disponibles et au
   contenu de la nouvelle commande ;
 - ouverture automatique de la liste des fournisseurs filtrés pendant la
-  saisie, sans devoir cliquer sur la flèche du champ.
+  saisie, sans devoir cliquer sur la flèche du champ ;
+- détection d'Inno Setup lorsqu'il est installé uniquement pour l'utilisateur
+  dans `AppData\Local`, via WinGet, Scoop ou son entrée de registre.
 
 ## 1.0.0-rc4
 
