@@ -1,5 +1,18 @@
 # Historique des versions
 
+## 1.0.0-rc4b
+
+- remplacement du libellé **Générer le PDF** par
+  **Générer la commande** ;
+- ajustement automatique des largeurs de colonnes une fois la largeur réelle
+  de la page connue ;
+- nouvel ajustement lors du redimensionnement de la fenêtre, sans masquer les
+  colonnes situées à droite ;
+- application de ce comportement au catalogue, aux articles disponibles et au
+  contenu de la nouvelle commande ;
+- ouverture automatique de la liste des fournisseurs filtrés pendant la
+  saisie, sans devoir cliquer sur la flèche du champ.
+
 ## 1.0.0-rc4
 
 - ajout de catégories explicites pour les documents liés : bon de livraison,

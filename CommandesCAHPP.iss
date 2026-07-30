@@ -1,5 +1,5 @@
 #define MyAppName "Commandes CAHPP"
-#define MyAppVersion "1.0.0-rc4"
+#define MyAppVersion "1.0.0-rc4b"
 #define MyAppPublisher "Commandes CAHPP"
 #define MyAppExeName "CommandesCAHPP.exe"
 

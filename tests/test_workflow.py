@@ -30,6 +30,7 @@ from cahpp_app.local_services import (
 )
 from cahpp_app.pdf_export import generate_order_pdf
 from cahpp_app.ui import (
+    TreeviewColumnSizer,
     TreeviewSorter,
     configured_pdf_directory,
     filter_supplier_names,
@@ -90,6 +91,24 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(TreeviewSorter._number("1 234,50 €"), (0, 1234.5))
         self.assertEqual(TreeviewSorter._number("20 %"), (0, 20.0))
         self.assertEqual(TreeviewSorter._number("—"), (1, 0.0))
+        widths = TreeviewColumnSizer.calculate_widths(
+            480,
+            {
+                "ref": 90,
+                "designation": 260,
+                "pack": 120,
+                "price": 75,
+            },
+            "designation",
+            {
+                "ref": 72,
+                "designation": 120,
+                "pack": 90,
+                "price": 65,
+            },
+        )
+        self.assertEqual(sum(widths.values()), 480)
+        self.assertEqual(widths["designation"], 195)
 
     def test_import_search_order_and_pdf(self):
         self.assertEqual(
@@ -707,7 +726,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.0-rc4",
+            "1.0.0-rc4b",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,

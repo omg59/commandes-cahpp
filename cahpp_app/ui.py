@@ -142,6 +142,100 @@ class TreeviewSorter:
         self.sort(self.column)
 
 
+class TreeviewColumnSizer:
+    """Ajuste les colonnes une fois que la largeur réelle du tableau est connue."""
+
+    def __init__(
+        self,
+        tree: ttk.Treeview,
+        preferred_widths: dict[str, int],
+        flexible_column: str,
+        minimum_widths: dict[str, int] | None = None,
+    ):
+        self.tree = tree
+        self.preferred_widths = preferred_widths
+        self.flexible_column = flexible_column
+        self.minimum_widths = minimum_widths or {}
+        self._after_id: str | None = None
+        self._last_width = 0
+        for column in preferred_widths:
+            self.tree.column(
+                column,
+                minwidth=self.minimum_widths.get(column, 35),
+                stretch=False,
+            )
+        self.tree.bind("<Configure>", self._schedule, add="+")
+        self.tree.after_idle(self.fit)
+
+    @staticmethod
+    def calculate_widths(
+        available: int,
+        preferred_widths: dict[str, int],
+        flexible_column: str,
+        minimum_widths: dict[str, int] | None = None,
+    ) -> dict[str, int]:
+        minimums = minimum_widths or {}
+        fixed = [
+            column
+            for column in preferred_widths
+            if column != flexible_column
+        ]
+        fixed_preferred = sum(preferred_widths[column] for column in fixed)
+        flex_minimum = minimums.get(flexible_column, 35)
+        widths = dict(preferred_widths)
+        if available >= fixed_preferred + flex_minimum:
+            widths[flexible_column] = available - fixed_preferred
+            return widths
+
+        fixed_minimum = sum(
+            minimums.get(column, 35) for column in fixed
+        )
+        target_fixed = max(fixed_minimum, available - flex_minimum)
+        capacity = sum(
+            preferred_widths[column] - minimums.get(column, 35)
+            for column in fixed
+        )
+        if capacity > 0 and target_fixed > fixed_minimum:
+            ratio = min(1.0, (target_fixed - fixed_minimum) / capacity)
+            for column in fixed:
+                minimum = minimums.get(column, 35)
+                widths[column] = round(
+                    minimum
+                    + (preferred_widths[column] - minimum) * ratio
+                )
+            delta = target_fixed - sum(widths[column] for column in fixed)
+            if fixed:
+                widths[fixed[0]] += delta
+        else:
+            for column in fixed:
+                widths[column] = minimums.get(column, 35)
+        widths[flexible_column] = flex_minimum
+        return widths
+
+    def _schedule(self, event=None) -> None:
+        width = int(getattr(event, "width", 0) or self.tree.winfo_width())
+        if width <= 1 or width == self._last_width:
+            return
+        self._last_width = width
+        if self._after_id:
+            self.tree.after_cancel(self._after_id)
+        self._after_id = self.tree.after(25, self.fit)
+
+    def fit(self) -> None:
+        self._after_id = None
+        available = self.tree.winfo_width() - 2
+        if available <= 1:
+            return
+        widths = self.calculate_widths(
+            available,
+            self.preferred_widths,
+            self.flexible_column,
+            self.minimum_widths,
+        )
+        for column, width in widths.items():
+            self.tree.column(column, width=width)
+
+
 class FeedbackButton(tk.Button):
     """Bouton d'action avec confirmation visuelle temporaire non bloquante."""
 
@@ -862,6 +956,7 @@ class App(ttk.Frame):
         page = self.pages[name]
         page.tkraise()
         page.refresh()
+        page.after_idle(page.fit_visible_columns)
 
     def refresh_pages(self) -> None:
         for page in self.pages.values():
@@ -886,6 +981,9 @@ class BasePage(ttk.Frame):
 
     def has_unsaved_changes(self) -> bool:
         return False
+
+    def fit_visible_columns(self) -> None:
+        pass
 
     def refresh(self) -> None:
         self._valid = True
@@ -1101,6 +1199,22 @@ class CatalogPage(BasePage):
             self.tree,
             headings,
             numeric_columns={"pack", "price", "vat"},
+        )
+        self.tree_column_sizer = TreeviewColumnSizer(
+            self.tree,
+            widths,
+            flexible_column="designation",
+            minimum_widths={
+                "favorite": 34,
+                "source": 58,
+                "supplier": 95,
+                "reference": 78,
+                "code": 78,
+                "designation": 220,
+                "pack": 90,
+                "price": 70,
+                "vat": 50,
+            },
         )
 
         bottom = ttk.Frame(self)
@@ -1355,6 +1469,9 @@ class CatalogPage(BasePage):
         self.search()
         self._valid = True
 
+    def fit_visible_columns(self) -> None:
+        self.tree_column_sizer.fit()
+
 
 class ProductEditDialog(tk.Toplevel):
     def __init__(self, parent, database: Database, product_id: int):
@@ -1560,6 +1677,22 @@ class OrderPage(BasePage):
             product_headings,
             numeric_columns={"pack", "price"},
         )
+        self.product_column_sizer = TreeviewColumnSizer(
+            self.product_tree,
+            {
+                "ref": 90,
+                "designation": 260,
+                "pack": 120,
+                "price": 75,
+            },
+            flexible_column="designation",
+            minimum_widths={
+                "ref": 72,
+                "designation": 120,
+                "pack": 90,
+                "price": 65,
+            },
+        )
         self.product_tree.pack(fill="both", expand=True)
         self.product_tree.bind("<Double-1>", lambda event: self.add_product())
         left_buttons = ttk.Frame(left, style="Surface.TFrame")
@@ -1614,6 +1747,26 @@ class OrderPage(BasePage):
             cart_headings,
             numeric_columns={"cartons", "pack", "price", "total"},
         )
+        self.cart_column_sizer = TreeviewColumnSizer(
+            self.cart_tree,
+            {
+                "designation": 270,
+                "ref": 90,
+                "cartons": 65,
+                "pack": 85,
+                "price": 75,
+                "total": 85,
+            },
+            flexible_column="designation",
+            minimum_widths={
+                "designation": 120,
+                "ref": 65,
+                "cartons": 58,
+                "pack": 76,
+                "price": 62,
+                "total": 68,
+            },
+        )
         self.cart_tree.pack(fill="both", expand=True, pady=(8, 0))
         self.cart_tree.bind("<Double-1>", lambda event: self.edit_quantity())
 
@@ -1650,9 +1803,9 @@ class OrderPage(BasePage):
         self.save_draft_button.pack(side="right")
         self.generate_button = FeedbackButton(
             notes_frame,
-            text="Générer le PDF",
+            text="Générer la commande",
             command=self.save_and_generate,
-            success_text="✓ PDF généré",
+            success_text="✓ Commande générée",
         )
         self.generate_button.pack(side="right", padx=(0, 8))
 
@@ -1701,6 +1854,30 @@ class OrderPage(BasePage):
                 self.supplier_var.set(matches[0])
                 self.supplier_changed()
             return
+        if self.supplier_var.get().strip() and matches:
+            self.after_idle(self._open_supplier_dropdown)
+        elif not matches:
+            self._close_supplier_dropdown()
+
+    def _open_supplier_dropdown(self) -> None:
+        if self.focus_get() != self.supplier_box:
+            return
+        try:
+            self.supplier_box.tk.call(
+                "ttk::combobox::Post",
+                str(self.supplier_box),
+            )
+        except tk.TclError:
+            self.supplier_box.event_generate("<Down>")
+
+    def _close_supplier_dropdown(self) -> None:
+        try:
+            self.supplier_box.tk.call(
+                "ttk::combobox::Unpost",
+                str(self.supplier_box),
+            )
+        except tk.TclError:
+            pass
 
     def selected_supplier_id(self) -> int | None:
         return self.supplier_map.get(self.supplier_var.get())
@@ -2105,6 +2282,10 @@ class OrderPage(BasePage):
         self.load_suppliers()
         self.search_products()
         self._valid = True
+
+    def fit_visible_columns(self) -> None:
+        self.product_column_sizer.fit()
+        self.cart_column_sizer.fit()
 
 
 class ManualProductDialog(tk.Toplevel):

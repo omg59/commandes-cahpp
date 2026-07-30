@@ -1,0 +1,42 @@
+COMMANDES CAHPP — CANDIDATE V1.0.0 RC4B
+=======================================
+
+Ce correctif reprend toutes les nouveautés de la RC4 et améliore l'écran de
+préparation des commandes.
+
+MIGRATION DE LA BASE
+--------------------
+
+Le schéma reste en version 10. Aucune migration du catalogue, des commandes ou
+des paramètres n'est nécessaire.
+
+INTERFACE DE COMMANDE
+---------------------
+
+- le bouton « Générer le PDF » devient « Générer la commande » ;
+- la confirmation visuelle devient « Commande générée » ;
+- pendant la saisie du nom d'un fournisseur, la liste des résultats filtrés
+  s'ouvre automatiquement ;
+- la touche Entrée sélectionne toujours le fournisseur lorsqu'il correspond
+  exactement ou qu'il ne reste qu'un seul résultat.
+
+LARGEUR DES COLONNES
+--------------------
+
+Les tableaux attendent désormais de connaître leur largeur réelle avant de
+dimensionner les colonnes. Toutes les colonnes doivent donc être visibles dès
+l'ouverture du catalogue ou d'une nouvelle commande.
+
+Le calcul est également relancé lorsque la fenêtre est redimensionnée. La
+colonne de désignation absorbe l'espace variable tandis que les références,
+prix, conditionnements, quantités et TVA restent visibles.
+
+INSTALLATION
+------------
+
+Sur le PC de compilation, lancer build_installer_windows.bat. Le résultat est :
+
+dist-installer\CommandesCAHPP-Setup-1.0.0-rc4b.exe
+
+Comme pour la RC4, l'installeur remplace uniquement l'application et conserve
+la base, les documents, le logo, les PDF et les sauvegardes.

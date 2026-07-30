@@ -102,7 +102,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.0.0-rc4.exe
+dist-installer\CommandesCAHPP-Setup-1.0.0-rc4b.exe
 ```
 
 L'installeur fonctionne sans droit administrateur. Il remplace uniquement
@@ -326,7 +326,7 @@ d'équipe ; il ne remplace pas une sauvegarde régulière.
 
 ## Mise à niveau depuis une ancienne version
 
-Avec l'installeur RC4, fermez l'application puis lancez le nouvel EXE en
+Avec l'installeur RC4b, fermez l'application puis lancez le nouvel EXE en
 conservant le même dossier d'installation. La base et les documents ne sont pas
 remplacés. Une sauvegarde complète préalable reste conseillée.
 

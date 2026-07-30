@@ -81,9 +81,9 @@ un même dossier partagé.
 
 ## Mise à jour de l'application
 
-- [ ] L'installeur RC4 s'exécute sans demander de droit administrateur.
+- [ ] L'installeur RC4b s'exécute sans demander de droit administrateur.
 - [ ] La première installation dans le dossier choisi démarre correctement.
-- [ ] Une réinstallation RC4 remplace l'application sans effacer la base.
+- [ ] Une réinstallation RC4b remplace l'application sans effacer la base.
 - [ ] Les dossiers `documents`, `assets`, `exports` et `sauvegardes` sont
       conservés.
 - [ ] Les raccourcis ouvrent l'application avec le bon dossier de travail.
