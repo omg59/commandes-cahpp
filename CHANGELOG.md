@@ -1,5 +1,14 @@
 # Historique des versions
 
+## 1.0.1
+
+- correction de l'icône du raccourci Bureau lors d'une mise à jour ;
+- utilisation explicite de `assets\\app_icon.ico` par les raccourcis du
+  Bureau et du menu Démarrer ;
+- recréation du raccourci Bureau existant pendant l'installation, même si la
+  tâche optionnelle n'est plus cochée lors d'une mise à jour ;
+- respect du choix des utilisateurs qui n'ont aucun raccourci Bureau.
+
 ## 1.0.0
 
 - publication de la première version stable après validation de la RC5 ;

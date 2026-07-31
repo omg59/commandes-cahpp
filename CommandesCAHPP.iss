@@ -1,5 +1,5 @@
 #define MyAppName "Commandes CAHPP"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Commandes CAHPP"
 #define MyAppExeName "CommandesCAHPP.exe"
 
@@ -24,8 +24,8 @@ WizardStyle=modern
 SetupIconFile=assets\app_icon.ico
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion=1.0.0.0
-VersionInfoProductVersion=1.0.0
+VersionInfoVersion=1.0.1.0
+VersionInfoProductVersion=1.0.1
 VersionInfoDescription=Installeur Commandes CAHPP
 CloseApplications=yes
 RestartApplications=no
@@ -54,11 +54,18 @@ Name: "{app}\exports"
 Name: "{app}\sauvegardes"
 
 [Icons]
-Name: "{group}\Commandes CAHPP"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\Commandes CAHPP"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\Commandes CAHPP"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app_icon.ico"
+Name: "{autodesktop}\Commandes CAHPP"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app_icon.ico"; Check: ShouldCreateDesktopShortcut
 
 [Tasks]
 Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; GroupDescription: "Raccourcis :"; Flags: checkedonce
+
+[Code]
+function ShouldCreateDesktopShortcut(): Boolean;
+begin
+  Result := WizardIsTaskSelected('desktopicon') or
+    FileExists(ExpandConstant('{autodesktop}\Commandes CAHPP.lnk'));
+end;
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Lancer Commandes CAHPP"; Flags: nowait postinstall skipifsilent

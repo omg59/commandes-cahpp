@@ -1,0 +1,22 @@
+COMMANDES CAHPP — CORRECTIF 1.0.1
+=================================
+
+Cette version corrige l'icône du raccourci Bureau après une mise à jour.
+
+L'installateur utilise maintenant explicitement le fichier
+assets\app_icon.ico pour les raccourcis du Bureau et du menu Démarrer.
+
+Si un raccourci Bureau existe déjà, il est recréé automatiquement avec la
+bonne icône. Si aucun raccourci n'existe et que l'utilisateur ne demande pas sa
+création, aucun raccourci n'est ajouté de force.
+
+MISE À JOUR
+------------
+
+1. Fermer Commandes CAHPP.
+2. Lancer CommandesCAHPP-Setup-1.0.1.exe.
+3. Conserver le dossier d'installation proposé.
+4. Vérifier que l'application affiche Version 1.0.1.
+
+La base, le catalogue, les documents associés, les PDF, le logo de
+l'établissement et les paramètres sont conservés.

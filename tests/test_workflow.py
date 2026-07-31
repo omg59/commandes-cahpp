@@ -129,6 +129,13 @@ class WorkflowTest(unittest.TestCase):
             self.assertIn((256, 256), icon.ico.sizes())
             self.assertIn((32, 32), icon.ico.sizes())
             self.assertIn((16, 16), icon.ico.sizes())
+        installer_path = Path(__file__).resolve().parents[1] / "CommandesCAHPP.iss"
+        installer = installer_path.read_text(encoding="utf-8")
+        self.assertIn(
+            'IconFilename: "{app}\\assets\\app_icon.ico"',
+            installer,
+        )
+        self.assertIn("Check: ShouldCreateDesktopShortcut", installer)
 
     def test_import_search_order_and_pdf(self):
         self.assertEqual(
@@ -746,7 +753,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.0",
+            "1.0.1",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,
