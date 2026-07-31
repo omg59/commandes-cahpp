@@ -316,6 +316,24 @@ def format_timestamp(value: object) -> str:
         return str(value)
 
 
+def centered_window_position(
+    parent_x: int,
+    parent_y: int,
+    parent_width: int,
+    parent_height: int,
+    window_width: int,
+    window_height: int,
+    screen_width: int,
+    screen_height: int,
+) -> tuple[int, int]:
+    x = parent_x + (parent_width - window_width) // 2
+    y = parent_y + (parent_height - window_height) // 2
+    return (
+        max(0, min(x, max(0, screen_width - window_width))),
+        max(0, min(y, max(0, screen_height - window_height))),
+    )
+
+
 def format_pack(row) -> str:
     quantity = format_number(row["conditionnement"])
     detail = str(row["unit_packaging"] or "").strip()
@@ -395,8 +413,8 @@ class App(ttk.Frame):
         self.collaboration: CollaborationManager | None = None
         self._initialize_user_and_collaboration()
         self.root.title("Commandes CAHPP")
-        self.root.geometry("1320x820")
-        self.root.minsize(1060, 680)
+        self.root.geometry("1450x820")
+        self.root.minsize(1420, 680)
         self._configure_styles()
         self.pack(fill="both", expand=True)
         self.columnconfigure(1, weight=1)
@@ -2461,11 +2479,11 @@ class DocumentPropertiesDialog(tk.Toplevel):
         title: str = "Classer le document",
     ):
         super().__init__(parent)
+        self.withdraw()
         self.result_kind: str | None = None
         self.result_include_in_email = include_in_email
         self.title(title)
         self.transient(parent)
-        self.grab_set()
         self.resizable(False, False)
 
         frame = ttk.Frame(self, padding=18)
@@ -2525,6 +2543,28 @@ class DocumentPropertiesDialog(tk.Toplevel):
             command=self.validate,
         ).pack(side="left", padx=(7, 0))
         self._update_custom()
+        self._center_on_parent(parent)
+        self.deiconify()
+        self.lift()
+        self.grab_set()
+        kind_box.focus_set()
+
+    def _center_on_parent(self, parent: tk.Misc) -> None:
+        self.update_idletasks()
+        parent.update_idletasks()
+        width = max(self.winfo_reqwidth(), self.winfo_width())
+        height = max(self.winfo_reqheight(), self.winfo_height())
+        x, y = centered_window_position(
+            parent.winfo_rootx(),
+            parent.winfo_rooty(),
+            parent.winfo_width(),
+            parent.winfo_height(),
+            width,
+            height,
+            self.winfo_screenwidth(),
+            self.winfo_screenheight(),
+        )
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _update_custom(self) -> None:
         custom = self.kind_var.get() == "Autre…"
@@ -2857,51 +2897,46 @@ class OrdersPage(BasePage):
         self.tree.bind("<Double-1>", lambda event: self.edit_draft())
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(10, 0))
-        management_actions = ttk.Frame(actions)
-        management_actions.pack(fill="x")
         ttk.Button(
-            management_actions,
+            actions,
             text="Modifier le brouillon",
             style="Accent.TButton",
             command=self.edit_draft,
         ).pack(side="left")
         ttk.Button(
-            management_actions,
+            actions,
             text="Dupliquer",
             command=self.duplicate,
         ).pack(side="left", padx=6)
         ttk.Button(
-            management_actions,
+            actions,
             text="Supprimer le brouillon",
             command=self.delete_selected_draft,
         ).pack(side="left")
         ttk.Button(
-            management_actions,
+            actions,
             text="Documents associés",
             command=self.manage_documents,
         ).pack(side="left", padx=6)
         ttk.Button(
-            management_actions,
+            actions,
             text="Journal",
             command=self.show_audit,
         ).pack(side="left", padx=6)
-
-        order_actions = ttk.Frame(actions)
-        order_actions.pack(fill="x", pady=(6, 0))
         ttk.Button(
-            order_actions,
+            actions,
             text="Préparer le mail",
             style="Accent.TButton",
             command=self.prepare_email,
         ).pack(side="right")
         ttk.Button(
-            order_actions, text="Marquer envoyée", command=self.mark_sent
+            actions, text="Marquer envoyée", command=self.mark_sent
         ).pack(side="right", padx=6)
         ttk.Button(
-            order_actions, text="Ouvrir le PDF", command=self.open_pdf
+            actions, text="Ouvrir le PDF", command=self.open_pdf
         ).pack(side="right")
         self.regenerate_button = FeedbackButton(
-            order_actions,
+            actions,
             text="Régénérer la commande",
             command=self.regenerate_pdf,
             success_text="✓ Commande régénérée",

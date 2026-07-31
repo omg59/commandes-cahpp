@@ -102,7 +102,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.0.0-rc4c.exe
+dist-installer\CommandesCAHPP-Setup-1.0.0-rc5.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
@@ -331,7 +331,7 @@ d'équipe ; il ne remplace pas une sauvegarde régulière.
 
 ## Mise à niveau depuis une ancienne version
 
-Avec l'installeur RC4c, fermez l'application puis lancez le nouvel EXE en
+Avec l'installeur RC5, fermez l'application puis lancez le nouvel EXE en
 conservant le même dossier d'installation. La base et les documents ne sont pas
 remplacés. Une sauvegarde complète préalable reste conseillée.
 

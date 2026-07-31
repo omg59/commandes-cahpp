@@ -32,6 +32,7 @@ from cahpp_app.pdf_export import generate_order_pdf
 from cahpp_app.ui import (
     TreeviewColumnSizer,
     TreeviewSorter,
+    centered_window_position,
     configured_pdf_directory,
     filter_supplier_names,
     fractional_carton_lines,
@@ -109,6 +110,19 @@ class WorkflowTest(unittest.TestCase):
         )
         self.assertEqual(sum(widths.values()), 480)
         self.assertEqual(widths["designation"], 195)
+        self.assertEqual(
+            centered_window_position(
+                100,
+                80,
+                800,
+                500,
+                380,
+                230,
+                1920,
+                1080,
+            ),
+            (310, 215),
+        )
 
     def test_import_search_order_and_pdf(self):
         self.assertEqual(
@@ -726,7 +740,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.0-rc4c",
+            "1.0.0-rc5",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,

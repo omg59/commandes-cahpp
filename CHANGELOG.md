@@ -1,5 +1,17 @@
 # Historique des versions
 
+## 1.0.0-rc5
+
+- retour à une barre d'actions unique dans l'historique des commandes ;
+- augmentation de la largeur initiale de l'application à 1 450 pixels et
+  largeur minimale fixée à 1 420 pixels afin de conserver tous les boutons
+  entièrement visibles ;
+- centrage de la fenêtre de classement d'un document sur la fenêtre
+  **Documents associés** ;
+- maintien du centrage dans les limites de l'écran ;
+- conservation de l'autocomplétion sans perte de focus et des autres
+  corrections introduites en RC4c.
+
 ## 1.0.0-rc4c
 
 - remplacement du menu déroulant natif ouvert pendant la recherche d'un

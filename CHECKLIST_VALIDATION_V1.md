@@ -67,6 +67,10 @@ un même dossier partagé.
 
 ## PDF et documents
 
+- [ ] Les actions de l'historique tiennent entièrement sur une seule ligne à
+      la largeur minimale de la fenêtre.
+- [ ] La fenêtre de choix du type de document s'ouvre centrée sur
+      **Documents associés**.
 - [ ] Le PDF d'une commande est ouvrable depuis l'autre poste.
 - [ ] Le PDF ne contient aucune mention « Franco atteint » ou
       « Franco non atteint ».
@@ -81,9 +85,9 @@ un même dossier partagé.
 
 ## Mise à jour de l'application
 
-- [ ] L'installeur RC4c s'exécute sans demander de droit administrateur.
+- [ ] L'installeur RC5 s'exécute sans demander de droit administrateur.
 - [ ] La première installation dans le dossier choisi démarre correctement.
-- [ ] Une réinstallation RC4c remplace l'application sans effacer la base.
+- [ ] Une réinstallation RC5 remplace l'application sans effacer la base.
 - [ ] Les dossiers `documents`, `assets`, `exports` et `sauvegardes` sont
       conservés.
 - [ ] Les raccourcis ouvrent l'application avec le bon dossier de travail.
