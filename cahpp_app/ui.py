@@ -39,7 +39,7 @@ from .local_services import (
     remove_document,
     resolve_portable_path,
 )
-from .paths import BACKUP_DIR, EXPORT_DIR
+from .paths import BACKUP_DIR, EXPORT_DIR, ROOT_DIR
 from .pdf_export import generate_order_pdf
 
 
@@ -404,6 +404,8 @@ class App(ttk.Frame):
         super().__init__(root)
         self.root = root
         self.database = database
+        self.root.title("Commandes CAHPP")
+        self._configure_window_icon()
         self._syncing = False
         self._catalog_prompted_hash = ""
         self._periodic_started = False
@@ -412,7 +414,6 @@ class App(ttk.Frame):
         self.last_sync_error = ""
         self.collaboration: CollaborationManager | None = None
         self._initialize_user_and_collaboration()
-        self.root.title("Commandes CAHPP")
         self.root.geometry("1450x820")
         self.root.minsize(1420, 680)
         self._configure_styles()
@@ -526,6 +527,16 @@ class App(ttk.Frame):
         if self.collaboration:
             self.root.after(700, self.sync_collaboration)
             self._start_periodic_collaboration()
+
+    def _configure_window_icon(self) -> None:
+        icon_path = ROOT_DIR / "assets" / "app_icon.png"
+        if not icon_path.is_file():
+            return
+        try:
+            self._window_icon = tk.PhotoImage(file=str(icon_path))
+            self.root.iconphoto(True, self._window_icon)
+        except tk.TclError:
+            self._window_icon = None
 
     def _initialize_user_and_collaboration(self) -> None:
         settings = self.database.get_settings()

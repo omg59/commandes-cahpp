@@ -1,0 +1,63 @@
+COMMANDES CAHPP — VERSION STABLE 1.0.0
+======================================
+
+La version RC5 ayant été validée en conditions réelles, cette publication
+devient la première version stable de Commandes CAHPP.
+
+MIGRATION DE LA BASE
+--------------------
+
+Le schéma reste en version 10. Les bases créées avec la version 0.9.0 et les
+candidates RC1 à RC5 sont reconnues sans réimporter le catalogue.
+
+ICÔNE OFFICIELLE
+----------------
+
+L'application utilise désormais l'icône « colis + checklist » :
+
+- dans la barre de titre et les fenêtres ;
+- pour CommandesCAHPP.exe ;
+- dans les raccourcis du Bureau et du menu Démarrer ;
+- pour l'installeur et le programme de désinstallation.
+
+Le fichier ICO contient les résolutions Windows de 16 à 256 pixels.
+
+INSTALLATION ET MISE À JOUR
+---------------------------
+
+Sur le PC de compilation :
+
+1. installer Python 3.12 64 bits et Inno Setup 6 ;
+2. lancer build_installer_windows.bat ;
+3. récupérer dist-installer\CommandesCAHPP-Setup-1.0.0.exe.
+
+Sur chaque poste utilisateur :
+
+1. fermer Commandes CAHPP ;
+2. effectuer une sauvegarde complète par précaution ;
+3. lancer CommandesCAHPP-Setup-1.0.0.exe ;
+4. conserver le dossier d'installation proposé ;
+5. vérifier que l'application affiche Version 1.0.0.
+
+L'installeur remplace uniquement le programme. Il conserve la base locale, les
+documents associés, le logo de l'établissement, les PDF et les sauvegardes.
+
+FONCTIONS STABLES
+-----------------
+
+La V1.0 comprend notamment :
+
+- catalogue CAHPP importable et corrections manuelles synchronisées ;
+- commandes, brouillons, duplication, historique et documents associés ;
+- génération des bons PDF et préparation locale des e-mails ;
+- profils nominatifs et collaboration sans serveur par dossier partagé ;
+- synchronisation configurable avec protection des formulaires en cours ;
+- favoris, articles hors catalogue et alertes de changement tarifaire ;
+- sauvegarde complète et diagnostic intégré ;
+- installeur Windows sans droit administrateur.
+
+VALIDATION
+----------
+
+La checklist CHECKLIST_VALIDATION_V1.md reste fournie pour contrôler une
+nouvelle installation ou un nouveau poste.

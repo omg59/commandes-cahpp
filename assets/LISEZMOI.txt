@@ -8,3 +8,8 @@ assets/logo.png
 
 Ce chemin reste valable lorsque le dossier portable complet est déplacé ou
 copié sur un autre poste.
+
+Les fichiers app_icon.png et app_icon.ico sont l'icône officielle de
+Commandes CAHPP. Ils sont utilisés par la fenêtre, l'exécutable, les raccourcis
+et l'installeur Windows. Ils ne doivent pas être remplacés par le logo de
+l'établissement.

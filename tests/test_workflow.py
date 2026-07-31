@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from openpyxl import Workbook
+from PIL import Image
 from pypdf import PdfReader
 
 from cahpp_app.catalog_importer import CatalogImporter, EXPECTED_COLUMNS
@@ -123,6 +124,11 @@ class WorkflowTest(unittest.TestCase):
             ),
             (310, 215),
         )
+        icon_path = Path(__file__).resolve().parents[1] / "assets" / "app_icon.ico"
+        with Image.open(icon_path) as icon:
+            self.assertIn((256, 256), icon.ico.sizes())
+            self.assertIn((32, 32), icon.ico.sizes())
+            self.assertIn((16, 16), icon.ico.sizes())
 
     def test_import_search_order_and_pdf(self):
         self.assertEqual(
@@ -740,7 +746,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.0-rc5",
+            "1.0.0",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,

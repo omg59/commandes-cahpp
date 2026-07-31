@@ -1,5 +1,18 @@
 # Historique des versions
 
+## 1.0.0
+
+- publication de la première version stable après validation de la RC5 ;
+- ajout de l'icône officielle **colis + checklist**, assortie aux couleurs de
+  l'application ;
+- création d'un fichier ICO multirésolution pour Windows, de 16 à 256 pixels ;
+- affichage de l'icône dans la barre de titre et les fenêtres de
+  l'application ;
+- intégration de l'icône à l'exécutable PyInstaller, aux raccourcis, à
+  l'installeur et au programme de désinstallation ;
+- conservation intégrale des fonctions et correctifs validés en RC5 ;
+- passage de la version affichée et des métadonnées d'installation à 1.0.0.
+
 ## 1.0.0-rc5
 
 - retour à une barre d'actions unique dans l'historique des commandes ;

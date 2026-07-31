@@ -5,6 +5,8 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
+**Version stable actuelle : 1.0.0**
+
 ## Principes
 
 - application, catalogue et base SQLite conservés localement sur chaque poste ;
@@ -26,7 +28,7 @@ travailler ensemble à travers un simple dossier partagé, sans serveur.
 
 ## Collaboration sans serveur
 
-La version 0.9.0 ne place jamais la base SQLite sur le réseau. Chaque utilisateur
+Le mode collaboratif ne place jamais la base SQLite sur le réseau. Chaque utilisateur
 installe son propre dossier `CommandesCAHPP-portable` sur son PC. Seul le dossier
 choisi dans **Paramètres > Collaboration** doit être commun aux utilisateurs.
 
@@ -102,7 +104,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.0.0-rc5.exe
+dist-installer\CommandesCAHPP-Setup-1.0.0.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
@@ -331,7 +333,7 @@ d'équipe ; il ne remplace pas une sauvegarde régulière.
 
 ## Mise à niveau depuis une ancienne version
 
-Avec l'installeur RC5, fermez l'application puis lancez le nouvel EXE en
+Avec l'installeur V1.0, fermez l'application puis lancez le nouvel EXE en
 conservant le même dossier d'installation. La base et les documents ne sont pas
 remplacés. Une sauvegarde complète préalable reste conseillée.
 
@@ -343,7 +345,7 @@ automatiquement la base à niveau au premier démarrage.
 Ne placez ni l'exécutable ni `data\commandes_cahpp.sqlite3` dans le dossier
 réseau ; configurez uniquement ce dernier depuis l'application.
 
-## Limitation du prototype
+## Compilation Windows
 
 L'exécutable Windows doit être compilé sur Windows : PyInstaller ne permet pas
 de produire de manière fiable un `.exe` Windows depuis Linux. Le script

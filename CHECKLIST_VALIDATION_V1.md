@@ -1,4 +1,4 @@
-# Checklist de validation avant la V1.0
+# Checklist de validation de la V1.0
 
 Cette checklist permet de valider la version collaborative dans les conditions
 réelles du service. Elle doit être effectuée avec deux installations locales et
@@ -85,9 +85,9 @@ un même dossier partagé.
 
 ## Mise à jour de l'application
 
-- [ ] L'installeur RC5 s'exécute sans demander de droit administrateur.
+- [ ] L'installeur V1.0 s'exécute sans demander de droit administrateur.
 - [ ] La première installation dans le dossier choisi démarre correctement.
-- [ ] Une réinstallation RC5 remplace l'application sans effacer la base.
+- [ ] Une réinstallation V1.0 remplace l'application sans effacer la base.
 - [ ] Les dossiers `documents`, `assets`, `exports` et `sauvegardes` sont
       conservés.
 - [ ] Les raccourcis ouvrent l'application avec le bon dossier de travail.
@@ -117,7 +117,7 @@ Sur chaque poste, ouvrir **Paramètres > Collaboration > Diagnostic** :
 
 ## Résultat
 
-- [ ] Tous les contrôles obligatoires sont validés : la candidate peut être
-      promue en V1.0.
+- [ ] Tous les contrôles obligatoires sont validés : la V1.0 peut être
+      déployée.
 - [ ] Une anomalie est constatée : exporter le diagnostic des deux postes,
       noter l'action effectuée et conserver les dossiers avant correction.
