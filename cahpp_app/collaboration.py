@@ -523,6 +523,8 @@ class CollaborationManager:
             payload["order"] = order
             payload["lines"] = []
             payload["attachments"] = []
+            payload["receipts"] = []
+            payload["comments"] = []
             return payload
         files_dir.mkdir(parents=True, exist_ok=True)
         pdf_path = str(order.get("pdf_path") or "")
@@ -573,6 +575,8 @@ class CollaborationManager:
             cached["order"] = order
             cached["lines"] = []
             cached["attachments"] = []
+            cached["receipts"] = []
+            cached["comments"] = []
             return cached
         cache_dir.mkdir(parents=True, exist_ok=True)
 

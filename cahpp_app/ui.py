@@ -1252,16 +1252,17 @@ class DashboardPage(BasePage):
         ).pack(side="right")
         self.delivery_tree = ttk.Treeview(
             delivery_box,
-            columns=("number", "sent", "supplier", "days", "total"),
+            columns=("number", "sent", "supplier", "state", "remaining", "days"),
             show="headings",
             height=6,
         )
         for column, title, width, anchor in (
             ("number", "N° commande", 130, "center"),
             ("sent", "Envoyée le", 135, "center"),
-            ("supplier", "Fournisseur", 350, "w"),
+            ("supplier", "Fournisseur", 310, "w"),
+            ("state", "Livraison", 145, "center"),
+            ("remaining", "Unités restantes", 115, "center"),
             ("days", "Attente", 90, "center"),
-            ("total", "Total HT", 110, "e"),
         ):
             self.delivery_tree.heading(column, text=title)
             self.delivery_tree.column(
@@ -1303,7 +1304,7 @@ class DashboardPage(BasePage):
         selected = self.delivery_tree.selection()
         order_id = int(selected[0]) if selected else None
         page: OrdersPage = self.app.pages["orders"]  # type: ignore[assignment]
-        page.delivery_var.set("En attente")
+        page.delivery_var.set("À recevoir")
         page.include_archived_var.set(False)
         self.app.show_page("orders")
         if order_id:
@@ -1338,8 +1339,16 @@ class DashboardPage(BasePage):
                     order["order_number"],
                     format_timestamp(order["sent_at"]),
                     order["supplier_name"],
+                    order["delivery_status"],
+                    format_number(
+                        max(
+                            0,
+                            float(order["ordered_units"] or 0)
+                            - float(order["received_units"] or 0),
+                        ),
+                        2,
+                    ),
                     f"{max(0, int(order['waiting_days'] or 0))} j",
-                    format_price(order["total_ht"], 2),
                 ),
             )
         settings = self.database.get_settings()
@@ -3080,6 +3089,527 @@ class OrderDocumentsDialog(tk.Toplevel):
             )
 
 
+class ReceiptEntryDialog(tk.Toplevel):
+    def __init__(self, parent, database: Database, order_id: int):
+        super().__init__(parent)
+        self.withdraw()
+        self.database = database
+        self.order_id = order_id
+        self.saved = False
+        self.quantities: dict[str, float] = {}
+        summary = database.receipt_summary(order_id)
+        order = summary["order"]
+        self.lines = {str(row["line_uid"]): row for row in summary["lines"]}
+        self.title(f"Nouvelle réception — {order['order_number']}")
+        self.transient(parent)
+        self.grab_set()
+
+        content = ttk.Frame(self, padding=18)
+        content.pack(fill="both", expand=True)
+        ttk.Label(
+            content,
+            text=f"Réception de {order['order_number']}",
+            font=("Segoe UI Semibold", 14),
+        ).pack(anchor="w")
+        ttk.Label(
+            content,
+            text="Saisissez uniquement les quantités reçues lors de cette livraison.",
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(2, 12))
+
+        fields = ttk.Frame(content)
+        fields.pack(fill="x", pady=(0, 10))
+        ttk.Label(fields, text="Date").pack(side="left")
+        self.date_var = tk.StringVar(value=date.today().isoformat())
+        ttk.Entry(fields, textvariable=self.date_var, width=13).pack(
+            side="left", padx=(6, 16)
+        )
+        ttk.Label(fields, text="N° BL / référence").pack(side="left")
+        self.reference_var = tk.StringVar()
+        ttk.Entry(fields, textvariable=self.reference_var, width=28).pack(
+            side="left", padx=(6, 0)
+        )
+
+        frame = ttk.Frame(content)
+        frame.pack(fill="both", expand=True)
+        self.tree = ttk.Treeview(
+            frame,
+            columns=("ref", "designation", "ordered", "received", "remaining", "current"),
+            show="headings",
+            selectmode="browse",
+        )
+        for column, title, width, anchor in (
+            ("ref", "Référence", 120, "center"),
+            ("designation", "Désignation", 390, "w"),
+            ("ordered", "Commandé", 90, "center"),
+            ("received", "Déjà reçu", 90, "center"),
+            ("remaining", "Reliquat", 90, "center"),
+            ("current", "Cette réception", 105, "center"),
+        ):
+            self.tree.heading(column, text=title)
+            self.tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "designation",
+            )
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.tree.bind("<Double-1>", lambda event: self.edit_quantity())
+
+        line_actions = ttk.Frame(content)
+        line_actions.pack(fill="x", pady=(8, 10))
+        ttk.Button(
+            line_actions, text="Saisir la quantité…", command=self.edit_quantity
+        ).pack(side="left")
+        ttk.Button(
+            line_actions, text="Recevoir tout le reliquat", command=self.receive_all
+        ).pack(side="left", padx=7)
+        ttk.Button(
+            line_actions, text="Effacer les saisies", command=self.clear_quantities
+        ).pack(side="left")
+
+        ttk.Label(content, text="Note de réception").pack(anchor="w")
+        self.notes_var = tk.StringVar()
+        ttk.Entry(content, textvariable=self.notes_var).pack(
+            fill="x", pady=(4, 12)
+        )
+        buttons = ttk.Frame(content)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Annuler", command=self.destroy).pack(side="right")
+        ttk.Button(
+            buttons,
+            text="Enregistrer la réception",
+            style="Accent.TButton",
+            command=self.validate,
+        ).pack(side="right", padx=7)
+        self.refresh_lines()
+        self.update_idletasks()
+        width, height = 1050, 650
+        x, y = centered_window_position(
+            parent.winfo_rootx(),
+            parent.winfo_rooty(),
+            parent.winfo_width(),
+            parent.winfo_height(),
+            width,
+            height,
+            self.winfo_screenwidth(),
+            self.winfo_screenheight(),
+        )
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(900, 560)
+        self.deiconify()
+
+    def selected_line_uid(self) -> str | None:
+        selected = self.tree.selection()
+        return str(selected[0]) if selected else None
+
+    def edit_quantity(self) -> None:
+        line_uid = self.selected_line_uid()
+        if not line_uid:
+            messagebox.showinfo(
+                "Réception", "Sélectionnez un article.", parent=self
+            )
+            return
+        line = self.lines[line_uid]
+        remaining = float(line["remaining_units"] or 0)
+        if remaining <= 0:
+            return
+        quantity = simpledialog.askfloat(
+            "Quantité reçue",
+            f"{line['designation']}\nQuantité encore attendue : {remaining:g}",
+            parent=self,
+            initialvalue=self.quantities.get(line_uid, remaining),
+            minvalue=0,
+            maxvalue=remaining,
+        )
+        if quantity is None:
+            return
+        if quantity > 0:
+            self.quantities[line_uid] = quantity
+        else:
+            self.quantities.pop(line_uid, None)
+        self.refresh_lines()
+        self.tree.selection_set(line_uid)
+
+    def receive_all(self) -> None:
+        self.quantities = {
+            line_uid: float(line["remaining_units"] or 0)
+            for line_uid, line in self.lines.items()
+            if float(line["remaining_units"] or 0) > 0
+        }
+        self.refresh_lines()
+
+    def clear_quantities(self) -> None:
+        self.quantities.clear()
+        self.refresh_lines()
+
+    def refresh_lines(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        for line_uid, line in self.lines.items():
+            self.tree.insert(
+                "",
+                "end",
+                iid=line_uid,
+                values=(
+                    line["supplier_ref"] or "—",
+                    line["designation"],
+                    format_number(line["total_units"], 2),
+                    format_number(line["received_units"], 2),
+                    format_number(line["remaining_units"], 2),
+                    format_number(self.quantities.get(line_uid, 0), 2),
+                ),
+            )
+
+    def validate(self) -> None:
+        try:
+            selected_date = date.fromisoformat(self.date_var.get().strip())
+            self.database.add_receipt(
+                self.order_id,
+                selected_date,
+                self.quantities,
+                reference=self.reference_var.get(),
+                notes=self.notes_var.get(),
+            )
+        except ValueError as exc:
+            messagebox.showerror("Réception", str(exc), parent=self)
+            return
+        self.saved = True
+        self.destroy()
+
+
+class OrderTrackingDialog(tk.Toplevel):
+    def __init__(self, parent, database: Database, order_id: int):
+        super().__init__(parent)
+        self.withdraw()
+        self.database = database
+        self.order_id = order_id
+        self.changed = False
+        order, _ = database.get_order(order_id)
+        self.title(f"Suivi — {order['order_number']}")
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+
+        content = ttk.Frame(self, padding=18)
+        content.pack(fill="both", expand=True)
+        header = ttk.Frame(content)
+        header.pack(fill="x", pady=(0, 12))
+        self.title_label = ttk.Label(
+            header,
+            text=f"Suivi de {order['order_number']}",
+            font=("Segoe UI Semibold", 14),
+        )
+        self.title_label.pack(side="left")
+        self.status_label = ttk.Label(header, text="", style="Subtitle.TLabel")
+        self.status_label.pack(side="right")
+
+        milestones = ttk.Frame(content, style="Surface.TFrame", padding=12)
+        milestones.pack(fill="x", pady=(0, 12))
+        ttk.Label(
+            milestones, text="Livraison prévue", style="Surface.TLabel"
+        ).pack(side="left")
+        self.expected_var = tk.StringVar()
+        ttk.Entry(milestones, textvariable=self.expected_var, width=13).pack(
+            side="left", padx=(6, 5)
+        )
+        ttk.Button(
+            milestones, text="Enregistrer la date", command=self.save_expected_date
+        ).pack(
+            side="left", padx=(0, 12)
+        )
+        self.confirm_button = ttk.Button(
+            milestones, text="Marquer confirmée", command=self.toggle_confirmation
+        )
+        self.confirm_button.pack(side="left")
+        self.invoice_button = ttk.Button(
+            milestones, text="Marquer facturée", command=self.toggle_invoice
+        )
+        self.invoice_button.pack(side="left", padx=7)
+        ttk.Label(
+            milestones,
+            text="Date au format AAAA-MM-JJ",
+            style="Surface.TLabel",
+        ).pack(side="right")
+
+        notebook = ttk.Notebook(content)
+        notebook.pack(fill="both", expand=True)
+        deliveries_tab = ttk.Frame(notebook, padding=10)
+        comments_tab = ttk.Frame(notebook, padding=10)
+        notebook.add(deliveries_tab, text="Réceptions et reliquats")
+        notebook.add(comments_tab, text="Notes internes")
+
+        self.lines_tree = ttk.Treeview(
+            deliveries_tab,
+            columns=("ref", "designation", "ordered", "received", "remaining"),
+            show="headings",
+            height=9,
+        )
+        for column, title, width, anchor in (
+            ("ref", "Référence", 120, "center"),
+            ("designation", "Désignation", 460, "w"),
+            ("ordered", "Commandé", 100, "center"),
+            ("received", "Reçu", 100, "center"),
+            ("remaining", "Reliquat", 100, "center"),
+        ):
+            self.lines_tree.heading(column, text=title)
+            self.lines_tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "designation",
+            )
+        self.lines_tree.pack(fill="both", expand=True)
+
+        receipt_header = ttk.Frame(deliveries_tab)
+        receipt_header.pack(fill="x", pady=(10, 5))
+        ttk.Label(
+            receipt_header,
+            text="Réceptions enregistrées",
+            font=("Segoe UI Semibold", 10),
+        ).pack(side="left")
+        ttk.Button(
+            receipt_header,
+            text="Ajouter une réception…",
+            style="Accent.TButton",
+            command=self.add_receipt,
+        ).pack(side="right")
+        ttk.Button(
+            receipt_header, text="Supprimer", command=self.delete_receipt
+        ).pack(side="right", padx=7)
+        self.receipts_tree = ttk.Treeview(
+            deliveries_tab,
+            columns=("date", "reference", "user", "quantity", "notes"),
+            show="headings",
+            height=5,
+            selectmode="browse",
+        )
+        for column, title, width, anchor in (
+            ("date", "Date", 100, "center"),
+            ("reference", "N° BL / référence", 180, "w"),
+            ("user", "Saisie par", 130, "w"),
+            ("quantity", "Unités reçues", 110, "center"),
+            ("notes", "Note", 330, "w"),
+        ):
+            self.receipts_tree.heading(column, text=title)
+            self.receipts_tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "notes",
+            )
+        self.receipts_tree.pack(fill="both", expand=True)
+
+        comment_actions = ttk.Frame(comments_tab)
+        comment_actions.pack(fill="x", pady=(0, 8))
+        ttk.Button(
+            comment_actions,
+            text="Ajouter une note…",
+            style="Accent.TButton",
+            command=self.add_comment,
+        ).pack(side="left")
+        ttk.Button(
+            comment_actions, text="Supprimer", command=self.delete_comment
+        ).pack(side="left", padx=7)
+        self.comments_tree = ttk.Treeview(
+            comments_tab,
+            columns=("date", "user", "body"),
+            show="headings",
+            selectmode="browse",
+        )
+        for column, title, width in (
+            ("date", "Date", 140),
+            ("user", "Utilisateur", 140),
+            ("body", "Note", 650),
+        ):
+            self.comments_tree.heading(column, text=title)
+            self.comments_tree.column(
+                column,
+                width=width,
+                anchor="w",
+                stretch=column == "body",
+            )
+        self.comments_tree.pack(fill="both", expand=True)
+
+        ttk.Button(content, text="Fermer", command=self.destroy).pack(
+            anchor="e", pady=(12, 0)
+        )
+        self.refresh()
+        self.update_idletasks()
+        width, height = 1120, 760
+        parent_window = parent.winfo_toplevel()
+        x, y = centered_window_position(
+            parent_window.winfo_rootx(),
+            parent_window.winfo_rooty(),
+            parent_window.winfo_width(),
+            parent_window.winfo_height(),
+            width,
+            height,
+            self.winfo_screenwidth(),
+            self.winfo_screenheight(),
+        )
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(940, 650)
+        self.deiconify()
+
+    def toggle_confirmation(self) -> None:
+        order, _ = self.database.get_order(self.order_id)
+        confirmed = not bool(order["confirmed_at"])
+        expected = None
+        if confirmed and self.expected_var.get().strip():
+            try:
+                expected = date.fromisoformat(self.expected_var.get().strip())
+            except ValueError:
+                messagebox.showerror(
+                    "Confirmation", "Date attendue : AAAA-MM-JJ.", parent=self
+                )
+                return
+        try:
+            self.database.mark_order_confirmed(
+                self.order_id, confirmed, expected_delivery_date=expected
+            )
+        except ValueError as exc:
+            messagebox.showerror("Confirmation", str(exc), parent=self)
+            return
+        self.changed = True
+        self.refresh()
+
+    def save_expected_date(self) -> None:
+        value = self.expected_var.get().strip()
+        try:
+            expected = date.fromisoformat(value) if value else None
+            self.database.update_expected_delivery_date(self.order_id, expected)
+        except ValueError as exc:
+            messagebox.showerror(
+                "Date de livraison",
+                str(exc) if str(exc) else "Date attendue : AAAA-MM-JJ.",
+                parent=self,
+            )
+            return
+        self.changed = True
+        self.refresh()
+
+    def toggle_invoice(self) -> None:
+        order, _ = self.database.get_order(self.order_id)
+        try:
+            self.database.mark_order_invoiced(
+                self.order_id, not bool(order["invoiced_at"])
+            )
+        except ValueError as exc:
+            messagebox.showerror("Facturation", str(exc), parent=self)
+            return
+        self.changed = True
+        self.refresh()
+
+    def add_receipt(self) -> None:
+        dialog = ReceiptEntryDialog(self, self.database, self.order_id)
+        self.wait_window(dialog)
+        if dialog.saved:
+            self.changed = True
+            self.refresh()
+
+    def delete_receipt(self) -> None:
+        selected = self.receipts_tree.selection()
+        if not selected:
+            return
+        if not messagebox.askyesno(
+            "Supprimer la réception",
+            "Supprimer cette réception et recalculer les reliquats ?",
+            parent=self,
+        ):
+            return
+        self.database.delete_receipt(int(selected[0]))
+        self.changed = True
+        self.refresh()
+
+    def add_comment(self) -> None:
+        body = simpledialog.askstring(
+            "Note interne",
+            "Note partagée avec les autres utilisateurs :",
+            parent=self,
+        )
+        if not body:
+            return
+        self.database.add_order_comment(self.order_id, body)
+        self.changed = True
+        self.refresh()
+
+    def delete_comment(self) -> None:
+        selected = self.comments_tree.selection()
+        if not selected:
+            return
+        if not messagebox.askyesno(
+            "Supprimer la note", "Supprimer cette note interne ?", parent=self
+        ):
+            return
+        self.database.delete_order_comment(int(selected[0]))
+        self.changed = True
+        self.refresh()
+
+    def refresh(self) -> None:
+        summary = self.database.receipt_summary(self.order_id)
+        order = summary["order"]
+        self.status_label.configure(
+            text=f"{order['status']}  •  Livraison : {order['delivery_status']}"
+        )
+        self.expected_var.set(order["expected_delivery_date"] or "")
+        self.confirm_button.configure(
+            text=(
+                "Annuler la confirmation"
+                if order["confirmed_at"]
+                else "Marquer confirmée"
+            )
+        )
+        self.invoice_button.configure(
+            text=(
+                "Annuler la facturation"
+                if order["invoiced_at"]
+                else "Marquer facturée"
+            )
+        )
+        self.lines_tree.delete(*self.lines_tree.get_children())
+        for line in summary["lines"]:
+            self.lines_tree.insert(
+                "",
+                "end",
+                iid=str(line["line_uid"]),
+                values=(
+                    line["supplier_ref"] or "—",
+                    line["designation"],
+                    format_number(line["total_units"], 2),
+                    format_number(line["received_units"], 2),
+                    format_number(line["remaining_units"], 2),
+                ),
+            )
+        self.receipts_tree.delete(*self.receipts_tree.get_children())
+        for receipt in summary["receipts"]:
+            self.receipts_tree.insert(
+                "",
+                "end",
+                iid=str(receipt["id"]),
+                values=(
+                    format_timestamp(receipt["receipt_date"]),
+                    receipt["reference"] or "—",
+                    receipt["received_by"] or "—",
+                    format_number(receipt["total_received"], 2),
+                    receipt["notes"] or "—",
+                ),
+            )
+        self.comments_tree.delete(*self.comments_tree.get_children())
+        for comment in self.database.list_order_comments(self.order_id):
+            self.comments_tree.insert(
+                "",
+                "end",
+                iid=str(comment["id"]),
+                values=(
+                    format_timestamp(comment["created_at"]),
+                    comment["author_name"] or "—",
+                    comment["body"],
+                ),
+            )
+
+
 class OrdersPage(BasePage):
     def __init__(self, parent, app):
         super().__init__(parent, app)
@@ -3101,7 +3631,17 @@ class OrdersPage(BasePage):
             textvariable=self.status_var,
             state="readonly",
             width=18,
-            values=("Tous", "Brouillon", "Générée", "E-mail préparé", "Envoyée"),
+            values=(
+                "Tous",
+                "Brouillon",
+                "Générée",
+                "E-mail préparé",
+                "Envoyée",
+                "Confirmée",
+                "Partiellement livrée",
+                "Livrée",
+                "Facturée",
+            ),
         )
         status_box.pack(side="left", padx=7)
         status_box.bind("<<ComboboxSelected>>", lambda event: self.refresh())
@@ -3111,8 +3651,15 @@ class OrdersPage(BasePage):
             filters,
             textvariable=self.delivery_var,
             state="readonly",
-            width=14,
-            values=("Toutes", "En attente", "Livrée", "Non suivie"),
+            width=20,
+            values=(
+                "Toutes",
+                "À recevoir",
+                "En attente",
+                "Partiellement livrée",
+                "Livrée",
+                "Non suivie",
+            ),
         )
         delivery_box.pack(side="left", padx=7)
         delivery_box.bind(
@@ -3215,7 +3762,7 @@ class OrdersPage(BasePage):
             actions, text="Marquer envoyée", command=self.mark_sent
         ).pack(side="right", padx=6)
         self.delivery_button = ttk.Button(
-            actions, text="Marquer livrée", command=self.toggle_delivery
+            actions, text="Suivi / réception…", command=self.manage_tracking
         )
         self.delivery_button.pack(side="right")
         ttk.Button(
@@ -3250,15 +3797,11 @@ class OrdersPage(BasePage):
     def update_action_labels(self) -> None:
         order_id = self.selected_order()
         if not order_id:
-            self.delivery_button.configure(text="Marquer livrée")
+            self.delivery_button.configure(state="disabled")
             return
         order, _ = self.database.get_order(order_id)
         self.delivery_button.configure(
-            text=(
-                "Remettre en attente"
-                if order["delivery_status"] == "Livrée"
-                else "Marquer livrée"
-            )
+            state="normal" if order["sent_at"] else "disabled"
         )
 
     def edit_draft(self) -> None:
@@ -3527,25 +4070,17 @@ class OrdersPage(BasePage):
             self.app.publish_order(order_id)
         self.refresh()
 
-    def toggle_delivery(self) -> None:
+    def manage_tracking(self) -> None:
         order_id = self.selected_order()
         if not order_id:
             return
-        order, _ = self.database.get_order(order_id)
-        target = (
-            "En attente"
-            if order["delivery_status"] == "Livrée"
-            else "Livrée"
-        )
         with self.app.locked_order(order_id) as allowed:
             if not allowed:
                 return
-            try:
-                self.database.update_delivery_status(order_id, target)
-            except ValueError as exc:
-                messagebox.showinfo("Livraison", str(exc), parent=self)
-                return
-            self.app.publish_order(order_id)
+            dialog = OrderTrackingDialog(self, self.database, order_id)
+            self.wait_window(dialog)
+            if dialog.changed:
+                self.app.publish_order(order_id)
         self.app.refresh_pages()
         self.refresh()
         self.select_order(order_id)

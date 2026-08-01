@@ -80,6 +80,8 @@ def build_diagnostic_report(
                 f"{counts.get('pending_deliveries', 0)}",
                 f"Commandes à synchroniser : {counts.get('pending_orders', 0)}",
                 f"Documents liés : {counts.get('attachments', 0)}",
+                f"Réceptions enregistrées : {counts.get('receipts', 0)}",
+                f"Notes internes : {counts.get('internal_comments', 0)}",
                 f"Imports CAHPP : {counts.get('imports', 0)}",
                 "Anomalies : "
                 + (

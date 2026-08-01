@@ -1,5 +1,5 @@
 #define MyAppName "Commandes CAHPP"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Commandes CAHPP"
 #define MyAppExeName "CommandesCAHPP.exe"
 
@@ -24,8 +24,8 @@ WizardStyle=modern
 SetupIconFile=assets\app_icon.ico
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion=1.1.0.0
-VersionInfoProductVersion=1.1.0
+VersionInfoVersion=1.2.0.0
+VersionInfoProductVersion=1.2.0
 VersionInfoDescription=Installeur Commandes CAHPP
 CloseApplications=yes
 RestartApplications=no

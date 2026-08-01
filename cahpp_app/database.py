@@ -137,9 +137,14 @@ CREATE TABLE IF NOT EXISTS orders (
     pdf_path TEXT NOT NULL DEFAULT '',
     email_prepared_at TEXT NOT NULL DEFAULT '',
     sent_at TEXT NOT NULL DEFAULT '',
+    confirmed_at TEXT NOT NULL DEFAULT '',
+    confirmed_by TEXT NOT NULL DEFAULT '',
     delivery_status TEXT NOT NULL DEFAULT 'Non suivie',
     delivered_at TEXT NOT NULL DEFAULT '',
     delivered_by TEXT NOT NULL DEFAULT '',
+    invoiced_at TEXT NOT NULL DEFAULT '',
+    invoiced_by TEXT NOT NULL DEFAULT '',
+    expected_delivery_date TEXT NOT NULL DEFAULT '',
     archived_at TEXT NOT NULL DEFAULT '',
     archived_by TEXT NOT NULL DEFAULT '',
     shared_uid TEXT NOT NULL DEFAULT '',
@@ -161,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date DESC);
 CREATE TABLE IF NOT EXISTS order_lines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    line_uid TEXT NOT NULL DEFAULT '',
     product_id INTEGER REFERENCES products(id),
     code_cahpp TEXT NOT NULL DEFAULT '',
     supplier_ref TEXT NOT NULL DEFAULT '',
@@ -176,6 +182,44 @@ CREATE TABLE IF NOT EXISTS order_lines (
 
 CREATE INDEX IF NOT EXISTS idx_order_lines_order
 ON order_lines(order_id, line_order);
+
+CREATE TABLE IF NOT EXISTS order_receipts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    receipt_uid TEXT NOT NULL UNIQUE,
+    receipt_date TEXT NOT NULL,
+    reference TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    received_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_receipts_order
+ON order_receipts(order_id, receipt_date, id);
+
+CREATE TABLE IF NOT EXISTS receipt_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_id INTEGER NOT NULL REFERENCES order_receipts(id) ON DELETE CASCADE,
+    order_line_uid TEXT NOT NULL,
+    quantity_received REAL NOT NULL DEFAULT 0,
+    UNIQUE(receipt_id, order_line_uid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_receipt_lines_uid
+ON receipt_lines(order_line_uid);
+
+CREATE TABLE IF NOT EXISTS order_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    comment_uid TEXT NOT NULL UNIQUE,
+    body TEXT NOT NULL,
+    author_name TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_comments_order
+ON order_comments(order_id, created_at, id);
 
 CREATE TABLE IF NOT EXISTS order_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -353,7 +397,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 11")
+            connection.execute("PRAGMA user_version = 12")
 
     @staticmethod
     def _ensure_column(
@@ -384,9 +428,14 @@ class Database:
         for column, declaration in (
             ("email_prepared_at", "TEXT NOT NULL DEFAULT ''"),
             ("sent_at", "TEXT NOT NULL DEFAULT ''"),
+            ("confirmed_at", "TEXT NOT NULL DEFAULT ''"),
+            ("confirmed_by", "TEXT NOT NULL DEFAULT ''"),
             ("delivery_status", "TEXT NOT NULL DEFAULT 'Non suivie'"),
             ("delivered_at", "TEXT NOT NULL DEFAULT ''"),
             ("delivered_by", "TEXT NOT NULL DEFAULT ''"),
+            ("invoiced_at", "TEXT NOT NULL DEFAULT ''"),
+            ("invoiced_by", "TEXT NOT NULL DEFAULT ''"),
+            ("expected_delivery_date", "TEXT NOT NULL DEFAULT ''"),
             ("archived_at", "TEXT NOT NULL DEFAULT ''"),
             ("archived_by", "TEXT NOT NULL DEFAULT ''"),
             ("shared_uid", "TEXT NOT NULL DEFAULT ''"),
@@ -401,6 +450,19 @@ class Database:
             ("last_synced_at", "TEXT NOT NULL DEFAULT ''"),
         ):
             self._ensure_column(connection, "orders", column, declaration)
+        self._ensure_column(
+            connection,
+            "order_lines",
+            "line_uid",
+            "TEXT NOT NULL DEFAULT ''",
+        )
+        for row in connection.execute(
+            "SELECT id FROM order_lines WHERE line_uid = ''"
+        ):
+            connection.execute(
+                "UPDATE order_lines SET line_uid = ? WHERE id = ?",
+                (str(uuid.uuid4()), row["id"]),
+            )
         for column, declaration in (
             ("created_by", "TEXT NOT NULL DEFAULT ''"),
             ("updated_by", "TEXT NOT NULL DEFAULT ''"),
@@ -467,6 +529,12 @@ class Database:
         )
         connection.execute(
             """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_order_lines_uid
+            ON order_lines(line_uid) WHERE line_uid <> ''
+            """
+        )
+        connection.execute(
+            """
             UPDATE orders
             SET delivery_status = 'En attente'
             WHERE sent_at <> '' AND delivery_status = 'Non suivie'
@@ -502,7 +570,8 @@ class Database:
                     """
                     SELECT COUNT(*) FROM orders
                     WHERE deleted_at = '' AND archived_at = ''
-                      AND sent_at <> '' AND delivery_status = 'En attente'
+                      AND sent_at <> ''
+                      AND delivery_status IN ('En attente', 'Partiellement livrée')
                     """
                 ).fetchone()[0],
             }
@@ -515,13 +584,24 @@ class Database:
                     """
                     SELECT o.id, o.order_number, o.sent_at, o.order_date,
                            o.total_ht, s.name AS supplier_name,
+                           o.delivery_status,
+                           COALESCE(SUM(ol.total_units), 0) AS ordered_units,
+                           COALESCE((
+                               SELECT SUM(rl.quantity_received)
+                               FROM receipt_lines rl
+                               JOIN order_receipts r ON r.id = rl.receipt_id
+                               WHERE r.order_id = o.id
+                           ), 0) AS received_units,
                            CAST(julianday('now') - julianday(
                                COALESCE(NULLIF(o.sent_at, ''), o.order_date)
                            ) AS INTEGER) AS waiting_days
                     FROM orders o
                     JOIN suppliers s ON s.id = o.supplier_id
+                    JOIN order_lines ol ON ol.order_id = o.id
                     WHERE o.deleted_at = '' AND o.archived_at = ''
-                      AND o.sent_at <> '' AND o.delivery_status = 'En attente'
+                      AND o.sent_at <> ''
+                      AND o.delivery_status IN ('En attente', 'Partiellement livrée')
+                    GROUP BY o.id
                     ORDER BY COALESCE(NULLIF(o.sent_at, ''), o.order_date), o.id
                     LIMIT 12
                     """
@@ -1149,6 +1229,7 @@ class Database:
             total_vat += line_vat
             normalized_lines.append(
                 (
+                    str(line.get("line_uid") or uuid.uuid4()),
                     line.get("product_id"),
                     str(line.get("code_cahpp") or ""),
                     str(line.get("supplier_ref") or ""),
@@ -1233,10 +1314,10 @@ class Database:
             connection.executemany(
                 """
                 INSERT INTO order_lines(
-                    order_id, product_id, code_cahpp, supplier_ref, designation,
+                    order_id, line_uid, product_id, code_cahpp, supplier_ref, designation,
                     cartons, units_per_carton, total_units, unit_price, vat,
                     total_ht, line_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 ((order_id, *line) for line in normalized_lines),
             )
@@ -1280,8 +1361,13 @@ class Database:
             filters.append("o.status = ?")
             parameters.append(status)
         if delivery_status:
-            filters.append("o.delivery_status = ?")
-            parameters.append(delivery_status)
+            if delivery_status == "À recevoir":
+                filters.append(
+                    "o.delivery_status IN ('En attente', 'Partiellement livrée')"
+                )
+            else:
+                filters.append("o.delivery_status = ?")
+                parameters.append(delivery_status)
         if not include_archived:
             filters.append("COALESCE(o.archived_at, '') = ''")
         where = " AND ".join(filters)
@@ -1387,6 +1473,12 @@ class Database:
                 "DELETE FROM order_lines WHERE order_id = ?", (order_id,)
             )
             connection.execute(
+                "DELETE FROM order_receipts WHERE order_id = ?", (order_id,)
+            )
+            connection.execute(
+                "DELETE FROM order_comments WHERE order_id = ?", (order_id,)
+            )
+            connection.execute(
                 "DELETE FROM order_attachments WHERE order_id = ?",
                 (order_id,),
             )
@@ -1473,6 +1565,7 @@ class Database:
                     order_id,
                 ),
             )
+            self._recompute_order_workflow(connection, order_id, now)
             self._record_order_audit(
                 connection, order_id, "PDF généré", occurred_at=now
             )
@@ -1517,7 +1610,7 @@ class Database:
             )
 
     def update_delivery_status(self, order_id: int, status: str) -> None:
-        if status not in {"En attente", "Livrée"}:
+        if status not in {"En attente", "Partiellement livrée", "Livrée"}:
             raise ValueError("État de livraison invalide.")
         now = datetime.now().isoformat(timespec="seconds")
         _, actor_name = self._actor()
@@ -1552,12 +1645,461 @@ class Database:
                     order_id,
                 ),
             )
+            self._recompute_order_workflow(connection, order_id, now)
             self._record_order_audit(
                 connection,
                 order_id,
                 f"Livraison : {status}",
                 occurred_at=now,
             )
+
+    def _recompute_order_workflow(
+        self,
+        connection: sqlite3.Connection,
+        order_id: int,
+        now: str | None = None,
+    ) -> str:
+        order = connection.execute(
+            "SELECT * FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
+        if order is None:
+            raise ValueError("Commande introuvable.")
+        if order["invoiced_at"]:
+            status = "Facturée"
+        elif order["delivery_status"] == "Livrée":
+            status = "Livrée"
+        elif order["delivery_status"] == "Partiellement livrée":
+            status = "Partiellement livrée"
+        elif order["confirmed_at"]:
+            status = "Confirmée"
+        elif order["sent_at"]:
+            status = "Envoyée"
+        elif order["email_prepared_at"]:
+            status = "E-mail préparé"
+        elif order["pdf_path"]:
+            status = "Générée"
+        else:
+            status = "Brouillon"
+        connection.execute(
+            "UPDATE orders SET status = ?, updated_at = ? WHERE id = ?",
+            (
+                status,
+                now or datetime.now().isoformat(timespec="seconds"),
+                order_id,
+            ),
+        )
+        return status
+
+    def mark_order_confirmed(
+        self,
+        order_id: int,
+        confirmed: bool = True,
+        expected_delivery_date: date | None = None,
+    ) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            order = connection.execute(
+                "SELECT sent_at FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable.")
+            if confirmed and not order["sent_at"]:
+                raise ValueError("La commande doit d'abord être envoyée.")
+            connection.execute(
+                """
+                UPDATE orders
+                SET confirmed_at = ?, confirmed_by = ?,
+                    expected_delivery_date = ?,
+                    shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', updated_at = ?,
+                    updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    now if confirmed else "",
+                    actor_name if confirmed else "",
+                    (
+                        expected_delivery_date.isoformat()
+                        if confirmed and expected_delivery_date
+                        else ""
+                    ),
+                    now,
+                    actor_name,
+                    order_id,
+                ),
+            )
+            status = self._recompute_order_workflow(connection, order_id, now)
+            self._record_order_audit(
+                connection,
+                order_id,
+                "Confirmation fournisseur" if confirmed else "Confirmation annulée",
+                (
+                    f"Livraison prévue : {expected_delivery_date.isoformat()}"
+                    if confirmed and expected_delivery_date
+                    else ""
+                ),
+                occurred_at=now,
+            )
+
+    def mark_order_invoiced(self, order_id: int, invoiced: bool = True) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            order = connection.execute(
+                "SELECT sent_at FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable.")
+            if invoiced and not order["sent_at"]:
+                raise ValueError("La commande doit d'abord être envoyée.")
+            connection.execute(
+                """
+                UPDATE orders
+                SET invoiced_at = ?, invoiced_by = ?,
+                    shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', updated_at = ?,
+                    updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    now if invoiced else "",
+                    actor_name if invoiced else "",
+                    now,
+                    actor_name,
+                    order_id,
+                ),
+            )
+            self._recompute_order_workflow(connection, order_id, now)
+            self._record_order_audit(
+                connection,
+                order_id,
+                "Facture reçue" if invoiced else "Facturation annulée",
+                occurred_at=now,
+            )
+
+    def update_expected_delivery_date(
+        self, order_id: int, expected_delivery_date: date | None
+    ) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            order = connection.execute(
+                "SELECT sent_at FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable.")
+            if not order["sent_at"]:
+                raise ValueError("La commande doit d'abord être envoyée.")
+            value = (
+                expected_delivery_date.isoformat()
+                if expected_delivery_date is not None
+                else ""
+            )
+            connection.execute(
+                """
+                UPDATE orders
+                SET expected_delivery_date = ?,
+                    shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', updated_at = ?, updated_by = ?
+                WHERE id = ?
+                """,
+                (value, now, actor_name, order_id),
+            )
+            self._record_order_audit(
+                connection,
+                order_id,
+                "Date de livraison prévue modifiée",
+                value or "Date supprimée",
+                occurred_at=now,
+            )
+
+    def receipt_summary(self, order_id: int) -> dict[str, object]:
+        with self.connect() as connection:
+            order = connection.execute(
+                """
+                SELECT o.*, s.name AS supplier_name
+                FROM orders o JOIN suppliers s ON s.id = o.supplier_id
+                WHERE o.id = ?
+                """,
+                (order_id,),
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable.")
+            lines = list(
+                connection.execute(
+                    """
+                    SELECT ol.*,
+                           COALESCE(SUM(rl.quantity_received), 0) AS received_units,
+                           MAX(0, ol.total_units -
+                               COALESCE(SUM(rl.quantity_received), 0)
+                           ) AS remaining_units
+                    FROM order_lines ol
+                    LEFT JOIN receipt_lines rl
+                      ON rl.order_line_uid = ol.line_uid
+                    WHERE ol.order_id = ?
+                    GROUP BY ol.id
+                    ORDER BY ol.line_order, ol.id
+                    """,
+                    (order_id,),
+                )
+            )
+            receipts = list(
+                connection.execute(
+                    """
+                    SELECT r.*,
+                           COALESCE(SUM(rl.quantity_received), 0) AS total_received
+                    FROM order_receipts r
+                    LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id
+                    WHERE r.order_id = ?
+                    GROUP BY r.id
+                    ORDER BY r.receipt_date DESC, r.id DESC
+                    """,
+                    (order_id,),
+                )
+            )
+        return {"order": order, "lines": lines, "receipts": receipts}
+
+    def add_receipt(
+        self,
+        order_id: int,
+        receipt_date: date,
+        quantities: Mapping[str, float | int | Decimal],
+        reference: str = "",
+        notes: str = "",
+        receipt_uid: str | None = None,
+    ) -> int:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        prepared = {
+            str(line_uid): money(quantity)
+            for line_uid, quantity in quantities.items()
+            if money(quantity) > 0
+        }
+        if not prepared:
+            raise ValueError("Indiquez au moins une quantité reçue.")
+        with self.session() as connection:
+            order = connection.execute(
+                "SELECT sent_at FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable.")
+            if not order["sent_at"]:
+                raise ValueError("La commande doit être envoyée avant sa réception.")
+            line_rows = {
+                str(row["line_uid"]): row
+                for row in connection.execute(
+                    """
+                    SELECT ol.line_uid, ol.designation, ol.total_units,
+                           COALESCE(SUM(rl.quantity_received), 0) AS received
+                    FROM order_lines ol
+                    LEFT JOIN receipt_lines rl
+                      ON rl.order_line_uid = ol.line_uid
+                    WHERE ol.order_id = ?
+                    GROUP BY ol.id
+                    """,
+                    (order_id,),
+                )
+            }
+            for line_uid, quantity in prepared.items():
+                line = line_rows.get(line_uid)
+                if line is None:
+                    raise ValueError("Une ligne de réception est inconnue.")
+                remaining = money(line["total_units"]) - money(line["received"])
+                if quantity > remaining:
+                    raise ValueError(
+                        f"La quantité reçue dépasse le reliquat pour « {line['designation']} » "
+                        f"({float(remaining):g} restant)."
+                    )
+            cursor = connection.execute(
+                """
+                INSERT INTO order_receipts(
+                    order_id, receipt_uid, receipt_date, reference, notes,
+                    received_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order_id,
+                    receipt_uid or str(uuid.uuid4()),
+                    receipt_date.isoformat(),
+                    reference.strip(),
+                    notes.strip(),
+                    actor_name,
+                    now,
+                    now,
+                ),
+            )
+            receipt_id = int(cursor.lastrowid)
+            connection.executemany(
+                """
+                INSERT INTO receipt_lines(
+                    receipt_id, order_line_uid, quantity_received
+                ) VALUES (?, ?, ?)
+                """,
+                (
+                    (receipt_id, line_uid, float(quantity))
+                    for line_uid, quantity in prepared.items()
+                ),
+            )
+            totals = connection.execute(
+                """
+                SELECT COALESCE(SUM(ol.total_units), 0) AS ordered,
+                       COALESCE((
+                           SELECT SUM(rl.quantity_received)
+                           FROM receipt_lines rl
+                           JOIN order_receipts r ON r.id = rl.receipt_id
+                           WHERE r.order_id = ?
+                       ), 0) AS received
+                FROM order_lines ol WHERE ol.order_id = ?
+                """,
+                (order_id, order_id),
+            ).fetchone()
+            ordered = money(totals["ordered"])
+            received = money(totals["received"])
+            delivery_status = "Livrée" if received >= ordered else "Partiellement livrée"
+            connection.execute(
+                """
+                UPDATE orders
+                SET delivery_status = ?, delivered_at = ?, delivered_by = ?,
+                    shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', updated_at = ?, updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    delivery_status,
+                    now if delivery_status == "Livrée" else "",
+                    actor_name if delivery_status == "Livrée" else "",
+                    now,
+                    actor_name,
+                    order_id,
+                ),
+            )
+            self._recompute_order_workflow(connection, order_id, now)
+            self._record_order_audit(
+                connection,
+                order_id,
+                "Réception enregistrée",
+                reference.strip() or f"{float(received):g}/{float(ordered):g} unités reçues",
+                occurred_at=now,
+            )
+        return receipt_id
+
+    def delete_receipt(self, receipt_id: int) -> int:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            receipt = connection.execute(
+                "SELECT * FROM order_receipts WHERE id = ?", (receipt_id,)
+            ).fetchone()
+            if receipt is None:
+                raise ValueError("Réception introuvable.")
+            order_id = int(receipt["order_id"])
+            connection.execute(
+                "DELETE FROM order_receipts WHERE id = ?", (receipt_id,)
+            )
+            totals = connection.execute(
+                """
+                SELECT COALESCE(SUM(ol.total_units), 0) AS ordered,
+                       COALESCE((
+                           SELECT SUM(rl.quantity_received)
+                           FROM receipt_lines rl JOIN order_receipts r
+                             ON r.id = rl.receipt_id
+                           WHERE r.order_id = ?
+                       ), 0) AS received
+                FROM order_lines ol WHERE ol.order_id = ?
+                """,
+                (order_id, order_id),
+            ).fetchone()
+            received = money(totals["received"])
+            ordered = money(totals["ordered"])
+            if received <= 0:
+                delivery_status = "En attente"
+            elif received >= ordered:
+                delivery_status = "Livrée"
+            else:
+                delivery_status = "Partiellement livrée"
+            connection.execute(
+                """
+                UPDATE orders
+                SET delivery_status = ?, delivered_at = ?, delivered_by = ?,
+                    shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', updated_at = ?, updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    delivery_status,
+                    now if delivery_status == "Livrée" else "",
+                    actor_name if delivery_status == "Livrée" else "",
+                    now,
+                    actor_name,
+                    order_id,
+                ),
+            )
+            self._recompute_order_workflow(connection, order_id, now)
+            self._record_order_audit(
+                connection,
+                order_id,
+                "Réception supprimée",
+                str(receipt["reference"] or receipt["receipt_date"]),
+                occurred_at=now,
+            )
+        return order_id
+
+    def list_order_comments(self, order_id: int) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return list(
+                connection.execute(
+                    """
+                    SELECT * FROM order_comments WHERE order_id = ?
+                    ORDER BY created_at DESC, id DESC
+                    """,
+                    (order_id,),
+                )
+            )
+
+    def add_order_comment(
+        self,
+        order_id: int,
+        body: str,
+        comment_uid: str | None = None,
+    ) -> int:
+        body = body.strip()
+        if not body:
+            raise ValueError("Le commentaire est vide.")
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO order_comments(
+                    order_id, comment_uid, body, author_name, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (order_id, comment_uid or str(uuid.uuid4()), body, actor_name, now),
+            )
+            self._touch_order(connection, order_id, now)
+            self._record_order_audit(
+                connection, order_id, "Commentaire interne ajouté", occurred_at=now
+            )
+            return int(cursor.lastrowid)
+
+    def delete_order_comment(self, comment_id: int) -> int:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self.session() as connection:
+            comment = connection.execute(
+                "SELECT * FROM order_comments WHERE id = ?", (comment_id,)
+            ).fetchone()
+            if comment is None:
+                raise ValueError("Commentaire introuvable.")
+            order_id = int(comment["order_id"])
+            connection.execute(
+                "DELETE FROM order_comments WHERE id = ?", (comment_id,)
+            )
+            self._touch_order(connection, order_id, now)
+            self._record_order_audit(
+                connection, order_id, "Commentaire interne supprimé", occurred_at=now
+            )
+        return order_id
 
     def set_order_archived(self, order_id: int, archived: bool) -> None:
         now = datetime.now().isoformat(timespec="seconds")
@@ -2229,6 +2771,39 @@ class Database:
                     (order_id,),
                 )
             )
+            receipts = []
+            for receipt in connection.execute(
+                """
+                SELECT * FROM order_receipts
+                WHERE order_id = ? ORDER BY receipt_date, id
+                """,
+                (order_id,),
+            ):
+                item = dict(receipt)
+                item["lines"] = [
+                    dict(row)
+                    for row in connection.execute(
+                        """
+                        SELECT order_line_uid, quantity_received
+                        FROM receipt_lines WHERE receipt_id = ? ORDER BY id
+                        """,
+                        (receipt["id"],),
+                    )
+                ]
+                item.pop("id", None)
+                item.pop("order_id", None)
+                receipts.append(item)
+            comments = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT comment_uid, body, author_name, created_at
+                    FROM order_comments WHERE order_id = ?
+                    ORDER BY created_at, id
+                    """,
+                    (order_id,),
+                )
+            ]
         order_values = {
             key: order[key]
             for key in (
@@ -2242,9 +2817,14 @@ class Database:
                 "pdf_path",
                 "email_prepared_at",
                 "sent_at",
+                "confirmed_at",
+                "confirmed_by",
                 "delivery_status",
                 "delivered_at",
                 "delivered_by",
+                "invoiced_at",
+                "invoiced_by",
+                "expected_delivery_date",
                 "archived_at",
                 "archived_by",
                 "shared_uid",
@@ -2272,6 +2852,7 @@ class Database:
                 {
                     key: line[key]
                     for key in (
+                        "line_uid",
                         "code_cahpp",
                         "supplier_ref",
                         "designation",
@@ -2286,6 +2867,8 @@ class Database:
                 }
                 for line in lines
             ],
+            "receipts": receipts,
+            "comments": comments,
             "attachments": [
                 {
                     key: attachment[key]
@@ -2370,11 +2953,16 @@ class Database:
                 order.get("pdf_path") or "",
                 order.get("email_prepared_at") or "",
                 order.get("sent_at") or "",
+                order.get("confirmed_at") or "",
+                order.get("confirmed_by") or "",
                 order.get("delivery_status") or (
                     "En attente" if order.get("sent_at") else "Non suivie"
                 ),
                 order.get("delivered_at") or "",
                 order.get("delivered_by") or "",
+                order.get("invoiced_at") or "",
+                order.get("invoiced_by") or "",
+                order.get("expected_delivery_date") or "",
                 order.get("archived_at") or "",
                 order.get("archived_by") or "",
                 shared_uid,
@@ -2396,15 +2984,17 @@ class Database:
                     INSERT INTO orders(
                         order_number, supplier_id, order_date, status, notes,
                         total_ht, total_vat, total_ttc, pdf_path,
-                        email_prepared_at, sent_at, delivery_status,
-                        delivered_at, delivered_by, archived_at, archived_by,
+                        email_prepared_at, sent_at, confirmed_at, confirmed_by,
+                        delivery_status, delivered_at, delivered_by,
+                        invoiced_at, invoiced_by, expected_delivery_date,
+                        archived_at, archived_by,
                         shared_uid,
                         shared_revision, sync_state, catalog_hash,
                         created_by, updated_by, sent_by, deleted_at, deleted_by,
                         last_synced_at,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values,
                 )
@@ -2417,8 +3007,10 @@ class Database:
                         order_number = ?, supplier_id = ?, order_date = ?,
                         status = ?, notes = ?, total_ht = ?, total_vat = ?,
                         total_ttc = ?, pdf_path = ?, email_prepared_at = ?,
-                        sent_at = ?, delivery_status = ?, delivered_at = ?,
-                        delivered_by = ?, archived_at = ?, archived_by = ?,
+                        sent_at = ?, confirmed_at = ?, confirmed_by = ?,
+                        delivery_status = ?, delivered_at = ?, delivered_by = ?,
+                        invoiced_at = ?, invoiced_by = ?,
+                        expected_delivery_date = ?, archived_at = ?, archived_by = ?,
                         shared_uid = ?, shared_revision = ?, sync_state = ?,
                         catalog_hash = ?, created_by = ?, updated_by = ?,
                         sent_by = ?, deleted_at = ?, deleted_by = ?,
@@ -2427,6 +3019,12 @@ class Database:
                     WHERE id = ?
                     """,
                     (*values, order_id),
+                )
+                connection.execute(
+                    "DELETE FROM order_receipts WHERE order_id = ?", (order_id,)
+                )
+                connection.execute(
+                    "DELETE FROM order_comments WHERE order_id = ?", (order_id,)
                 )
                 connection.execute(
                     "DELETE FROM order_lines WHERE order_id = ?", (order_id,)
@@ -2445,13 +3043,14 @@ class Database:
                 connection.execute(
                     """
                     INSERT INTO order_lines(
-                        order_id, product_id, code_cahpp, supplier_ref,
+                        order_id, line_uid, product_id, code_cahpp, supplier_ref,
                         designation, cartons, units_per_carton, total_units,
                         unit_price, vat, total_ht, line_order
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         order_id,
+                        item.get("line_uid") or str(uuid.uuid4()),
                         int(product["id"]) if product else None,
                         item.get("code_cahpp") or "",
                         item.get("supplier_ref") or "",
@@ -2463,6 +3062,57 @@ class Database:
                         item.get("vat") or 0,
                         item.get("total_ht") or 0,
                         item.get("line_order") or 0,
+                    ),
+                )
+            for receipt in list(payload.get("receipts") or []):
+                item = dict(receipt)
+                cursor = connection.execute(
+                    """
+                    INSERT INTO order_receipts(
+                        order_id, receipt_uid, receipt_date, reference, notes,
+                        received_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        order_id,
+                        item.get("receipt_uid") or str(uuid.uuid4()),
+                        item.get("receipt_date") or date.today().isoformat(),
+                        item.get("reference") or "",
+                        item.get("notes") or "",
+                        item.get("received_by") or "",
+                        item.get("created_at") or now,
+                        item.get("updated_at") or now,
+                    ),
+                )
+                receipt_id = int(cursor.lastrowid)
+                for receipt_line in list(item.get("lines") or []):
+                    line_item = dict(receipt_line)
+                    connection.execute(
+                        """
+                        INSERT INTO receipt_lines(
+                            receipt_id, order_line_uid, quantity_received
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (
+                            receipt_id,
+                            line_item.get("order_line_uid") or "",
+                            line_item.get("quantity_received") or 0,
+                        ),
+                    )
+            for comment in list(payload.get("comments") or []):
+                item = dict(comment)
+                connection.execute(
+                    """
+                    INSERT INTO order_comments(
+                        order_id, comment_uid, body, author_name, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        order_id,
+                        item.get("comment_uid") or str(uuid.uuid4()),
+                        item.get("body") or "",
+                        item.get("author_name") or "",
+                        item.get("created_at") or now,
                     ),
                 )
             for attachment in list(payload.get("attachments") or []):
@@ -2752,7 +3402,9 @@ class Database:
                         SELECT COUNT(*) FROM orders
                         WHERE deleted_at = '' AND archived_at = ''
                           AND sent_at <> ''
-                          AND delivery_status = 'En attente'
+                          AND delivery_status IN (
+                              'En attente', 'Partiellement livrée'
+                          )
                         """
                     ).fetchone()[0]
                 ),
@@ -2767,6 +3419,16 @@ class Database:
                 "attachments": int(
                     connection.execute(
                         "SELECT COUNT(*) FROM order_attachments"
+                    ).fetchone()[0]
+                ),
+                "receipts": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM order_receipts"
+                    ).fetchone()[0]
+                ),
+                "internal_comments": int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM order_comments"
                     ).fetchone()[0]
                 ),
                 "imports": int(

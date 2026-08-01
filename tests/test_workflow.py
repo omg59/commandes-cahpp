@@ -434,6 +434,28 @@ class WorkflowTest(unittest.TestCase):
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE order_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+                product_id INTEGER,
+                code_cahpp TEXT NOT NULL DEFAULT '',
+                supplier_ref TEXT NOT NULL DEFAULT '',
+                designation TEXT NOT NULL,
+                cartons REAL NOT NULL DEFAULT 0,
+                units_per_carton REAL NOT NULL DEFAULT 0,
+                total_units REAL NOT NULL DEFAULT 0,
+                unit_price REAL NOT NULL DEFAULT 0,
+                vat REAL NOT NULL DEFAULT 0,
+                total_ht REAL NOT NULL DEFAULT 0,
+                line_order INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO suppliers(name) VALUES ('ANCIEN FOURNISSEUR');
+            INSERT INTO orders(
+                order_number, supplier_id, order_date, created_at, updated_at
+            ) VALUES ('BC-2024-0001', 1, '2024-01-01', '2024-01-01', '2024-01-01');
+            INSERT INTO order_lines(
+                order_id, designation, total_units, line_order
+            ) VALUES (1, 'ANCIEN ARTICLE', 10, 0);
             """
         )
         connection.close()
@@ -454,6 +476,9 @@ class WorkflowTest(unittest.TestCase):
                 )
             }
             version = connection.execute("PRAGMA user_version").fetchone()[0]
+            migrated_line_uid = connection.execute(
+                "SELECT line_uid FROM order_lines WHERE id = 1"
+            ).fetchone()[0]
         self.assertTrue(
             {"contact_name", "address", "website", "minimum_order_ht"}
             <= supplier_columns
@@ -464,7 +489,91 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(migrated_settings["mail_compose_url"])
         self.assertEqual(migrated_settings["sync_interval_seconds"], "60")
         self.assertEqual(migrated_settings["pause_sync_while_editing"], "1")
-        self.assertEqual(version, 11)
+        self.assertEqual(version, 12)
+        self.assertTrue(migrated_line_uid)
+
+    def test_partial_receipts_milestones_comments_and_sync(self):
+        catalogue = self.root / "catalogue-receptions.xlsx"
+        create_catalog(
+            catalogue,
+            [self.row("REC-1", "REF-REC", "ARTICLE À RÉCEPTIONNER", 3, 10)],
+        )
+        CatalogImporter(self.database).import_file(catalogue)
+        product = self.database.search_products("RÉCEPTIONNER")[0]
+        order_id = self.database.save_order(
+            int(product["supplier_id"]),
+            [
+                {
+                    "product_id": int(product["id"]),
+                    "code_cahpp": product["code_cahpp"],
+                    "supplier_ref": product["supplier_ref"],
+                    "designation": product["designation"],
+                    "cartons": 2,
+                    "units_per_carton": 10,
+                    "unit_price": 3,
+                    "vat": 20,
+                }
+            ],
+        )
+        self.database.update_order_status(order_id, "Envoyée")
+        self.database.mark_order_confirmed(
+            order_id, expected_delivery_date=date(2026, 8, 10)
+        )
+        self.database.add_order_comment(order_id, "Livraison annoncée le matin.")
+        summary = self.database.receipt_summary(order_id)
+        line_uid = str(summary["lines"][0]["line_uid"])
+        first_receipt = self.database.add_receipt(
+            order_id,
+            date(2026, 8, 8),
+            {line_uid: 7},
+            reference="BL-001",
+        )
+        partial = self.database.receipt_summary(order_id)
+        self.assertEqual(partial["order"]["delivery_status"], "Partiellement livrée")
+        self.assertEqual(partial["order"]["status"], "Partiellement livrée")
+        self.assertEqual(partial["lines"][0]["received_units"], 7)
+        self.assertEqual(partial["lines"][0]["remaining_units"], 13)
+        self.assertEqual(self.database.dashboard_stats()["pending_deliveries"], 1)
+
+        second_receipt = self.database.add_receipt(
+            order_id,
+            date(2026, 8, 9),
+            {line_uid: 13},
+            reference="BL-002",
+        )
+        delivered = self.database.receipt_summary(order_id)
+        self.assertEqual(delivered["order"]["delivery_status"], "Livrée")
+        self.assertEqual(delivered["lines"][0]["remaining_units"], 0)
+        self.database.mark_order_invoiced(order_id)
+        invoiced, _ = self.database.get_order(order_id)
+        self.assertEqual(invoiced["status"], "Facturée")
+
+        shared = self.root / "partage-receptions"
+        first_manager = CollaborationManager(
+            self.database, "user-1", "Damien", shared
+        )
+        first_manager.initialize_workspace()
+        first_manager.publish_order(order_id)
+        second_database = Database(self.root / "receptions-second.sqlite3")
+        second_manager = CollaborationManager(
+            second_database, "user-2", "Collègue", shared
+        )
+        second_manager.initialize_workspace()
+        self.assertEqual(second_manager.sync_orders()["imported"], 1)
+        received_order = second_database.list_orders()[0]
+        received_summary = second_database.receipt_summary(int(received_order["id"]))
+        self.assertEqual(len(received_summary["receipts"]), 2)
+        self.assertEqual(received_summary["lines"][0]["received_units"], 20)
+        self.assertEqual(
+            second_database.list_order_comments(int(received_order["id"]))[0]["body"],
+            "Livraison annoncée le matin.",
+        )
+
+        self.database.delete_receipt(second_receipt)
+        corrected = self.database.receipt_summary(order_id)
+        self.assertEqual(corrected["order"]["delivery_status"], "Partiellement livrée")
+        self.assertEqual(corrected["lines"][0]["remaining_units"], 13)
+        self.assertEqual(first_receipt, 1)
 
     def test_delivery_statistics_archive_and_installer(self):
         catalogue = self.root / "catalogue-suivi.xlsx"

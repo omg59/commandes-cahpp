@@ -5,7 +5,7 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
-**Version stable actuelle : 1.1.0**
+**Version stable actuelle : 1.2.0**
 
 ## Principes
 
@@ -21,6 +21,9 @@ travailler ensemble à travers un simple dossier partagé, sans serveur.
 - duplication des commandes récurrentes ;
 - recherche dans tout l'historique, y compris les références et désignations ;
 - suivi des commandes envoyées restant à livrer ;
+- confirmations fournisseur et dates de livraison prévues ;
+- réceptions partielles avec plusieurs bons de livraison et calcul des reliquats ;
+- suivi de la facturation et notes internes partagées sur chaque commande ;
 - statistiques par période, fournisseur et produit ;
 - archivage configurable des anciennes commandes livrées ;
 - rappel de sauvegarde et contrôle périodique de l'intégrité SQLite ;

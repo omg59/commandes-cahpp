@@ -1,5 +1,20 @@
 # Historique des versions
 
+## 1.2.0
+
+- ajout du statut **Confirmée** et d'une date de livraison prévisionnelle ;
+- ajout des statuts **Partiellement livrée**, **Livrée** et **Facturée** ;
+- saisie de plusieurs réceptions pour une même commande, avec date, numéro de
+  bon de livraison, utilisateur et note ;
+- réception article par article avec contrôle des quantités et calcul immédiat
+  des reliquats ;
+- correction ou suppression d'une réception avec recalcul automatique ;
+- ajout de notes internes horodatées et partagées entre les utilisateurs ;
+- synchronisation des réceptions, reliquats, confirmations, factures et notes ;
+- enrichissement du tableau de bord avec l'état et le nombre d'unités restant à
+  recevoir ;
+- migration automatique du schéma SQLite de la version 11 à 12.
+
 ## 1.1.0
 
 - ajout d'un tableau de bord des commandes envoyées restant à livrer ;
