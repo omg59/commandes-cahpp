@@ -1,5 +1,21 @@
 # Historique des versions
 
+## 1.1.0
+
+- ajout d'un tableau de bord des commandes envoyées restant à livrer ;
+- ajout des états de livraison **En attente** et **Livrée**, synchronisés entre
+  les postes et consignés dans le journal de la commande ;
+- ajout d'une page **Statistiques** avec sélection de période et analyses par
+  fournisseur et produit ;
+- ajout de l'archivage automatique configurable des commandes livrées ;
+- maintien des archives dans la base et possibilité de les afficher dans
+  l'historique ;
+- ajout d'un rappel visuel de sauvegarde et de la date du dernier contrôle ;
+- contrôle périodique de l'intégrité SQLite et entretien hebdomadaire léger ;
+- détection des nouveaux installateurs placés dans le sous-dossier partagé
+  `mises-a-jour` ;
+- migration automatique et compatible du schéma SQLite de la version 10 à 11.
+
 ## 1.0.1
 
 - correction de l'icône du raccourci Bureau lors d'une mise à jour ;

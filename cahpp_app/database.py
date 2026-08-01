@@ -137,6 +137,11 @@ CREATE TABLE IF NOT EXISTS orders (
     pdf_path TEXT NOT NULL DEFAULT '',
     email_prepared_at TEXT NOT NULL DEFAULT '',
     sent_at TEXT NOT NULL DEFAULT '',
+    delivery_status TEXT NOT NULL DEFAULT 'Non suivie',
+    delivered_at TEXT NOT NULL DEFAULT '',
+    delivered_by TEXT NOT NULL DEFAULT '',
+    archived_at TEXT NOT NULL DEFAULT '',
+    archived_by TEXT NOT NULL DEFAULT '',
     shared_uid TEXT NOT NULL DEFAULT '',
     shared_revision INTEGER NOT NULL DEFAULT 0,
     sync_state TEXT NOT NULL DEFAULT 'Local',
@@ -168,6 +173,9 @@ CREATE TABLE IF NOT EXISTS order_lines (
     total_ht REAL NOT NULL DEFAULT 0,
     line_order INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS idx_order_lines_order
+ON order_lines(order_id, line_order);
 
 CREATE TABLE IF NOT EXISTS order_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,6 +239,16 @@ DEFAULT_SETTINGS = {
     "collaboration_catalog_version": "",
     "sync_interval_seconds": "60",
     "pause_sync_while_editing": "1",
+    "backup_reminder_days": "14",
+    "last_backup_at": "",
+    "last_backup_path": "",
+    "integrity_check_days": "7",
+    "last_integrity_check_at": "",
+    "last_integrity_check_result": "",
+    "automatic_archive_enabled": "0",
+    "archive_after_months": "24",
+    "last_maintenance_at": "",
+    "dismissed_installer_version": "",
     "team_settings_updated_at": "",
     "team_settings_updated_by": "",
 }
@@ -335,7 +353,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 10")
+            connection.execute("PRAGMA user_version = 11")
 
     @staticmethod
     def _ensure_column(
@@ -366,6 +384,11 @@ class Database:
         for column, declaration in (
             ("email_prepared_at", "TEXT NOT NULL DEFAULT ''"),
             ("sent_at", "TEXT NOT NULL DEFAULT ''"),
+            ("delivery_status", "TEXT NOT NULL DEFAULT 'Non suivie'"),
+            ("delivered_at", "TEXT NOT NULL DEFAULT ''"),
+            ("delivered_by", "TEXT NOT NULL DEFAULT ''"),
+            ("archived_at", "TEXT NOT NULL DEFAULT ''"),
+            ("archived_by", "TEXT NOT NULL DEFAULT ''"),
             ("shared_uid", "TEXT NOT NULL DEFAULT ''"),
             ("shared_revision", "INTEGER NOT NULL DEFAULT 0"),
             ("sync_state", "TEXT NOT NULL DEFAULT 'Local'"),
@@ -436,6 +459,19 @@ class Database:
             ON orders(shared_uid) WHERE shared_uid <> ''
             """
         )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_orders_delivery
+            ON orders(delivery_status, archived_at, order_date DESC)
+            """
+        )
+        connection.execute(
+            """
+            UPDATE orders
+            SET delivery_status = 'En attente'
+            WHERE sent_at <> '' AND delivery_status = 'Non suivie'
+            """
+        )
 
     def set_current_user(self, user_id: str, user_name: str) -> None:
         self.current_user_id = user_id.strip()
@@ -462,11 +498,35 @@ class Database:
                     WHERE deleted_at = ''
                     """
                 ).fetchone()[0],
+                "pending_deliveries": connection.execute(
+                    """
+                    SELECT COUNT(*) FROM orders
+                    WHERE deleted_at = '' AND archived_at = ''
+                      AND sent_at <> '' AND delivery_status = 'En attente'
+                    """
+                ).fetchone()[0],
             }
             latest = connection.execute(
                 "SELECT filename, imported_at, row_count FROM imports ORDER BY id DESC LIMIT 1"
             ).fetchone()
             stats["latest_import"] = dict(latest) if latest else None
+            stats["delivery_orders"] = list(
+                connection.execute(
+                    """
+                    SELECT o.id, o.order_number, o.sent_at, o.order_date,
+                           o.total_ht, s.name AS supplier_name,
+                           CAST(julianday('now') - julianday(
+                               COALESCE(NULLIF(o.sent_at, ''), o.order_date)
+                           ) AS INTEGER) AS waiting_days
+                    FROM orders o
+                    JOIN suppliers s ON s.id = o.supplier_id
+                    WHERE o.deleted_at = '' AND o.archived_at = ''
+                      AND o.sent_at <> '' AND o.delivery_status = 'En attente'
+                    ORDER BY COALESCE(NULLIF(o.sent_at, ''), o.order_date), o.id
+                    LIMIT 12
+                    """
+                )
+            )
             return stats
 
     def get_settings(self) -> dict[str, str]:
@@ -1191,6 +1251,8 @@ class Database:
         self,
         query: str = "",
         status: str = "",
+        delivery_status: str = "",
+        include_archived: bool = False,
         limit: int = 500,
     ) -> list[sqlite3.Row]:
         filters = ["COALESCE(o.deleted_at, '') = ''"]
@@ -1217,6 +1279,11 @@ class Database:
         if status:
             filters.append("o.status = ?")
             parameters.append(status)
+        if delivery_status:
+            filters.append("o.delivery_status = ?")
+            parameters.append(delivery_status)
+        if not include_archived:
+            filters.append("COALESCE(o.archived_at, '') = ''")
         where = " AND ".join(filters)
         with self.connect() as connection:
             return list(
@@ -1431,6 +1498,11 @@ class Database:
             values.append(now)
             sets.append("sent_by = ?")
             values.append(actor_name)
+            sets.append(
+                "delivery_status = CASE "
+                "WHEN delivery_status = 'Non suivie' THEN 'En attente' "
+                "ELSE delivery_status END"
+            )
         values.append(order_id)
         with self.session() as connection:
             connection.execute(
@@ -1443,6 +1515,195 @@ class Database:
                 f"Statut : {status}",
                 occurred_at=now,
             )
+
+    def update_delivery_status(self, order_id: int, status: str) -> None:
+        if status not in {"En attente", "Livrée"}:
+            raise ValueError("État de livraison invalide.")
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        delivered_at = now if status == "Livrée" else ""
+        delivered_by = actor_name if status == "Livrée" else ""
+        with self.session() as connection:
+            order = connection.execute(
+                "SELECT sent_at FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable.")
+            if not order["sent_at"]:
+                raise ValueError(
+                    "La commande doit être marquée comme envoyée avant de "
+                    "suivre sa livraison."
+                )
+            connection.execute(
+                """
+                UPDATE orders
+                SET delivery_status = ?, delivered_at = ?, delivered_by = ?,
+                    shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', updated_at = ?,
+                    updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    delivered_at,
+                    delivered_by,
+                    now,
+                    actor_name,
+                    order_id,
+                ),
+            )
+            self._record_order_audit(
+                connection,
+                order_id,
+                f"Livraison : {status}",
+                occurred_at=now,
+            )
+
+    def set_order_archived(self, order_id: int, archived: bool) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            order = connection.execute(
+                "SELECT status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if order is None:
+                raise ValueError("Commande introuvable.")
+            if archived and order["status"] == "Brouillon":
+                raise ValueError("Un brouillon ne peut pas être archivé.")
+            connection.execute(
+                """
+                UPDATE orders
+                SET archived_at = ?, archived_by = ?,
+                    shared_revision = shared_revision + 1,
+                    sync_state = 'À synchroniser', updated_at = ?,
+                    updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    now if archived else "",
+                    actor_name if archived else "",
+                    now,
+                    actor_name,
+                    order_id,
+                ),
+            )
+            self._record_order_audit(
+                connection,
+                order_id,
+                "Commande archivée" if archived else "Commande restaurée",
+                occurred_at=now,
+            )
+
+    def archive_old_orders(self, before_date: date) -> list[int]:
+        now = datetime.now().isoformat(timespec="seconds")
+        _, actor_name = self._actor()
+        with self.session() as connection:
+            order_ids = [
+                int(row["id"])
+                for row in connection.execute(
+                    """
+                    SELECT id FROM orders
+                    WHERE deleted_at = '' AND archived_at = ''
+                      AND delivery_status = 'Livrée' AND order_date < ?
+                    ORDER BY order_date, id
+                    """,
+                    (before_date.isoformat(),),
+                )
+            ]
+            for order_id in order_ids:
+                connection.execute(
+                    """
+                    UPDATE orders
+                    SET archived_at = ?, archived_by = ?,
+                        shared_revision = shared_revision + 1,
+                        sync_state = 'À synchroniser', updated_at = ?,
+                        updated_by = ?
+                    WHERE id = ?
+                    """,
+                    (now, actor_name, now, actor_name, order_id),
+                )
+                self._record_order_audit(
+                    connection,
+                    order_id,
+                    "Commande archivée automatiquement",
+                    occurred_at=now,
+                )
+            connection.execute("PRAGMA optimize")
+        return order_ids
+
+    def statistics(
+        self, date_from: date, date_to: date
+    ) -> dict[str, object]:
+        parameters = (date_from.isoformat(), date_to.isoformat())
+        order_filter = """
+            o.deleted_at = '' AND o.sent_at <> ''
+            AND o.order_date BETWEEN ? AND ?
+        """
+        with self.connect() as connection:
+            summary = connection.execute(
+                f"""
+                SELECT COUNT(*) AS order_count,
+                       COUNT(DISTINCT o.supplier_id) AS supplier_count,
+                       COALESCE(SUM(o.total_ht), 0) AS total_ht,
+                       COALESCE(SUM(o.total_ttc), 0) AS total_ttc
+                FROM orders o WHERE {order_filter}
+                """,
+                parameters,
+            ).fetchone()
+            suppliers = list(
+                connection.execute(
+                    f"""
+                    SELECT s.name AS supplier_name,
+                           COUNT(*) AS order_count,
+                           COALESCE(SUM(o.total_ht), 0) AS total_ht,
+                           COALESCE(SUM(o.total_ttc), 0) AS total_ttc
+                    FROM orders o
+                    JOIN suppliers s ON s.id = o.supplier_id
+                    WHERE {order_filter}
+                    GROUP BY s.id, s.name
+                    ORDER BY total_ht DESC, s.name COLLATE NOCASE
+                    """,
+                    parameters,
+                )
+            )
+            products = list(
+                connection.execute(
+                    f"""
+                    SELECT s.name AS supplier_name, ol.supplier_ref,
+                           ol.designation,
+                           COALESCE(SUM(ol.cartons), 0) AS cartons,
+                           COALESCE(SUM(ol.total_units), 0) AS total_units,
+                           COALESCE(SUM(ol.total_ht), 0) AS total_ht
+                    FROM order_lines ol
+                    JOIN orders o ON o.id = ol.order_id
+                    JOIN suppliers s ON s.id = o.supplier_id
+                    WHERE {order_filter}
+                    GROUP BY s.name, ol.supplier_ref, ol.designation
+                    ORDER BY total_ht DESC, ol.designation COLLATE NOCASE
+                    LIMIT 500
+                    """,
+                    parameters,
+                )
+            )
+        return {
+            "summary": dict(summary) if summary else {},
+            "suppliers": suppliers,
+            "products": products,
+        }
+
+    def quick_integrity_check(self) -> tuple[bool, str]:
+        with self.connect() as connection:
+            result = [
+                str(row[0])
+                for row in connection.execute("PRAGMA quick_check")
+            ]
+        return result == ["ok"], "; ".join(result)
+
+    def optimize_database(self) -> None:
+        with self.session() as connection:
+            connection.execute("PRAGMA optimize")
+        with self.connect() as connection:
+            connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
 
     def add_order_attachment(
         self,
@@ -1981,6 +2242,11 @@ class Database:
                 "pdf_path",
                 "email_prepared_at",
                 "sent_at",
+                "delivery_status",
+                "delivered_at",
+                "delivered_by",
+                "archived_at",
+                "archived_by",
                 "shared_uid",
                 "shared_revision",
                 "catalog_hash",
@@ -2104,6 +2370,13 @@ class Database:
                 order.get("pdf_path") or "",
                 order.get("email_prepared_at") or "",
                 order.get("sent_at") or "",
+                order.get("delivery_status") or (
+                    "En attente" if order.get("sent_at") else "Non suivie"
+                ),
+                order.get("delivered_at") or "",
+                order.get("delivered_by") or "",
+                order.get("archived_at") or "",
+                order.get("archived_by") or "",
                 shared_uid,
                 remote_revision,
                 "Synchronisée",
@@ -2123,13 +2396,15 @@ class Database:
                     INSERT INTO orders(
                         order_number, supplier_id, order_date, status, notes,
                         total_ht, total_vat, total_ttc, pdf_path,
-                        email_prepared_at, sent_at, shared_uid,
+                        email_prepared_at, sent_at, delivery_status,
+                        delivered_at, delivered_by, archived_at, archived_by,
+                        shared_uid,
                         shared_revision, sync_state, catalog_hash,
                         created_by, updated_by, sent_by, deleted_at, deleted_by,
                         last_synced_at,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                              ?, ?, ?, ?, ?, ?, ?)
+                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values,
                 )
@@ -2142,10 +2417,12 @@ class Database:
                         order_number = ?, supplier_id = ?, order_date = ?,
                         status = ?, notes = ?, total_ht = ?, total_vat = ?,
                         total_ttc = ?, pdf_path = ?, email_prepared_at = ?,
-                        sent_at = ?, shared_uid = ?, shared_revision = ?,
-                        sync_state = ?, catalog_hash = ?, created_by = ?,
-                        updated_by = ?, sent_by = ?, deleted_at = ?,
-                        deleted_by = ?, last_synced_at = ?,
+                        sent_at = ?, delivery_status = ?, delivered_at = ?,
+                        delivered_by = ?, archived_at = ?, archived_by = ?,
+                        shared_uid = ?, shared_revision = ?, sync_state = ?,
+                        catalog_hash = ?, created_by = ?, updated_by = ?,
+                        sent_by = ?, deleted_at = ?, deleted_by = ?,
+                        last_synced_at = ?,
                         created_at = ?, updated_at = ?
                     WHERE id = ?
                     """,
@@ -2458,6 +2735,24 @@ class Database:
                         """
                         SELECT COUNT(*) FROM orders
                         WHERE deleted_at <> ''
+                        """
+                    ).fetchone()[0]
+                ),
+                "archived_orders": int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM orders
+                        WHERE archived_at <> '' AND deleted_at = ''
+                        """
+                    ).fetchone()[0]
+                ),
+                "pending_deliveries": int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM orders
+                        WHERE deleted_at = '' AND archived_at = ''
+                          AND sent_at <> ''
+                          AND delivery_status = 'En attente'
                         """
                     ).fetchone()[0]
                 ),

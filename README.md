@@ -5,7 +5,7 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
-**Version stable actuelle : 1.0.1**
+**Version stable actuelle : 1.1.0**
 
 ## Principes
 
@@ -20,6 +20,11 @@ travailler ensemble à travers un simple dossier partagé, sans serveur.
 - favoris et quantités habituelles ;
 - duplication des commandes récurrentes ;
 - recherche dans tout l'historique, y compris les références et désignations ;
+- suivi des commandes envoyées restant à livrer ;
+- statistiques par période, fournisseur et produit ;
+- archivage configurable des anciennes commandes livrées ;
+- rappel de sauvegarde et contrôle périodique de l'intégrité SQLite ;
+- notification lorsqu'un nouvel installeur est déposé dans le partage ;
 - suivi des changements de prix et de conditionnement des articles commandés ;
 - rattachement des bons de livraison et autres documents ;
 - préparation des e-mails sans mot de passe ni droit administrateur ;
@@ -104,7 +109,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.0.1.exe
+dist-installer\CommandesCAHPP-Setup-1.1.0.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
@@ -120,6 +125,11 @@ mises à jour suivantes réutiliseront automatiquement ce dossier.
 
 Il ne s'agit pas d'une mise à jour téléchargée automatiquement : l'EXE peut
 être placé dans le dossier partagé, puis lancé manuellement sur chaque poste.
+
+En mode collaboratif, le sous-dossier `mises-a-jour` est créé automatiquement
+dans l'espace partagé. Un installeur nommé
+`CommandesCAHPP-Setup-X.Y.Z.exe` qui y est déposé déclenche une notification
+sur les postes utilisant une version antérieure.
 
 ## Première utilisation
 

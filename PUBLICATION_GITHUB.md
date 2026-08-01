@@ -1,8 +1,8 @@
 # Publication de Commandes CAHPP sur GitHub
 
 Ce dossier est un dépôt Git complet reconstruit à partir de toutes les
-archives conservées pendant le développement. Il contient 21 versions taguées,
-de `v0.1` à `v1.0.1`, puis un commit consacré à la documentation GitHub.
+archives conservées pendant le développement. Il contient les versions taguées
+de `v0.1` à `v1.1.0`.
 
 ## Repartir proprement après la première publication
 
@@ -34,6 +34,7 @@ Le dépôt local est préconfiguré pour :
 | `v1.0.0-rc1` à `v1.0.0-rc5` | Candidats de publication et correctifs |
 | `v1.0.0` | Première version stable |
 | `v1.0.1` | Correctif de l'icône des raccourcis |
+| `v1.1.0` | Livraisons, statistiques, archivage et maintenance |
 
 La version 0.5 n'a jamais été publiée. Cette absence dans la numérotation
 est donc normale.
@@ -43,4 +44,3 @@ est donc normale.
 Le dépôt ne contient aucune base SQLite de travail, commande réelle, pièce
 jointe, sauvegarde, export ni environnement Python local. Ces données restent
 exclues par `.gitignore`.
-

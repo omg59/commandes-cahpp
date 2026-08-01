@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -464,7 +464,77 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(migrated_settings["mail_compose_url"])
         self.assertEqual(migrated_settings["sync_interval_seconds"], "60")
         self.assertEqual(migrated_settings["pause_sync_while_editing"], "1")
-        self.assertEqual(version, 10)
+        self.assertEqual(version, 11)
+
+    def test_delivery_statistics_archive_and_installer(self):
+        catalogue = self.root / "catalogue-suivi.xlsx"
+        create_catalog(
+            catalogue,
+            [self.row("SUIVI-1", "REF-SUIVI", "ARTICLE SUIVI", 2.5, 10)],
+        )
+        CatalogImporter(self.database).import_file(catalogue)
+        supplier_id = int(self.database.list_suppliers()[0]["id"])
+        product = self.database.search_products(query="ARTICLE SUIVI")[0]
+        order_id = self.database.save_order(
+            supplier_id,
+            [
+                {
+                    "product_id": int(product["id"]),
+                    "code_cahpp": product["code_cahpp"],
+                    "supplier_ref": product["supplier_ref"],
+                    "designation": product["designation"],
+                    "cartons": 2,
+                    "units_per_carton": 10,
+                    "unit_price": 2.5,
+                    "vat": 20,
+                }
+            ],
+            selected_date=date(2024, 1, 15),
+        )
+        self.database.update_order_status(order_id, "Envoyée")
+        order, _ = self.database.get_order(order_id)
+        self.assertEqual(order["delivery_status"], "En attente")
+        self.assertEqual(self.database.dashboard_stats()["pending_deliveries"], 1)
+
+        statistics = self.database.statistics(
+            date(2024, 1, 1), date(2024, 12, 31)
+        )
+        self.assertEqual(statistics["summary"]["order_count"], 1)
+        self.assertEqual(statistics["summary"]["total_ht"], 50)
+        self.assertEqual(statistics["suppliers"][0]["supplier_name"], "HARTMANN")
+        self.assertEqual(statistics["products"][0]["total_units"], 20)
+
+        self.database.update_delivery_status(order_id, "Livrée")
+        archived = self.database.archive_old_orders(date(2025, 1, 1))
+        self.assertEqual(archived, [order_id])
+        self.assertEqual(self.database.list_orders(), [])
+        archived_orders = self.database.list_orders(include_archived=True)
+        self.assertEqual(len(archived_orders), 1)
+        self.assertTrue(archived_orders[0]["archived_at"])
+
+        shared = self.root / "partage-mises-a-jour"
+        manager = CollaborationManager(
+            self.database, "user-1", "Damien", shared
+        )
+        manager.initialize_workspace()
+        second_database = Database(self.root / "second-suivi.sqlite3")
+        second_database.set_current_user("user-2", "Collègue")
+        second = CollaborationManager(
+            second_database, "user-2", "Collègue", shared
+        )
+        second.initialize_workspace()
+        manager.publish_order(order_id)
+        self.assertEqual(second.sync_orders()["imported"], 1)
+        received = second_database.list_orders(include_archived=True)[0]
+        self.assertEqual(received["delivery_status"], "Livrée")
+        self.assertTrue(received["archived_at"])
+        installer = manager.updates_dir / "CommandesCAHPP-Setup-1.2.0.exe"
+        installer.write_bytes(b"installer-test")
+        pending = manager.pending_installer("1.1.0")
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending["version"], "1.2.0")
+        self.assertIsNone(manager.pending_installer("1.1.0", "1.2.0"))
+        self.assertEqual(self.database.quick_integrity_check(), (True, "ok"))
 
     def test_product_edits_dates_and_mail_variables(self):
         catalog_path = self.root / "catalogue.xlsx"
@@ -753,7 +823,7 @@ class WorkflowTest(unittest.TestCase):
         report = build_diagnostic_report(
             second_database,
             second,
-            "1.0.1",
+            "1.1.0",
             {
                 "synced_at": "2026-07-29T08:00:00",
                 "orders": sync_result,

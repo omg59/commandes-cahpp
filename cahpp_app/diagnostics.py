@@ -75,6 +75,9 @@ def build_diagnostic_report(
                 f"Commandes : {counts.get('orders', 0)}",
                 "Brouillons supprimés mémorisés : "
                 f"{counts.get('deleted_drafts', 0)}",
+                f"Commandes archivées : {counts.get('archived_orders', 0)}",
+                "Livraisons en attente : "
+                f"{counts.get('pending_deliveries', 0)}",
                 f"Commandes à synchroniser : {counts.get('pending_orders', 0)}",
                 f"Documents liés : {counts.get('attachments', 0)}",
                 f"Imports CAHPP : {counts.get('imports', 0)}",

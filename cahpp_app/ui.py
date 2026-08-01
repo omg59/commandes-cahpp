@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import queue
@@ -10,7 +11,7 @@ import tkinter as tk
 import uuid
 import webbrowser
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -316,6 +317,25 @@ def format_timestamp(value: object) -> str:
         return str(value)
 
 
+def months_before(reference: date, months: int) -> date:
+    months = max(0, int(months))
+    absolute_month = reference.year * 12 + reference.month - 1 - months
+    year, month_index = divmod(absolute_month, 12)
+    month = month_index + 1
+    day = min(reference.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def timestamp_is_due(value: str, days: int) -> bool:
+    if not value.strip():
+        return True
+    try:
+        when = datetime.fromisoformat(value)
+    except ValueError:
+        return True
+    return datetime.now() - when >= timedelta(days=max(1, days))
+
+
 def centered_window_position(
     parent_x: int,
     parent_y: int,
@@ -408,6 +428,7 @@ class App(ttk.Frame):
         self._configure_window_icon()
         self._syncing = False
         self._catalog_prompted_hash = ""
+        self._installer_prompted_version = ""
         self._periodic_started = False
         self._periodic_after_id: str | None = None
         self.last_sync_result: dict[str, object] | None = None
@@ -450,6 +471,7 @@ class App(ttk.Frame):
             ("catalog", "Catalogue", CatalogPage),
             ("new_order", "Nouvelle commande", OrderPage),
             ("orders", "Historique", OrdersPage),
+            ("statistics", "Statistiques", StatisticsPage),
             ("suppliers", "Fournisseurs", SuppliersPage),
             ("import", "Mise à jour CAHPP", ImportPage),
             ("settings", "Paramètres", SettingsPage),
@@ -524,6 +546,8 @@ class App(ttk.Frame):
         self.user_label.pack(side="bottom", fill="x")
         self.show_page("dashboard")
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.after(1200, self._start_background_maintenance)
+        self.root.after(1800, self._offer_shared_installer)
         if self.collaboration:
             self.root.after(700, self.sync_collaboration)
             self._start_periodic_collaboration()
@@ -753,6 +777,7 @@ class App(ttk.Frame):
             self.pages["settings"].refresh()
         if result and result.get("catalog_pending"):
             self._offer_shared_catalog()
+        self._offer_shared_installer()
 
     def _offer_shared_catalog(self) -> None:
         if not self.collaboration:
@@ -777,6 +802,114 @@ class App(ttk.Frame):
         page: ImportPage = self.pages["import"]  # type: ignore[assignment]
         self.show_page("import")
         page.start_shared_import(manifest)
+
+    def _offer_shared_installer(self) -> None:
+        if not self.collaboration:
+            return
+        settings = self.database.get_settings()
+        try:
+            installer = self.collaboration.pending_installer(
+                __version__, settings.get("dismissed_installer_version", "")
+            )
+        except OSError:
+            return
+        if not installer:
+            return
+        version = str(installer.get("version") or "")
+        if not version or version == self._installer_prompted_version:
+            return
+        self._installer_prompted_version = version
+        open_directory = messagebox.askyesno(
+            "Mise à jour disponible",
+            (
+                f"La version {version} de Commandes CAHPP est disponible "
+                "dans le dossier partagé.\n\n"
+                "Ouvrir le dossier des mises à jour ?"
+            ),
+            parent=self.root,
+        )
+        self.database.save_settings(
+            {"dismissed_installer_version": version}
+        )
+        if open_directory:
+            path = Path(str(installer.get("path") or ""))
+            if path.is_file():
+                open_path(path.parent)
+
+    def _start_background_maintenance(self) -> None:
+        settings = self.database.get_settings()
+        try:
+            integrity_days = int(settings.get("integrity_check_days", "7"))
+        except ValueError:
+            integrity_days = 7
+        integrity_due = timestamp_is_due(
+            settings.get("last_integrity_check_at", ""), integrity_days
+        )
+        automatic_archive = (
+            settings.get("automatic_archive_enabled", "0") == "1"
+        )
+        maintenance_due = timestamp_is_due(
+            settings.get("last_maintenance_at", ""), 7
+        )
+        if not integrity_due and not maintenance_due:
+            return
+
+        def worker() -> None:
+            integrity: tuple[bool, str] | None = None
+            archived_ids: list[int] = []
+            if integrity_due:
+                integrity = self.database.quick_integrity_check()
+                self.database.save_settings(
+                    {
+                        "last_integrity_check_at": datetime.now().isoformat(
+                            timespec="seconds"
+                        ),
+                        "last_integrity_check_result": (
+                            "OK" if integrity[0] else integrity[1]
+                        ),
+                    }
+                )
+            if maintenance_due:
+                self.database.optimize_database()
+                try:
+                    months = int(settings.get("archive_after_months", "24"))
+                except ValueError:
+                    months = 24
+                if automatic_archive:
+                    archived_ids = self.database.archive_old_orders(
+                        months_before(date.today(), max(1, months))
+                    )
+                self.database.save_settings(
+                    {
+                        "last_maintenance_at": datetime.now().isoformat(
+                            timespec="seconds"
+                        )
+                    }
+                )
+            self.root.after(
+                0,
+                lambda: self._background_maintenance_finished(
+                    integrity, archived_ids
+                ),
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _background_maintenance_finished(
+        self,
+        integrity: tuple[bool, str] | None,
+        archived_ids: list[int],
+    ) -> None:
+        self.refresh_pages()
+        if integrity is not None and not integrity[0]:
+            messagebox.showerror(
+                "Intégrité de la base",
+                "Le contrôle de la base a détecté une anomalie :\n\n"
+                + integrity[1],
+                parent=self.root,
+            )
+        if archived_ids and self.collaboration:
+            self.sync_collaboration()
 
     def sync_team_data(self) -> None:
         self.sync_collaboration(show_errors=True)
@@ -1034,6 +1167,7 @@ class DashboardPage(BasePage):
                 ("suppliers", "Fournisseurs"),
                 ("favorites", "Articles favoris"),
                 ("orders", "Commandes"),
+                ("pending_deliveries", "Livraisons en attente"),
             ]
         ):
             card = tk.Frame(
@@ -1093,6 +1227,64 @@ class DashboardPage(BasePage):
         )
         self.import_detail.pack(fill="x", pady=(4, 0))
 
+        delivery_box = tk.Frame(
+            self,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=14,
+            pady=12,
+        )
+        delivery_box.pack(fill="both", expand=True, pady=(16, 0))
+        delivery_header = tk.Frame(delivery_box, bg=COLORS["surface"])
+        delivery_header.pack(fill="x", pady=(0, 8))
+        tk.Label(
+            delivery_header,
+            text="Commandes en attente de livraison",
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+        ttk.Button(
+            delivery_header,
+            text="Voir dans l'historique",
+            command=self.open_deliveries,
+        ).pack(side="right")
+        self.delivery_tree = ttk.Treeview(
+            delivery_box,
+            columns=("number", "sent", "supplier", "days", "total"),
+            show="headings",
+            height=6,
+        )
+        for column, title, width, anchor in (
+            ("number", "N° commande", 130, "center"),
+            ("sent", "Envoyée le", 135, "center"),
+            ("supplier", "Fournisseur", 350, "w"),
+            ("days", "Attente", 90, "center"),
+            ("total", "Total HT", 110, "e"),
+        ):
+            self.delivery_tree.heading(column, text=title)
+            self.delivery_tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "supplier",
+            )
+        self.delivery_tree.pack(fill="both", expand=True)
+        self.delivery_tree.bind(
+            "<Double-1>", lambda event: self.open_deliveries()
+        )
+
+        self.health_label = tk.Label(
+            self,
+            text="",
+            bg=COLORS["background"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+            anchor="w",
+        )
+        self.health_label.pack(fill="x", pady=(10, 0))
+
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(20, 0))
         ttk.Button(
@@ -1106,6 +1298,16 @@ class DashboardPage(BasePage):
             text="Importer un catalogue",
             command=lambda: self.app.show_page("import"),
         ).pack(side="left", padx=8)
+
+    def open_deliveries(self) -> None:
+        selected = self.delivery_tree.selection()
+        order_id = int(selected[0]) if selected else None
+        page: OrdersPage = self.app.pages["orders"]  # type: ignore[assignment]
+        page.delivery_var.set("En attente")
+        page.include_archived_var.set(False)
+        self.app.show_page("orders")
+        if order_id:
+            page.select_order(order_id)
 
     def refresh(self) -> None:
         stats = self.database.dashboard_stats()
@@ -1126,6 +1328,48 @@ class DashboardPage(BasePage):
             self.import_detail.configure(
                 text="Commencez par importer la base tarifaire CAHPP."
             )
+        self.delivery_tree.delete(*self.delivery_tree.get_children())
+        for order in stats.get("delivery_orders", []):
+            self.delivery_tree.insert(
+                "",
+                "end",
+                iid=str(order["id"]),
+                values=(
+                    order["order_number"],
+                    format_timestamp(order["sent_at"]),
+                    order["supplier_name"],
+                    f"{max(0, int(order['waiting_days'] or 0))} j",
+                    format_price(order["total_ht"], 2),
+                ),
+            )
+        settings = self.database.get_settings()
+        try:
+            reminder_days = int(settings.get("backup_reminder_days", "14"))
+        except ValueError:
+            reminder_days = 14
+        backup_due = timestamp_is_due(
+            settings.get("last_backup_at", ""), reminder_days
+        )
+        backup_text = (
+            "Sauvegarde recommandée"
+            if backup_due
+            else "Sauvegarde à jour au "
+            + format_timestamp(settings.get("last_backup_at", ""))
+        )
+        integrity_result = settings.get("last_integrity_check_result", "")
+        integrity_text = (
+            "intégrité non contrôlée"
+            if not integrity_result
+            else "intégrité : " + integrity_result
+        )
+        self.health_label.configure(
+            text=f"{backup_text}  •  {integrity_text}",
+            fg=(
+                COLORS["warning"]
+                if backup_due or (integrity_result and integrity_result != "OK")
+                else COLORS["success"]
+            ),
+        )
         self._valid = True
 
 
@@ -2861,6 +3105,26 @@ class OrdersPage(BasePage):
         )
         status_box.pack(side="left", padx=7)
         status_box.bind("<<ComboboxSelected>>", lambda event: self.refresh())
+        ttk.Label(filters, text="Livraison").pack(side="left", padx=(10, 0))
+        self.delivery_var = tk.StringVar(value="Toutes")
+        delivery_box = ttk.Combobox(
+            filters,
+            textvariable=self.delivery_var,
+            state="readonly",
+            width=14,
+            values=("Toutes", "En attente", "Livrée", "Non suivie"),
+        )
+        delivery_box.pack(side="left", padx=7)
+        delivery_box.bind(
+            "<<ComboboxSelected>>", lambda event: self.refresh()
+        )
+        self.include_archived_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            filters,
+            text="Inclure les archives",
+            variable=self.include_archived_var,
+            command=self.refresh,
+        ).pack(side="left", padx=8)
         self.result_label = ttk.Label(filters, text="", style="Subtitle.TLabel")
         self.result_label.pack(side="right")
 
@@ -2875,6 +3139,8 @@ class OrdersPage(BasePage):
                 "sent",
                 "supplier",
                 "status",
+                "delivery",
+                "archive",
                 "sync",
                 "ht",
                 "ttc",
@@ -2882,15 +3148,17 @@ class OrdersPage(BasePage):
             show="headings",
         )
         for column, title, width in (
-            ("number", "N° commande", 125),
-            ("created", "Créée le", 128),
-            ("author", "Créée par", 90),
-            ("sent", "Envoyée le", 128),
-            ("supplier", "Fournisseur", 180),
-            ("status", "Statut", 95),
-            ("sync", "Synchro", 95),
-            ("ht", "Total HT", 90),
-            ("ttc", "Total TTC", 90),
+            ("number", "N° commande", 115),
+            ("created", "Créée le", 120),
+            ("author", "Créée par", 80),
+            ("sent", "Envoyée le", 120),
+            ("supplier", "Fournisseur", 150),
+            ("status", "Statut", 85),
+            ("delivery", "Livraison", 80),
+            ("archive", "Archivée", 62),
+            ("sync", "Synchro", 82),
+            ("ht", "Total HT", 82),
+            ("ttc", "Total TTC", 82),
         ):
             self.tree.heading(column, text=title)
             self.tree.column(
@@ -2906,6 +3174,9 @@ class OrdersPage(BasePage):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         self.tree.bind("<Double-1>", lambda event: self.edit_draft())
+        self.tree.bind(
+            "<<TreeviewSelect>>", lambda event: self.update_action_labels()
+        )
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(10, 0))
         ttk.Button(
@@ -2921,12 +3192,12 @@ class OrdersPage(BasePage):
         ).pack(side="left", padx=6)
         ttk.Button(
             actions,
-            text="Supprimer le brouillon",
+            text="Supprimer",
             command=self.delete_selected_draft,
         ).pack(side="left")
         ttk.Button(
             actions,
-            text="Documents associés",
+            text="Documents",
             command=self.manage_documents,
         ).pack(side="left", padx=6)
         ttk.Button(
@@ -2943,6 +3214,10 @@ class OrdersPage(BasePage):
         ttk.Button(
             actions, text="Marquer envoyée", command=self.mark_sent
         ).pack(side="right", padx=6)
+        self.delivery_button = ttk.Button(
+            actions, text="Marquer livrée", command=self.toggle_delivery
+        )
+        self.delivery_button.pack(side="right")
         ttk.Button(
             actions, text="Ouvrir le PDF", command=self.open_pdf
         ).pack(side="right")
@@ -2963,6 +3238,28 @@ class OrdersPage(BasePage):
     def selected_order(self):
         selected = self.tree.selection()
         return int(selected[0]) if selected else None
+
+    def select_order(self, order_id: int) -> None:
+        iid = str(order_id)
+        if self.tree.exists(iid):
+            self.tree.selection_set(iid)
+            self.tree.focus(iid)
+            self.tree.see(iid)
+            self.update_action_labels()
+
+    def update_action_labels(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            self.delivery_button.configure(text="Marquer livrée")
+            return
+        order, _ = self.database.get_order(order_id)
+        self.delivery_button.configure(
+            text=(
+                "Remettre en attente"
+                if order["delivery_status"] == "Livrée"
+                else "Marquer livrée"
+            )
+        )
 
     def edit_draft(self) -> None:
         order_id = self.selected_order()
@@ -3230,12 +3527,40 @@ class OrdersPage(BasePage):
             self.app.publish_order(order_id)
         self.refresh()
 
+    def toggle_delivery(self) -> None:
+        order_id = self.selected_order()
+        if not order_id:
+            return
+        order, _ = self.database.get_order(order_id)
+        target = (
+            "En attente"
+            if order["delivery_status"] == "Livrée"
+            else "Livrée"
+        )
+        with self.app.locked_order(order_id) as allowed:
+            if not allowed:
+                return
+            try:
+                self.database.update_delivery_status(order_id, target)
+            except ValueError as exc:
+                messagebox.showinfo("Livraison", str(exc), parent=self)
+                return
+            self.app.publish_order(order_id)
+        self.app.refresh_pages()
+        self.refresh()
+        self.select_order(order_id)
+
     def refresh(self) -> None:
         self.tree.delete(*self.tree.get_children())
         status = self.status_var.get()
         orders = self.database.list_orders(
             query=self.search_var.get(),
             status="" if status == "Tous" else status,
+            delivery_status=(
+                "" if self.delivery_var.get() == "Toutes"
+                else self.delivery_var.get()
+            ),
+            include_archived=self.include_archived_var.get(),
         )
         for order in orders:
             self.tree.insert(
@@ -3249,12 +3574,258 @@ class OrdersPage(BasePage):
                     format_timestamp(order["sent_at"]),
                     order["supplier_name"],
                     order["status"],
+                    order["delivery_status"],
+                    "Oui" if order["archived_at"] else "—",
                     order["sync_state"],
                     format_price(order["total_ht"], 2),
                     format_price(order["total_ttc"], 2),
                 ),
             )
         self.result_label.configure(text=f"{len(orders)} commande(s)")
+        self.update_action_labels()
+        self._valid = True
+
+
+class StatisticsPage(BasePage):
+    def __init__(self, parent, app):
+        super().__init__(parent, app)
+        self.header(
+            "Statistiques",
+            "Analyse des commandes envoyées par période, fournisseur et produit.",
+        )
+        filters = ttk.Frame(self)
+        filters.pack(fill="x", pady=(0, 12))
+        ttk.Label(filters, text="Période").pack(side="left")
+        self.period_var = tk.StringVar(value="Cette année")
+        period_box = ttk.Combobox(
+            filters,
+            textvariable=self.period_var,
+            state="readonly",
+            values=("Cette année", "12 derniers mois", "Tout l'historique", "Personnalisée"),
+            width=20,
+        )
+        period_box.pack(side="left", padx=(7, 16))
+        period_box.bind("<<ComboboxSelected>>", self.apply_period)
+        ttk.Label(filters, text="Du").pack(side="left")
+        self.date_from_var = tk.StringVar()
+        ttk.Entry(filters, textvariable=self.date_from_var, width=13).pack(
+            side="left", padx=6
+        )
+        ttk.Label(filters, text="au").pack(side="left")
+        self.date_to_var = tk.StringVar()
+        ttk.Entry(filters, textvariable=self.date_to_var, width=13).pack(
+            side="left", padx=6
+        )
+        ttk.Button(
+            filters, text="Actualiser", style="Accent.TButton", command=self.refresh
+        ).pack(side="left", padx=8)
+        self.period_status = ttk.Label(filters, text="", style="Subtitle.TLabel")
+        self.period_status.pack(side="right")
+
+        self.cards = ttk.Frame(self)
+        self.cards.pack(fill="x", pady=(0, 14))
+        self.card_values: dict[str, tk.Label] = {}
+        for index, (key, label) in enumerate(
+            (
+                ("order_count", "Commandes envoyées"),
+                ("supplier_count", "Fournisseurs"),
+                ("total_ht", "Total HT"),
+                ("total_ttc", "Total TTC"),
+            )
+        ):
+            card = tk.Frame(
+                self.cards,
+                bg=COLORS["surface"],
+                highlightbackground=COLORS["border"],
+                highlightthickness=1,
+                padx=16,
+                pady=12,
+            )
+            card.grid(row=0, column=index, sticky="ew", padx=(0, 12))
+            self.cards.columnconfigure(index, weight=1)
+            value = tk.Label(
+                card,
+                text="0",
+                bg=COLORS["surface"],
+                fg=COLORS["accent"],
+                font=("Segoe UI Semibold", 18),
+                anchor="w",
+            )
+            value.pack(fill="x")
+            tk.Label(
+                card,
+                text=label,
+                bg=COLORS["surface"],
+                fg=COLORS["muted"],
+                font=("Segoe UI", 9),
+                anchor="w",
+            ).pack(fill="x")
+            self.card_values[key] = value
+
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill="both", expand=True)
+        supplier_tab = ttk.Frame(notebook, padding=8)
+        product_tab = ttk.Frame(notebook, padding=8)
+        notebook.add(supplier_tab, text="Par fournisseur")
+        notebook.add(product_tab, text="Par produit")
+
+        supplier_frame = ttk.Frame(supplier_tab)
+        supplier_frame.pack(fill="both", expand=True)
+        self.supplier_tree = ttk.Treeview(
+            supplier_frame,
+            columns=("supplier", "orders", "ht", "ttc"),
+            show="headings",
+        )
+        supplier_headings = {
+            "supplier": "Fournisseur",
+            "orders": "Commandes",
+            "ht": "Total HT",
+            "ttc": "Total TTC",
+        }
+        for column, width, anchor in (
+            ("supplier", 500, "w"),
+            ("orders", 110, "center"),
+            ("ht", 140, "e"),
+            ("ttc", 140, "e"),
+        ):
+            self.supplier_tree.heading(column, text=supplier_headings[column])
+            self.supplier_tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "supplier",
+            )
+        supplier_scrollbar = ttk.Scrollbar(
+            supplier_frame,
+            orient="vertical",
+            command=self.supplier_tree.yview,
+        )
+        self.supplier_tree.configure(yscrollcommand=supplier_scrollbar.set)
+        self.supplier_tree.pack(side="left", fill="both", expand=True)
+        supplier_scrollbar.pack(side="right", fill="y")
+        self.supplier_sorter = TreeviewSorter(
+            self.supplier_tree,
+            supplier_headings,
+            numeric_columns={"orders", "ht", "ttc"},
+        )
+
+        product_frame = ttk.Frame(product_tab)
+        product_frame.pack(fill="both", expand=True)
+        self.product_tree = ttk.Treeview(
+            product_frame,
+            columns=("supplier", "reference", "designation", "cartons", "units", "ht"),
+            show="headings",
+        )
+        product_headings = {
+            "supplier": "Fournisseur",
+            "reference": "Référence",
+            "designation": "Désignation",
+            "cartons": "Cartons",
+            "units": "Unités",
+            "ht": "Total HT",
+        }
+        for column, width, anchor in (
+            ("supplier", 170, "w"),
+            ("reference", 110, "center"),
+            ("designation", 460, "w"),
+            ("cartons", 90, "center"),
+            ("units", 90, "center"),
+            ("ht", 120, "e"),
+        ):
+            self.product_tree.heading(column, text=product_headings[column])
+            self.product_tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "designation",
+            )
+        scrollbar = ttk.Scrollbar(
+            product_frame, orient="vertical", command=self.product_tree.yview
+        )
+        self.product_tree.configure(yscrollcommand=scrollbar.set)
+        self.product_tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.product_sorter = TreeviewSorter(
+            self.product_tree,
+            product_headings,
+            numeric_columns={"cartons", "units", "ht"},
+        )
+        self.apply_period()
+
+    def apply_period(self, event=None) -> None:
+        today = date.today()
+        period = self.period_var.get()
+        if period == "Cette année":
+            start = date(today.year, 1, 1)
+        elif period == "12 derniers mois":
+            start = months_before(today, 12)
+        elif period == "Tout l'historique":
+            start = date(2000, 1, 1)
+        else:
+            return
+        self.date_from_var.set(start.isoformat())
+        self.date_to_var.set(today.isoformat())
+        if self.winfo_exists():
+            self.refresh()
+
+    def refresh(self) -> None:
+        try:
+            date_from = date.fromisoformat(self.date_from_var.get().strip())
+            date_to = date.fromisoformat(self.date_to_var.get().strip())
+            if date_from > date_to:
+                raise ValueError
+        except ValueError:
+            self.period_status.configure(
+                text="Dates attendues : AAAA-MM-JJ", foreground=COLORS["danger"]
+            )
+            self._valid = True
+            return
+        result = self.database.statistics(date_from, date_to)
+        summary = dict(result.get("summary") or {})
+        self.card_values["order_count"].configure(
+            text=format_number(summary.get("order_count", 0))
+        )
+        self.card_values["supplier_count"].configure(
+            text=format_number(summary.get("supplier_count", 0))
+        )
+        self.card_values["total_ht"].configure(
+            text=format_price(summary.get("total_ht", 0), 2)
+        )
+        self.card_values["total_ttc"].configure(
+            text=format_price(summary.get("total_ttc", 0), 2)
+        )
+        self.supplier_tree.delete(*self.supplier_tree.get_children())
+        for index, row in enumerate(result.get("suppliers", [])):
+            self.supplier_tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(
+                    row["supplier_name"],
+                    format_number(row["order_count"]),
+                    format_price(row["total_ht"], 2),
+                    format_price(row["total_ttc"], 2),
+                ),
+            )
+        self.product_tree.delete(*self.product_tree.get_children())
+        for index, row in enumerate(result.get("products", [])):
+            self.product_tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(
+                    row["supplier_name"],
+                    row["supplier_ref"] or "—",
+                    row["designation"],
+                    format_number(row["cartons"], 2),
+                    format_number(row["total_units"], 2),
+                    format_price(row["total_ht"], 2),
+                ),
+            )
+        self.period_status.configure(
+            text=f"Du {date_from:%d/%m/%Y} au {date_to:%d/%m/%Y}",
+            foreground=COLORS["muted"],
+        )
         self._valid = True
 
 
@@ -3803,7 +4374,7 @@ class SettingsPage(BasePage):
         self._form_baseline: dict[str, object] | None = None
         self.header(
             "Paramètres",
-            "Établissement, PDF, préparation des e-mails et sauvegardes.",
+            "Établissement, PDF, e-mails, collaboration et maintenance.",
         )
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True)
@@ -3987,6 +4558,72 @@ class SettingsPage(BasePage):
             wraplength=760,
         )
         self.backup_status.pack(anchor="w", pady=(10, 0))
+        ttk.Separator(backup, orient="horizontal").pack(
+            fill="x", pady=(24, 18)
+        )
+        maintenance = ttk.Frame(backup, style="Surface.TFrame")
+        maintenance.pack(fill="x")
+        ttk.Label(
+            maintenance,
+            text="Rappels et entretien",
+            style="Surface.TLabel",
+            font=("Segoe UI Semibold", 13),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(
+            maintenance,
+            text="Rappeler une sauvegarde après",
+            style="Surface.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=6)
+        self.backup_reminder_days_var = tk.StringVar(value="14")
+        ttk.Combobox(
+            maintenance,
+            textvariable=self.backup_reminder_days_var,
+            values=("7", "14", "30", "60", "90"),
+            state="readonly",
+            width=8,
+        ).grid(row=1, column=1, sticky="w", padx=(14, 6), pady=6)
+        ttk.Label(
+            maintenance, text="jours", style="Surface.TLabel"
+        ).grid(row=1, column=2, sticky="w", pady=6)
+        self.automatic_archive_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            maintenance,
+            text="Archiver automatiquement les commandes livrées après",
+            variable=self.automatic_archive_var,
+        ).grid(row=2, column=0, sticky="w", pady=6)
+        self.archive_months_var = tk.StringVar(value="24")
+        ttk.Combobox(
+            maintenance,
+            textvariable=self.archive_months_var,
+            values=("6", "12", "18", "24", "36", "60"),
+            state="readonly",
+            width=8,
+        ).grid(row=2, column=1, sticky="w", padx=(14, 6), pady=6)
+        ttk.Label(
+            maintenance, text="mois", style="Surface.TLabel"
+        ).grid(row=2, column=2, sticky="w", pady=6)
+        maintenance_actions = ttk.Frame(
+            maintenance, style="Surface.TFrame"
+        )
+        maintenance_actions.grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(14, 0)
+        )
+        self.maintenance_save_button = FeedbackButton(
+            maintenance_actions,
+            text="Enregistrer les réglages",
+            command=self.save,
+        )
+        self.maintenance_save_button.pack(side="left")
+        ttk.Button(
+            maintenance_actions,
+            text="Vérifier l'intégrité",
+            command=self.check_integrity,
+        ).pack(side="left", padx=7)
+        ttk.Button(
+            maintenance_actions,
+            text="Archiver maintenant",
+            command=self.run_archive,
+        ).pack(side="left")
 
         ttk.Label(
             collaboration,
@@ -4245,6 +4882,11 @@ class SettingsPage(BasePage):
         values["pause_sync_while_editing"] = (
             "1" if self.pause_sync_editing_var.get() else "0"
         )
+        values["backup_reminder_days"] = self.backup_reminder_days_var.get()
+        values["automatic_archive_enabled"] = (
+            "1" if self.automatic_archive_var.get() else "0"
+        )
+        values["archive_after_months"] = self.archive_months_var.get()
         self.database.save_settings(values)
         self._form_baseline = self._current_form_values()
         collaboration_changed = any(
@@ -4291,6 +4933,9 @@ class SettingsPage(BasePage):
                 "pause_sync_while_editing": (
                     self.pause_sync_editing_var.get()
                 ),
+                "backup_reminder_days": self.backup_reminder_days_var.get(),
+                "automatic_archive_enabled": self.automatic_archive_var.get(),
+                "archive_after_months": self.archive_months_var.get(),
             }
         )
         return values
@@ -4314,10 +4959,72 @@ class SettingsPage(BasePage):
         if not selected:
             return False
         destination = create_complete_backup(self.database, selected)
-        self.backup_status.configure(
-            text=f"Sauvegarde complète créée : {destination}"
+        self.database.save_settings(
+            {
+                "last_backup_at": datetime.now().isoformat(
+                    timespec="seconds"
+                ),
+                "last_backup_path": str(destination),
+            }
         )
+        self.backup_status.configure(
+            text=f"Sauvegarde complète créée : {destination}",
+            foreground=COLORS["success"],
+        )
+        self.app.refresh_pages()
         return True
+
+    def check_integrity(self) -> None:
+        ok, detail = self.database.quick_integrity_check()
+        checked_at = datetime.now().isoformat(timespec="seconds")
+        self.database.save_settings(
+            {
+                "last_integrity_check_at": checked_at,
+                "last_integrity_check_result": "OK" if ok else detail,
+            }
+        )
+        self.backup_status.configure(
+            text=(
+                "Contrôle d'intégrité réussi."
+                if ok
+                else "Anomalie détectée : " + detail
+            ),
+            foreground=COLORS["success"] if ok else COLORS["danger"],
+        )
+        self.app.refresh_pages()
+
+    def run_archive(self) -> None:
+        try:
+            months = int(self.archive_months_var.get())
+        except ValueError:
+            months = 24
+        before = months_before(date.today(), max(1, months))
+        if not messagebox.askyesno(
+            "Archivage",
+            (
+                "Archiver les commandes marquées comme livrées datant "
+                f"d'avant le {before:%d/%m/%Y} ?\n\n"
+                "Elles resteront consultables en cochant « Inclure les "
+                "archives » dans l'historique."
+            ),
+            parent=self,
+        ):
+            return
+        archived = self.database.archive_old_orders(before)
+        self.database.save_settings(
+            {
+                "last_maintenance_at": datetime.now().isoformat(
+                    timespec="seconds"
+                )
+            }
+        )
+        self.backup_status.configure(
+            text=f"{len(archived)} commande(s) archivée(s).",
+            foreground=COLORS["success"],
+        )
+        self.app.refresh_pages()
+        if archived and self.app.collaboration:
+            self.app.sync_collaboration()
 
     def refresh(self) -> None:
         if self.has_unsaved_changes():
@@ -4355,6 +5062,27 @@ class SettingsPage(BasePage):
         self.pause_sync_editing_var.set(
             settings.get("pause_sync_while_editing", "1") != "0"
         )
+        self.backup_reminder_days_var.set(
+            settings.get("backup_reminder_days", "14")
+        )
+        self.automatic_archive_var.set(
+            settings.get("automatic_archive_enabled", "0") == "1"
+        )
+        self.archive_months_var.set(
+            settings.get("archive_after_months", "24")
+        )
+        last_backup = settings.get("last_backup_at", "")
+        last_integrity = settings.get("last_integrity_check_at", "")
+        if not self.backup_status.cget("text"):
+            self.backup_status.configure(
+                text=(
+                    "Dernière sauvegarde : "
+                    f"{format_timestamp(last_backup)}  •  "
+                    "Dernier contrôle : "
+                    f"{format_timestamp(last_integrity)}"
+                ),
+                foreground=COLORS["muted"],
+            )
         if self.app.collaboration:
             last_sync = settings.get("collaboration_last_sync_at", "")
             catalogue = settings.get("collaboration_catalog_version", "")

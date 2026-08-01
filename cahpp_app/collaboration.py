@@ -178,6 +178,10 @@ class CollaborationManager:
     def documents_dir(self) -> Path:
         return self.orders_dir
 
+    @property
+    def updates_dir(self) -> Path:
+        return self._required_root() / "mises-a-jour"
+
     def _required_root(self) -> Path:
         if self.root is None:
             raise CollaborationError("Aucun dossier partagé n'est configuré.")
@@ -242,6 +246,7 @@ class CollaborationManager:
             root / "equipe" / "revisions",
             root / "commandes",
             root / "catalogues" / "versions",
+            root / "mises-a-jour",
         ):
             directory.mkdir(parents=True, exist_ok=True)
         self.database.save_settings(
@@ -776,6 +781,47 @@ class CollaborationManager:
             return None
         return current
 
+    @staticmethod
+    def _stable_version(value: str) -> tuple[int, int, int] | None:
+        match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", value.strip())
+        if not match:
+            return None
+        return tuple(int(part) for part in match.groups())
+
+    def pending_installer(
+        self, current_version: str, dismissed_version: str = ""
+    ) -> dict[str, object] | None:
+        current = self._stable_version(current_version)
+        if current is None or not self.updates_dir.is_dir():
+            return None
+        dismissed = self._stable_version(dismissed_version)
+        candidates: list[tuple[tuple[int, int, int], Path, str]] = []
+        pattern = re.compile(
+            r"^CommandesCAHPP-Setup-(\d+\.\d+\.\d+)\.exe$",
+            re.IGNORECASE,
+        )
+        for path in self.updates_dir.iterdir():
+            if not path.is_file():
+                continue
+            match = pattern.match(path.name)
+            if not match:
+                continue
+            version_text = match.group(1)
+            version = self._stable_version(version_text)
+            if version is None or version <= current:
+                continue
+            if dismissed is not None and version <= dismissed:
+                continue
+            candidates.append((version, path, version_text))
+        if not candidates:
+            return None
+        version, path, version_text = max(candidates, key=lambda item: item[0])
+        return {
+            "version": version_text,
+            "path": str(path),
+            "size_bytes": path.stat().st_size,
+        }
+
     def catalog_source(self, manifest: Mapping[str, object]) -> Path:
         relative = str(manifest.get("relative_path") or "")
         path = (self.catalogs_dir / relative).resolve()
@@ -891,6 +937,7 @@ class CollaborationManager:
             ),
             "catalog_integrity": catalog_integrity,
             "catalog_path": str(catalog_path) if catalog_path else "",
+            "updates_directory": str(self.updates_dir),
             "active_locks": active_locks,
             "expired_locks": expired_locks,
             "lock_owners": sorted(lock_owners),
