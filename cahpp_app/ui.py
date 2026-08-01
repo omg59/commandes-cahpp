@@ -42,6 +42,7 @@ from .local_services import (
 )
 from .paths import BACKUP_DIR, EXPORT_DIR, ROOT_DIR
 from .pdf_export import generate_order_pdf
+from .statistics_export import export_statistics_workbook
 
 
 COLORS = {
@@ -469,6 +470,7 @@ class App(ttk.Frame):
         definitions = [
             ("dashboard", "Vue d'ensemble", DashboardPage),
             ("catalog", "Catalogue", CatalogPage),
+            ("suggestions", "À recommander", SuggestionsPage),
             ("new_order", "Nouvelle commande", OrderPage),
             ("orders", "Historique", OrdersPage),
             ("statistics", "Statistiques", StatisticsPage),
@@ -819,22 +821,41 @@ class App(ttk.Frame):
         if not version or version == self._installer_prompted_version:
             return
         self._installer_prompted_version = version
-        open_directory = messagebox.askyesno(
+        choice = messagebox.askyesnocancel(
             "Mise à jour disponible",
             (
                 f"La version {version} de Commandes CAHPP est disponible "
                 "dans le dossier partagé.\n\n"
-                "Ouvrir le dossier des mises à jour ?"
+                "Oui : fermer l'application et lancer l'installation\n"
+                "Non : ouvrir le dossier des mises à jour\n"
+                "Annuler : me le rappeler plus tard"
             ),
             parent=self.root,
         )
-        self.database.save_settings(
-            {"dismissed_installer_version": version}
-        )
-        if open_directory:
-            path = Path(str(installer.get("path") or ""))
-            if path.is_file():
+        if choice is None:
+            self._installer_prompted_version = ""
+            return
+        path = Path(str(installer.get("path") or ""))
+        self.database.save_settings({"dismissed_installer_version": version})
+        if choice:
+            if not path.is_file():
+                return
+            try:
+                if os.name == "nt":
+                    os.startfile(str(path))  # type: ignore[attr-defined]
+                else:
+                    subprocess.Popen([str(path)])
+            except OSError as exc:
+                messagebox.showerror(
+                    "Mise à jour",
+                    f"L'installateur n'a pas pu être lancé :\n{exc}",
+                    parent=self.root,
+                )
                 open_path(path.parent)
+                return
+            self.root.after(250, self.close)
+        elif path.is_file():
+            open_path(path.parent)
 
     def _start_background_maintenance(self) -> None:
         settings = self.database.get_settings()
@@ -1168,6 +1189,7 @@ class DashboardPage(BasePage):
                 ("favorites", "Articles favoris"),
                 ("orders", "Commandes"),
                 ("pending_deliveries", "Livraisons en attente"),
+                ("alert_count", "Alertes de suivi"),
             ]
         ):
             card = tk.Frame(
@@ -1276,6 +1298,45 @@ class DashboardPage(BasePage):
             "<Double-1>", lambda event: self.open_deliveries()
         )
 
+        alert_box = tk.Frame(
+            self,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=14,
+            pady=10,
+        )
+        alert_box.pack(fill="x", pady=(12, 0))
+        tk.Label(
+            alert_box,
+            text="Alertes nécessitant une vérification",
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(anchor="w", pady=(0, 6))
+        self.alerts_tree = ttk.Treeview(
+            alert_box,
+            columns=("number", "supplier", "type", "days"),
+            show="headings",
+            height=4,
+        )
+        for column, title, width, anchor in (
+            ("number", "N° commande", 130, "center"),
+            ("supplier", "Fournisseur", 330, "w"),
+            ("type", "Alerte", 260, "w"),
+            ("days", "Retard / délai", 120, "center"),
+        ):
+            self.alerts_tree.heading(column, text=title)
+            self.alerts_tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column in {"supplier", "type"},
+            )
+        self.alerts_tree.tag_configure("warning", foreground=COLORS["danger"])
+        self.alerts_tree.pack(fill="x")
+        self.alerts_tree.bind("<Double-1>", lambda event: self.open_alert())
+
         self.health_label = tk.Label(
             self,
             text="",
@@ -1309,6 +1370,17 @@ class DashboardPage(BasePage):
         self.app.show_page("orders")
         if order_id:
             page.select_order(order_id)
+
+    def open_alert(self) -> None:
+        selected = self.alerts_tree.selection()
+        if not selected:
+            return
+        order_id = int(str(selected[0]).split(":", 1)[0])
+        page: OrdersPage = self.app.pages["orders"]  # type: ignore[assignment]
+        page.delivery_var.set("Toutes")
+        page.include_archived_var.set(False)
+        self.app.show_page("orders")
+        page.select_order(order_id)
 
     def refresh(self) -> None:
         stats = self.database.dashboard_stats()
@@ -1349,6 +1421,20 @@ class DashboardPage(BasePage):
                         2,
                     ),
                     f"{max(0, int(order['waiting_days'] or 0))} j",
+                ),
+            )
+        self.alerts_tree.delete(*self.alerts_tree.get_children())
+        for index, alert in enumerate(stats.get("alerts", [])):
+            self.alerts_tree.insert(
+                "",
+                "end",
+                iid=f"{alert['id']}:{index}",
+                tags=("warning",),
+                values=(
+                    alert["order_number"],
+                    alert["supplier_name"],
+                    alert["alert_type"],
+                    f"{max(0, int(alert['overdue_days'] or 0))} j",
                 ),
             )
         settings = self.database.get_settings()
@@ -1755,6 +1841,115 @@ class CatalogPage(BasePage):
         self.tree_column_sizer.fit()
 
 
+class SuggestionsPage(BasePage):
+    def __init__(self, parent, app):
+        super().__init__(parent, app)
+        self.header(
+            "Articles à recommander",
+            "Suggestions calculées à partir du rythme réel des commandes précédentes.",
+        )
+        info = ttk.Frame(self)
+        info.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            info,
+            text=(
+                "Une suggestion apparaît après au moins deux intervalles "
+                "exploitables. Elle ne crée jamais de commande automatiquement."
+            ),
+            style="Subtitle.TLabel",
+        ).pack(side="left")
+        ttk.Button(
+            info, text="Actualiser", style="Accent.TButton", command=self.refresh
+        ).pack(side="right")
+        self.tree = ttk.Treeview(
+            self,
+            columns=("supplier", "reference", "designation", "last", "frequency", "due"),
+            show="headings",
+            selectmode="browse",
+        )
+        headings = {
+            "supplier": "Fournisseur",
+            "reference": "Référence",
+            "designation": "Désignation",
+            "last": "Dernière commande",
+            "frequency": "Rythme moyen",
+            "due": "Échéance estimée",
+        }
+        for column, width, anchor in (
+            ("supplier", 180, "w"),
+            ("reference", 120, "center"),
+            ("designation", 470, "w"),
+            ("last", 130, "center"),
+            ("frequency", 120, "center"),
+            ("due", 130, "center"),
+        ):
+            self.tree.heading(column, text=headings[column])
+            self.tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "designation",
+            )
+        self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<Double-1>", lambda event: self.start_order())
+        self.sorter = TreeviewSorter(
+            self.tree,
+            headings,
+            numeric_columns={"frequency", "due"},
+        )
+        actions = ttk.Frame(self)
+        actions.pack(fill="x", pady=(10, 0))
+        self.result_label = ttk.Label(actions, text="", style="Subtitle.TLabel")
+        self.result_label.pack(side="left")
+        ttk.Button(
+            actions,
+            text="Commander cet article",
+            style="Accent.TButton",
+            command=self.start_order,
+        ).pack(side="right")
+
+    def start_order(self) -> None:
+        selected = self.tree.selection()
+        if not selected:
+            return
+        product_id = int(selected[0])
+        self.app.show_page("new_order")
+        page: OrderPage = self.app.pages["new_order"]  # type: ignore[assignment]
+        page.start_with_product(product_id)
+
+    def refresh(self) -> None:
+        rows = self.database.reorder_suggestions()
+        self.tree.delete(*self.tree.get_children())
+        for row in rows:
+            overdue = int(row["overdue_days"] or 0)
+            due_text = (
+                f"En retard de {overdue} j"
+                if overdue > 0
+                else "À prévoir maintenant"
+            )
+            try:
+                last_date = date.fromisoformat(row["last_order_date"])
+                last_text = last_date.strftime("%d/%m/%Y")
+            except (TypeError, ValueError):
+                last_text = row["last_order_date"] or "—"
+            self.tree.insert(
+                "",
+                "end",
+                iid=str(row["product_id"]),
+                values=(
+                    row["supplier_name"],
+                    row["supplier_ref"] or "—",
+                    row["designation"],
+                    last_text,
+                    f"{int(row['average_interval_days'] or 0)} j",
+                    due_text,
+                ),
+            )
+        self.result_label.configure(text=f"{len(rows)} suggestion(s)")
+        self.sorter.reapply()
+        self._valid = True
+
+
 class ProductEditDialog(tk.Toplevel):
     def __init__(self, parent, database: Database, product_id: int):
         super().__init__(parent)
@@ -1772,8 +1967,8 @@ class ProductEditDialog(tk.Toplevel):
             else "Article CAHPP — les valeurs d'origine restent conservées"
         )
         self.title("Modifier l'article")
-        self.geometry("650x500")
-        self.minsize(580, 450)
+        self.geometry("680x620")
+        self.minsize(600, 560)
         self.transient(parent.winfo_toplevel())
         self.grab_set()
 
@@ -1797,6 +1992,8 @@ class ProductEditDialog(tk.Toplevel):
             ("Détail du conditionnement", "unit_packaging"),
             ("Prix unitaire HT", "unit_price"),
             ("TVA (%)", "vat"),
+            ("Note interne", "internal_notes"),
+            ("Code CAHPP de remplacement", "replacement_code_cahpp"),
         ]
         self.vars: dict[str, tk.StringVar] = {}
         for row, (label, key) in enumerate(definitions, start=2):
@@ -1823,11 +2020,21 @@ class ProductEditDialog(tk.Toplevel):
                 style="Subtitle.TLabel",
                 wraplength=570,
             ).grid(
-                row=8, column=0, columnspan=2, sticky="w", pady=(12, 0)
+                row=2 + len(definitions),
+                column=0,
+                columnspan=2,
+                sticky="w",
+                pady=(12, 0),
             )
 
         actions = ttk.Frame(surface)
-        actions.grid(row=9, column=0, columnspan=2, sticky="e", pady=(20, 0))
+        actions.grid(
+            row=3 + len(definitions),
+            column=0,
+            columnspan=2,
+            sticky="e",
+            pady=(20, 0),
+        )
         ttk.Button(actions, text="Annuler", command=self.destroy).pack(
             side="left"
         )
@@ -1864,6 +2071,13 @@ class ProductEditDialog(tk.Toplevel):
                 "unit_price": unit_price,
                 "vat": vat,
             }
+            self.database.update_product_team_details(
+                self.product_id,
+                internal_notes=self.vars["internal_notes"].get(),
+                replacement_code_cahpp=self.vars[
+                    "replacement_code_cahpp"
+                ].get(),
+            )
             if self.product["source"] == "LOCAL":
                 self.database.update_manual_product(self.product_id, **values)
             else:
@@ -2083,6 +2297,11 @@ class OrderPage(BasePage):
 
         notes_frame = ttk.Frame(self)
         notes_frame.pack(fill="x", pady=(10, 0))
+        ttk.Label(notes_frame, text="Service / unité").pack(side="left")
+        self.requester_var = tk.StringVar()
+        ttk.Entry(
+            notes_frame, textvariable=self.requester_var, width=22
+        ).pack(side="left", padx=(8, 14))
         ttk.Label(notes_frame, text="Note").pack(side="left")
         self.notes_var = tk.StringVar()
         ttk.Entry(notes_frame, textvariable=self.notes_var).pack(
@@ -2497,6 +2716,7 @@ class OrderPage(BasePage):
         self.supplier_var.set(order["supplier_name"])
         self._previous_supplier = order["supplier_name"]
         self.notes_var.set(order["notes"] or "")
+        self.requester_var.set(order["requester_service"] or "")
         self.cart = [
             {
                 "product_id": line["product_id"],
@@ -2531,6 +2751,7 @@ class OrderPage(BasePage):
         self.current_order_date = None
         self.cart.clear()
         self.notes_var.set("")
+        self.requester_var.set("")
         self.supplier_var.set("")
         self._hide_supplier_suggestions()
         self._previous_supplier = ""
@@ -2596,6 +2817,22 @@ class OrderPage(BasePage):
         if not self._confirm_order_warnings(supplier_id):
             return False
         editing_order_id = self.current_order_id
+        if editing_order_id is None:
+            similar = self.database.find_recent_similar_order(
+                supplier_id, self.cart, days=7
+            )
+            if similar is not None and not messagebox.askyesno(
+                "Commande similaire récente",
+                (
+                    f"La commande {similar['order_number']} du "
+                    f"{date.fromisoformat(similar['order_date']):%d/%m/%Y} "
+                    "contient les mêmes articles.\n\n"
+                    "Créer quand même cette nouvelle commande ?"
+                ),
+                icon="warning",
+                parent=self,
+            ):
+                return False
         try:
             reserved_number = (
                 self.app.reserve_order_number(self.current_order_date)
@@ -2609,6 +2846,7 @@ class OrderPage(BasePage):
                 order_id=editing_order_id,
                 selected_date=self.current_order_date,
                 order_number=reserved_number,
+                requester_service=self.requester_var.get(),
             )
         except (OSError, CollaborationError) as exc:
             messagebox.showwarning(
@@ -3610,6 +3848,104 @@ class OrderTrackingDialog(tk.Toplevel):
             )
 
 
+class SelectiveDuplicateDialog(tk.Toplevel):
+    def __init__(self, parent, database: Database, order_id: int):
+        super().__init__(parent)
+        self.withdraw()
+        self.result: list[str] | None = None
+        order, lines = database.get_order(order_id)
+        self.title(f"Recommander — {order['order_number']}")
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+        content = ttk.Frame(self, padding=18)
+        content.pack(fill="both", expand=True)
+        ttk.Label(
+            content,
+            text="Choisissez les articles à reprendre",
+            font=("Segoe UI Semibold", 14),
+        ).pack(anchor="w")
+        ttk.Label(
+            content,
+            text="Utilisez Ctrl ou Maj pour sélectionner plusieurs lignes.",
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(2, 10))
+        self.tree = ttk.Treeview(
+            content,
+            columns=("ref", "designation", "cartons", "units"),
+            show="headings",
+            selectmode="extended",
+        )
+        for column, title, width, anchor in (
+            ("ref", "Référence", 130, "center"),
+            ("designation", "Désignation", 480, "w"),
+            ("cartons", "Cartons", 90, "center"),
+            ("units", "Unités", 90, "center"),
+        ):
+            self.tree.heading(column, text=title)
+            self.tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "designation",
+            )
+        for line in lines:
+            self.tree.insert(
+                "",
+                "end",
+                iid=str(line["line_uid"]),
+                values=(
+                    line["supplier_ref"] or "—",
+                    line["designation"],
+                    format_number(line["cartons"], 2),
+                    format_number(line["total_units"], 2),
+                ),
+            )
+        self.tree.pack(fill="both", expand=True)
+        self.tree.selection_set(self.tree.get_children())
+        selection_actions = ttk.Frame(content)
+        selection_actions.pack(fill="x", pady=(8, 12))
+        ttk.Button(
+            selection_actions,
+            text="Tout sélectionner",
+            command=lambda: self.tree.selection_set(self.tree.get_children()),
+        ).pack(side="left")
+        ttk.Button(
+            selection_actions,
+            text="Tout désélectionner",
+            command=lambda: self.tree.selection_remove(self.tree.get_children()),
+        ).pack(side="left", padx=7)
+        buttons = ttk.Frame(content)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Annuler", command=self.destroy).pack(side="right")
+        ttk.Button(
+            buttons,
+            text="Créer le brouillon",
+            style="Accent.TButton",
+            command=self.validate,
+        ).pack(side="right", padx=7)
+        self.update_idletasks()
+        width, height = 900, 580
+        owner = parent.winfo_toplevel()
+        x, y = centered_window_position(
+            owner.winfo_rootx(), owner.winfo_rooty(), owner.winfo_width(),
+            owner.winfo_height(), width, height, self.winfo_screenwidth(),
+            self.winfo_screenheight(),
+        )
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(760, 480)
+        self.deiconify()
+
+    def validate(self) -> None:
+        selected = list(self.tree.selection())
+        if not selected:
+            messagebox.showinfo(
+                "Recommander", "Sélectionnez au moins un article.", parent=self
+            )
+            return
+        self.result = selected
+        self.destroy()
+
+
 class OrdersPage(BasePage):
     def __init__(self, parent, app):
         super().__init__(parent, app)
@@ -3617,6 +3953,29 @@ class OrdersPage(BasePage):
             "Historique des commandes",
             "Recherchez, dupliquez et consultez les documents associés.",
         )
+        saved_filters = ttk.Frame(self)
+        saved_filters.pack(fill="x", pady=(0, 7))
+        ttk.Label(saved_filters, text="Filtres enregistrés").pack(side="left")
+        self.saved_filter_var = tk.StringVar()
+        self.saved_filter_box = ttk.Combobox(
+            saved_filters,
+            textvariable=self.saved_filter_var,
+            state="readonly",
+            width=28,
+        )
+        self.saved_filter_box.pack(side="left", padx=(7, 5))
+        self.saved_filter_box.bind(
+            "<<ComboboxSelected>>", lambda event: self.apply_saved_filter()
+        )
+        ttk.Button(
+            saved_filters, text="Appliquer", command=self.apply_saved_filter
+        ).pack(side="left")
+        ttk.Button(
+            saved_filters, text="Enregistrer l'affichage…", command=self.save_filter
+        ).pack(side="left", padx=5)
+        ttk.Button(
+            saved_filters, text="Supprimer", command=self.delete_filter
+        ).pack(side="left")
         filters = ttk.Frame(self)
         filters.pack(fill="x", pady=(0, 10))
         ttk.Label(filters, text="Recherche").pack(side="left")
@@ -3734,7 +4093,7 @@ class OrdersPage(BasePage):
         ).pack(side="left")
         ttk.Button(
             actions,
-            text="Dupliquer",
+            text="Recommander",
             command=self.duplicate,
         ).pack(side="left", padx=6)
         ttk.Button(
@@ -3776,6 +4135,67 @@ class OrdersPage(BasePage):
         )
         self.regenerate_button.pack(side="right", padx=6)
         self._refresh_after = None
+        self.load_saved_filters()
+
+    def load_saved_filters(self) -> None:
+        names = [row["name"] for row in self.database.list_saved_order_filters()]
+        self.saved_filter_box["values"] = names
+        if self.saved_filter_var.get() not in names:
+            self.saved_filter_var.set("")
+
+    def apply_saved_filter(self) -> None:
+        name = self.saved_filter_var.get().strip()
+        if not name:
+            return
+        selected = next(
+            (
+                row
+                for row in self.database.list_saved_order_filters()
+                if row["name"] == name
+            ),
+            None,
+        )
+        if selected is None:
+            return
+        self.search_var.set(selected["query"] or "")
+        self.status_var.set(selected["status"] or "Tous")
+        self.delivery_var.set(selected["delivery_status"] or "Toutes")
+        self.include_archived_var.set(bool(selected["include_archived"]))
+        self.refresh()
+
+    def save_filter(self) -> None:
+        name = simpledialog.askstring(
+            "Enregistrer le filtre",
+            "Nom de cet affichage :",
+            parent=self,
+            initialvalue=self.saved_filter_var.get(),
+        )
+        if not name:
+            return
+        try:
+            self.database.save_order_filter(
+                name,
+                self.search_var.get(),
+                self.status_var.get(),
+                self.delivery_var.get(),
+                self.include_archived_var.get(),
+            )
+        except ValueError as exc:
+            messagebox.showerror("Filtre", str(exc), parent=self)
+            return
+        self.load_saved_filters()
+        self.saved_filter_var.set(name.strip())
+
+    def delete_filter(self) -> None:
+        name = self.saved_filter_var.get().strip()
+        if not name:
+            return
+        if not messagebox.askyesno(
+            "Supprimer le filtre", f"Supprimer le filtre « {name} » ?", parent=self
+        ):
+            return
+        self.database.delete_order_filter(name)
+        self.load_saved_filters()
 
     def _schedule_refresh(self, event=None) -> None:
         if self._refresh_after:
@@ -3831,12 +4251,16 @@ class OrdersPage(BasePage):
                 "Dupliquer", "Sélectionnez une commande.", parent=self
             )
             return
+        dialog = SelectiveDuplicateDialog(self, self.database, order_id)
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
         try:
             reserved = self.app.reserve_order_number(date.today())
-            new_id = self.database.duplicate_order(
-                order_id, order_number=reserved
+            new_id = self.database.duplicate_order_lines(
+                order_id, dialog.result, order_number=reserved
             )
-        except (OSError, CollaborationError) as exc:
+        except (OSError, ValueError, CollaborationError) as exc:
             messagebox.showwarning(
                 "Dupliquer",
                 f"La nouvelle commande n'a pas pu être créée :\n{exc}",
@@ -4154,6 +4578,9 @@ class StatisticsPage(BasePage):
         ttk.Button(
             filters, text="Actualiser", style="Accent.TButton", command=self.refresh
         ).pack(side="left", padx=8)
+        ttk.Button(
+            filters, text="Exporter Excel…", command=self.export_excel
+        ).pack(side="left")
         self.period_status = ttk.Label(filters, text="", style="Subtitle.TLabel")
         self.period_status.pack(side="right")
 
@@ -4201,14 +4628,16 @@ class StatisticsPage(BasePage):
         notebook.pack(fill="both", expand=True)
         supplier_tab = ttk.Frame(notebook, padding=8)
         product_tab = ttk.Frame(notebook, padding=8)
+        prices_tab = ttk.Frame(notebook, padding=8)
         notebook.add(supplier_tab, text="Par fournisseur")
         notebook.add(product_tab, text="Par produit")
+        notebook.add(prices_tab, text="Écarts de prix")
 
         supplier_frame = ttk.Frame(supplier_tab)
         supplier_frame.pack(fill="both", expand=True)
         self.supplier_tree = ttk.Treeview(
             supplier_frame,
-            columns=("supplier", "orders", "ht", "ttc"),
+            columns=("supplier", "orders", "ht", "ttc", "confirm", "delivery", "waiting"),
             show="headings",
         )
         supplier_headings = {
@@ -4216,12 +4645,18 @@ class StatisticsPage(BasePage):
             "orders": "Commandes",
             "ht": "Total HT",
             "ttc": "Total TTC",
+            "confirm": "Confirmation moy.",
+            "delivery": "Livraison moy.",
+            "waiting": "À recevoir",
         }
         for column, width, anchor in (
-            ("supplier", 500, "w"),
-            ("orders", 110, "center"),
-            ("ht", 140, "e"),
-            ("ttc", 140, "e"),
+            ("supplier", 330, "w"),
+            ("orders", 90, "center"),
+            ("ht", 115, "e"),
+            ("ttc", 115, "e"),
+            ("confirm", 115, "center"),
+            ("delivery", 115, "center"),
+            ("waiting", 90, "center"),
         ):
             self.supplier_tree.heading(column, text=supplier_headings[column])
             self.supplier_tree.column(
@@ -4241,7 +4676,7 @@ class StatisticsPage(BasePage):
         self.supplier_sorter = TreeviewSorter(
             self.supplier_tree,
             supplier_headings,
-            numeric_columns={"orders", "ht", "ttc"},
+            numeric_columns={"orders", "ht", "ttc", "confirm", "delivery", "waiting"},
         )
 
         product_frame = ttk.Frame(product_tab)
@@ -4285,6 +4720,52 @@ class StatisticsPage(BasePage):
             product_headings,
             numeric_columns={"cartons", "units", "ht"},
         )
+
+        prices_frame = ttk.Frame(prices_tab)
+        prices_frame.pack(fill="both", expand=True)
+        self.prices_tree = ttk.Treeview(
+            prices_frame,
+            columns=("supplier", "reference", "designation", "order", "old", "current", "difference"),
+            show="headings",
+        )
+        price_headings = {
+            "supplier": "Fournisseur",
+            "reference": "Référence",
+            "designation": "Désignation",
+            "order": "Dernière commande",
+            "old": "PU commandé",
+            "current": "PU actuel",
+            "difference": "Écart",
+        }
+        for column, width, anchor in (
+            ("supplier", 170, "w"),
+            ("reference", 110, "center"),
+            ("designation", 400, "w"),
+            ("order", 135, "center"),
+            ("old", 105, "e"),
+            ("current", 105, "e"),
+            ("difference", 105, "e"),
+        ):
+            self.prices_tree.heading(column, text=price_headings[column])
+            self.prices_tree.column(
+                column,
+                width=width,
+                anchor=anchor,
+                stretch=column == "designation",
+            )
+        prices_scrollbar = ttk.Scrollbar(
+            prices_frame, orient="vertical", command=self.prices_tree.yview
+        )
+        self.prices_tree.configure(yscrollcommand=prices_scrollbar.set)
+        self.prices_tree.pack(side="left", fill="both", expand=True)
+        prices_scrollbar.pack(side="right", fill="y")
+        self.prices_sorter = TreeviewSorter(
+            self.prices_tree,
+            price_headings,
+            numeric_columns={"old", "current", "difference"},
+        )
+        self._last_result: dict[str, object] | None = None
+        self._last_period: tuple[date, date] | None = None
         self.apply_period()
 
     def apply_period(self, event=None) -> None:
@@ -4316,6 +4797,8 @@ class StatisticsPage(BasePage):
             self._valid = True
             return
         result = self.database.statistics(date_from, date_to)
+        self._last_result = result
+        self._last_period = (date_from, date_to)
         summary = dict(result.get("summary") or {})
         self.card_values["order_count"].configure(
             text=format_number(summary.get("order_count", 0))
@@ -4340,6 +4823,17 @@ class StatisticsPage(BasePage):
                     format_number(row["order_count"]),
                     format_price(row["total_ht"], 2),
                     format_price(row["total_ttc"], 2),
+                    (
+                        f"{format_number(row['average_confirmation_days'], 1)} j"
+                        if row["average_confirmation_days"] is not None
+                        else "—"
+                    ),
+                    (
+                        f"{format_number(row['average_delivery_days'], 1)} j"
+                        if row["average_delivery_days"] is not None
+                        else "—"
+                    ),
+                    format_number(row["incomplete_count"]),
                 ),
             )
         self.product_tree.delete(*self.product_tree.get_children())
@@ -4361,7 +4855,51 @@ class StatisticsPage(BasePage):
             text=f"Du {date_from:%d/%m/%Y} au {date_to:%d/%m/%Y}",
             foreground=COLORS["muted"],
         )
+        self.prices_tree.delete(*self.prices_tree.get_children())
+        for index, row in enumerate(result.get("price_variances", [])):
+            self.prices_tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(
+                    row["supplier_name"],
+                    row["supplier_ref"] or "—",
+                    row["designation"],
+                    row["order_number"],
+                    format_price(row["ordered_price"]),
+                    format_price(row["current_price"]),
+                    f"{format_price(row['difference'])} ({format_number(row['difference_percent'], 1)} %)",
+                ),
+            )
         self._valid = True
+
+    def export_excel(self) -> None:
+        self.refresh()
+        if not self._last_result or not self._last_period:
+            return
+        destination = filedialog.asksaveasfilename(
+            parent=self,
+            title="Exporter les statistiques",
+            initialfile=(
+                f"Statistiques-commandes-{self._last_period[0].isoformat()}-"
+                f"{self._last_period[1].isoformat()}.xlsx"
+            ),
+            defaultextension=".xlsx",
+            filetypes=[("Classeur Excel", "*.xlsx")],
+        )
+        if not destination:
+            return
+        try:
+            path = export_statistics_workbook(
+                self._last_result,
+                self._last_period[0],
+                self._last_period[1],
+                destination,
+            )
+        except OSError as exc:
+            messagebox.showerror("Export Excel", str(exc), parent=self)
+            return
+        open_path(path.parent)
 
 
 class SuppliersPage(BasePage):
@@ -5137,11 +5675,43 @@ class SettingsPage(BasePage):
         ttk.Label(
             maintenance, text="mois", style="Surface.TLabel"
         ).grid(row=2, column=2, sticky="w", pady=6)
+        ttk.Label(
+            maintenance,
+            text="Alerter si une confirmation manque après",
+            style="Surface.TLabel",
+        ).grid(row=3, column=0, sticky="w", pady=6)
+        self.confirmation_reminder_days_var = tk.StringVar(value="5")
+        ttk.Combobox(
+            maintenance,
+            textvariable=self.confirmation_reminder_days_var,
+            values=("2", "3", "5", "7", "10", "14"),
+            state="readonly",
+            width=8,
+        ).grid(row=3, column=1, sticky="w", padx=(14, 6), pady=6)
+        ttk.Label(maintenance, text="jours", style="Surface.TLabel").grid(
+            row=3, column=2, sticky="w", pady=6
+        )
+        ttk.Label(
+            maintenance,
+            text="Alerter sur une livraison sans échéance après",
+            style="Surface.TLabel",
+        ).grid(row=4, column=0, sticky="w", pady=6)
+        self.delivery_reminder_days_var = tk.StringVar(value="14")
+        ttk.Combobox(
+            maintenance,
+            textvariable=self.delivery_reminder_days_var,
+            values=("7", "10", "14", "21", "30", "45", "60"),
+            state="readonly",
+            width=8,
+        ).grid(row=4, column=1, sticky="w", padx=(14, 6), pady=6)
+        ttk.Label(maintenance, text="jours", style="Surface.TLabel").grid(
+            row=4, column=2, sticky="w", pady=6
+        )
         maintenance_actions = ttk.Frame(
             maintenance, style="Surface.TFrame"
         )
         maintenance_actions.grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=(14, 0)
+            row=5, column=0, columnspan=3, sticky="w", pady=(14, 0)
         )
         self.maintenance_save_button = FeedbackButton(
             maintenance_actions,
@@ -5422,6 +5992,12 @@ class SettingsPage(BasePage):
             "1" if self.automatic_archive_var.get() else "0"
         )
         values["archive_after_months"] = self.archive_months_var.get()
+        values["confirmation_reminder_days"] = (
+            self.confirmation_reminder_days_var.get()
+        )
+        values["delivery_reminder_days"] = (
+            self.delivery_reminder_days_var.get()
+        )
         self.database.save_settings(values)
         self._form_baseline = self._current_form_values()
         collaboration_changed = any(
@@ -5471,6 +6047,10 @@ class SettingsPage(BasePage):
                 "backup_reminder_days": self.backup_reminder_days_var.get(),
                 "automatic_archive_enabled": self.automatic_archive_var.get(),
                 "archive_after_months": self.archive_months_var.get(),
+                "confirmation_reminder_days": (
+                    self.confirmation_reminder_days_var.get()
+                ),
+                "delivery_reminder_days": self.delivery_reminder_days_var.get(),
             }
         )
         return values
@@ -5605,6 +6185,12 @@ class SettingsPage(BasePage):
         )
         self.archive_months_var.set(
             settings.get("archive_after_months", "24")
+        )
+        self.confirmation_reminder_days_var.set(
+            settings.get("confirmation_reminder_days", "5")
+        )
+        self.delivery_reminder_days_var.set(
+            settings.get("delivery_reminder_days", "14")
         )
         last_backup = settings.get("last_backup_at", "")
         last_integrity = settings.get("last_integrity_check_at", "")

@@ -399,6 +399,14 @@ def generate_order_pdf(
     )
 
     notes = []
+    if order["requester_service"]:
+        notes.append(
+            Paragraph(
+                f"<b>Service / unité destinataire :</b> "
+                f"{_safe(order['requester_service'])}",
+                body,
+            )
+        )
     if order["notes"]:
         notes.append(Paragraph(f"<b>Note :</b> {_safe(order['notes'])}", body))
     summary = Table(

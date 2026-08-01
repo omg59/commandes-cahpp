@@ -5,7 +5,7 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
-**Version stable actuelle : 1.2.0**
+**Version stable actuelle : 1.3.0**
 
 ## Principes
 
@@ -28,6 +28,13 @@ travailler ensemble à travers un simple dossier partagé, sans serveur.
 - archivage configurable des anciennes commandes livrées ;
 - rappel de sauvegarde et contrôle périodique de l'intégrité SQLite ;
 - notification lorsqu'un nouvel installeur est déposé dans le partage ;
+- lancement direct de l'installateur partagé avec fermeture propre de l'application ;
+- alertes configurables sur les confirmations manquantes et livraisons en retard ;
+- suggestions d'articles à recommander selon leur rythme historique ;
+- filtres d'historique enregistrés et recommandation sélective d'articles ;
+- indicateurs de délai fournisseur, comparaison des prix et export Excel ;
+- notes internes et références de remplacement dans le catalogue ;
+- service ou unité destinataire mémorisé sur la commande et imprimé sur le PDF ;
 - suivi des changements de prix et de conditionnement des articles commandés ;
 - rattachement des bons de livraison et autres documents ;
 - préparation des e-mails sans mot de passe ni droit administrateur ;
@@ -112,7 +119,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.1.0.exe
+dist-installer\CommandesCAHPP-Setup-1.3.0.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
@@ -126,13 +133,16 @@ le logo et les autres fichiers utilisateur. Lors de la première mise à jour
 d'une installation portable existante, choisissez son dossier actuel. Les
 mises à jour suivantes réutiliseront automatiquement ce dossier.
 
-Il ne s'agit pas d'une mise à jour téléchargée automatiquement : l'EXE peut
-être placé dans le dossier partagé, puis lancé manuellement sur chaque poste.
+Il ne s'agit pas d'une mise à jour téléchargée depuis Internet : l'EXE est
+placé volontairement dans le dossier partagé par l'utilisateur qui prépare la
+version.
 
 En mode collaboratif, le sous-dossier `mises-a-jour` est créé automatiquement
 dans l'espace partagé. Un installeur nommé
 `CommandesCAHPP-Setup-X.Y.Z.exe` qui y est déposé déclenche une notification
-sur les postes utilisant une version antérieure.
+sur les postes utilisant une version antérieure. L'utilisateur peut lancer
+l'installation directement ; l'application ferme alors proprement ses verrous
+et laisse l'installateur remplacer uniquement les fichiers du programme.
 
 ## Première utilisation
 

@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS products (
     favorite INTEGER NOT NULL DEFAULT 0,
     usual_cartons REAL NOT NULL DEFAULT 1,
     short_name TEXT NOT NULL DEFAULT '',
+    internal_notes TEXT NOT NULL DEFAULT '',
+    replacement_code_cahpp TEXT NOT NULL DEFAULT '',
     created_by TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
@@ -109,6 +111,8 @@ CREATE TABLE IF NOT EXISTS product_team_state (
     favorite INTEGER NOT NULL DEFAULT 0,
     usual_cartons REAL NOT NULL DEFAULT 1,
     short_name TEXT NOT NULL DEFAULT '',
+    internal_notes TEXT NOT NULL DEFAULT '',
+    replacement_code_cahpp TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL,
     updated_by TEXT NOT NULL DEFAULT ''
 );
@@ -129,6 +133,7 @@ CREATE TABLE IF NOT EXISTS orders (
     order_number TEXT NOT NULL UNIQUE,
     supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
     order_date TEXT NOT NULL,
+    requester_service TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'Brouillon',
     notes TEXT NOT NULL DEFAULT '',
     total_ht REAL NOT NULL DEFAULT 0,
@@ -221,6 +226,16 @@ CREATE TABLE IF NOT EXISTS order_comments (
 CREATE INDEX IF NOT EXISTS idx_order_comments_order
 ON order_comments(order_id, created_at, id);
 
+CREATE TABLE IF NOT EXISTS saved_order_filters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    query TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    delivery_status TEXT NOT NULL DEFAULT '',
+    include_archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS order_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -293,6 +308,8 @@ DEFAULT_SETTINGS = {
     "archive_after_months": "24",
     "last_maintenance_at": "",
     "dismissed_installer_version": "",
+    "confirmation_reminder_days": "5",
+    "delivery_reminder_days": "14",
     "team_settings_updated_at": "",
     "team_settings_updated_by": "",
 }
@@ -397,7 +414,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 12")
+            connection.execute("PRAGMA user_version = 13")
 
     @staticmethod
     def _ensure_column(
@@ -428,6 +445,7 @@ class Database:
         for column, declaration in (
             ("email_prepared_at", "TEXT NOT NULL DEFAULT ''"),
             ("sent_at", "TEXT NOT NULL DEFAULT ''"),
+            ("requester_service", "TEXT NOT NULL DEFAULT ''"),
             ("confirmed_at", "TEXT NOT NULL DEFAULT ''"),
             ("confirmed_by", "TEXT NOT NULL DEFAULT ''"),
             ("delivery_status", "TEXT NOT NULL DEFAULT 'Non suivie'"),
@@ -466,8 +484,17 @@ class Database:
         for column, declaration in (
             ("created_by", "TEXT NOT NULL DEFAULT ''"),
             ("updated_by", "TEXT NOT NULL DEFAULT ''"),
+            ("internal_notes", "TEXT NOT NULL DEFAULT ''"),
+            ("replacement_code_cahpp", "TEXT NOT NULL DEFAULT ''"),
         ):
             self._ensure_column(connection, "products", column, declaration)
+        for column, declaration in (
+            ("internal_notes", "TEXT NOT NULL DEFAULT ''"),
+            ("replacement_code_cahpp", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            self._ensure_column(
+                connection, "product_team_state", column, declaration
+            )
         self._ensure_column(
             connection,
             "product_overrides",
@@ -507,12 +534,13 @@ class Database:
             """
             INSERT OR IGNORE INTO product_team_state(
                 code_cahpp, favorite, usual_cartons, short_name,
-                updated_at, updated_by
+                internal_notes, replacement_code_cahpp, updated_at, updated_by
             )
             SELECT code_cahpp, favorite, usual_cartons, short_name,
-                   updated_at, updated_by
+                   internal_notes, replacement_code_cahpp, updated_at, updated_by
             FROM products
             WHERE favorite <> 0 OR usual_cartons <> 1 OR short_name <> ''
+               OR internal_notes <> '' OR replacement_code_cahpp <> ''
             """
         )
         connection.execute(
@@ -607,6 +635,35 @@ class Database:
                     """
                 )
             )
+            reminder_values = {
+                row["key"]: row["value"]
+                for row in connection.execute(
+                    """
+                    SELECT key, value FROM settings
+                    WHERE key IN (
+                        'confirmation_reminder_days', 'delivery_reminder_days'
+                    )
+                    """
+                )
+            }
+            try:
+                confirmation_days = int(
+                    reminder_values.get("confirmation_reminder_days", "5")
+                )
+            except ValueError:
+                confirmation_days = 5
+            try:
+                delivery_days = int(
+                    reminder_values.get("delivery_reminder_days", "14")
+                )
+            except ValueError:
+                delivery_days = 14
+            stats["alerts"] = self.order_alerts(
+                confirmation_days=confirmation_days,
+                delivery_days=delivery_days,
+                limit=20,
+            )
+            stats["alert_count"] = len(stats["alerts"])
             return stats
 
     def get_settings(self) -> dict[str, str]:
@@ -856,6 +913,77 @@ class Database:
                         actor_name,
                     ),
                 )
+
+    def update_product_team_details(
+        self,
+        product_id: int,
+        internal_notes: str = "",
+        replacement_code_cahpp: str = "",
+    ) -> None:
+        _, actor_name = self._actor()
+        updated_at = datetime.now().isoformat(timespec="seconds")
+        with self.session() as connection:
+            product = connection.execute(
+                """
+                SELECT code_cahpp, favorite, usual_cartons, short_name
+                FROM products WHERE id = ?
+                """,
+                (product_id,),
+            ).fetchone()
+            if product is None:
+                raise ValueError("Article introuvable.")
+            replacement = replacement_code_cahpp.strip()
+            if replacement:
+                replacement_row = connection.execute(
+                    "SELECT id FROM products WHERE code_cahpp = ? AND active = 1",
+                    (replacement,),
+                ).fetchone()
+                if replacement_row is None:
+                    raise ValueError("La référence de remplacement est introuvable.")
+                if int(replacement_row["id"]) == product_id:
+                    raise ValueError("Un article ne peut pas se remplacer lui-même.")
+            connection.execute(
+                """
+                UPDATE products
+                SET internal_notes = ?, replacement_code_cahpp = ?,
+                    updated_at = ?, updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    internal_notes.strip(),
+                    replacement,
+                    updated_at,
+                    actor_name,
+                    product_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO product_team_state(
+                    code_cahpp, favorite, usual_cartons, short_name,
+                    internal_notes, replacement_code_cahpp,
+                    updated_at, updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(code_cahpp) DO UPDATE SET
+                    favorite = excluded.favorite,
+                    usual_cartons = excluded.usual_cartons,
+                    short_name = excluded.short_name,
+                    internal_notes = excluded.internal_notes,
+                    replacement_code_cahpp = excluded.replacement_code_cahpp,
+                    updated_at = excluded.updated_at,
+                    updated_by = excluded.updated_by
+                """,
+                (
+                    product["code_cahpp"],
+                    product["favorite"],
+                    product["usual_cartons"],
+                    product["short_name"],
+                    internal_notes.strip(),
+                    replacement,
+                    updated_at,
+                    actor_name,
+                ),
+            )
 
     def create_manual_product(
         self,
@@ -1205,6 +1333,7 @@ class Database:
         selected_date: date | None = None,
         order_number: str | None = None,
         shared_uid: str | None = None,
+        requester_service: str = "",
     ) -> int:
         if not lines:
             raise ValueError("La commande ne contient aucune ligne.")
@@ -1258,17 +1387,19 @@ class Database:
                 cursor = connection.execute(
                     """
                     INSERT INTO orders(
-                        order_number, supplier_id, order_date, status, notes,
+                        order_number, supplier_id, order_date, requester_service,
+                        status, notes,
                         total_ht, total_vat, total_ttc, shared_uid,
                         shared_revision, sync_state, catalog_hash,
                         created_by, updated_by, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'À synchroniser',
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'À synchroniser',
                               ?, ?, ?, ?, ?)
                     """,
                     (
                         order_number,
                         supplier_id,
                         selected_date.isoformat(),
+                        requester_service.strip(),
                         status,
                         notes.strip(),
                         float(total_ht),
@@ -1287,7 +1418,8 @@ class Database:
                 connection.execute(
                     """
                     UPDATE orders
-                    SET supplier_id = ?, order_date = ?, status = ?, notes = ?,
+                    SET supplier_id = ?, order_date = ?, requester_service = ?,
+                        status = ?, notes = ?,
                         total_ht = ?, total_vat = ?, total_ttc = ?,
                         shared_revision = shared_revision + 1,
                         sync_state = 'À synchroniser', catalog_hash = ?,
@@ -1297,6 +1429,7 @@ class Database:
                     (
                         supplier_id,
                         selected_date.isoformat(),
+                        requester_service.strip(),
                         status,
                         notes.strip(),
                         float(total_ht),
@@ -1385,6 +1518,236 @@ class Database:
                     [*parameters, limit],
                 )
             )
+
+    def list_saved_order_filters(self) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return list(
+                connection.execute(
+                    """
+                    SELECT * FROM saved_order_filters
+                    ORDER BY name COLLATE NOCASE
+                    """
+                )
+            )
+
+    def save_order_filter(
+        self,
+        name: str,
+        query: str,
+        status: str,
+        delivery_status: str,
+        include_archived: bool,
+    ) -> None:
+        name = name.strip()
+        if not name:
+            raise ValueError("Le nom du filtre est obligatoire.")
+        with self.session() as connection:
+            connection.execute(
+                """
+                INSERT INTO saved_order_filters(
+                    name, query, status, delivery_status,
+                    include_archived, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    query = excluded.query,
+                    status = excluded.status,
+                    delivery_status = excluded.delivery_status,
+                    include_archived = excluded.include_archived
+                """,
+                (
+                    name,
+                    query.strip(),
+                    status,
+                    delivery_status,
+                    int(include_archived),
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+
+    def delete_order_filter(self, name: str) -> None:
+        with self.session() as connection:
+            connection.execute(
+                "DELETE FROM saved_order_filters WHERE name = ?", (name.strip(),)
+            )
+
+    def order_alerts(
+        self,
+        reference_date: date | None = None,
+        confirmation_days: int = 5,
+        delivery_days: int = 14,
+        limit: int = 100,
+    ) -> list[sqlite3.Row]:
+        reference_date = reference_date or date.today()
+        with self.connect() as connection:
+            return list(
+                connection.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT o.id, o.order_number, s.name AS supplier_name,
+                               'Confirmation attendue' AS alert_type,
+                               CAST(julianday(?) - julianday(substr(o.sent_at, 1, 10))
+                                    AS INTEGER) AS overdue_days,
+                               o.sent_at AS reference_value,
+                               o.delivery_status
+                        FROM orders o
+                        JOIN suppliers s ON s.id = o.supplier_id
+                        WHERE o.deleted_at = '' AND o.archived_at = ''
+                          AND o.sent_at <> '' AND o.confirmed_at = ''
+                          AND o.delivery_status <> 'Livrée'
+                          AND julianday(?) - julianday(substr(o.sent_at, 1, 10)) >= ?
+                        UNION ALL
+                        SELECT o.id, o.order_number, s.name AS supplier_name,
+                               'Livraison en retard' AS alert_type,
+                               CAST(
+                                   CASE
+                                     WHEN o.expected_delivery_date <> ''
+                                     THEN julianday(?) - julianday(o.expected_delivery_date)
+                                     ELSE julianday(?) - julianday(substr(o.sent_at, 1, 10)) - ?
+                                   END AS INTEGER
+                               ) AS overdue_days,
+                               COALESCE(NULLIF(o.expected_delivery_date, ''), o.sent_at)
+                                   AS reference_value,
+                               o.delivery_status
+                        FROM orders o
+                        JOIN suppliers s ON s.id = o.supplier_id
+                        WHERE o.deleted_at = '' AND o.archived_at = ''
+                          AND o.sent_at <> ''
+                          AND o.delivery_status IN (
+                              'En attente', 'Partiellement livrée'
+                          )
+                          AND (
+                              (o.expected_delivery_date <> ''
+                               AND julianday(o.expected_delivery_date) < julianday(?))
+                              OR
+                              (o.expected_delivery_date = ''
+                               AND julianday(?) - julianday(substr(o.sent_at, 1, 10)) >= ?)
+                          )
+                    ) alerts
+                    ORDER BY overdue_days DESC, supplier_name COLLATE NOCASE
+                    LIMIT ?
+                    """,
+                    (
+                        reference_date.isoformat(),
+                        reference_date.isoformat(),
+                        max(1, confirmation_days),
+                        reference_date.isoformat(),
+                        reference_date.isoformat(),
+                        max(1, delivery_days),
+                        reference_date.isoformat(),
+                        reference_date.isoformat(),
+                        max(1, delivery_days),
+                        limit,
+                    ),
+                )
+            )
+
+    def reorder_suggestions(
+        self, reference_date: date | None = None, limit: int = 200
+    ) -> list[sqlite3.Row]:
+        reference_date = reference_date or date.today()
+        with self.connect() as connection:
+            return list(
+                connection.execute(
+                    f"""
+                    WITH history AS (
+                        SELECT DISTINCT ol.product_id, o.order_date
+                        FROM order_lines ol
+                        JOIN orders o ON o.id = ol.order_id
+                        WHERE ol.product_id IS NOT NULL
+                          AND o.deleted_at = '' AND o.sent_at <> ''
+                    ), spaced AS (
+                        SELECT product_id, order_date,
+                               julianday(order_date) - julianday(
+                                   LAG(order_date) OVER (
+                                       PARTITION BY product_id ORDER BY order_date
+                                   )
+                               ) AS interval_days
+                        FROM history
+                    ), rhythm AS (
+                        SELECT product_id, MAX(order_date) AS last_order_date,
+                               AVG(interval_days) AS average_interval_days,
+                               COUNT(interval_days) AS interval_count
+                        FROM spaced
+                        WHERE interval_days BETWEEN 1 AND 730
+                        GROUP BY product_id
+                    )
+                    SELECT p.id AS product_id, p.supplier_id, p.supplier_name,
+                           COALESCE(po.supplier_ref, p.supplier_ref) AS supplier_ref,
+                           COALESCE(po.designation, p.designation) AS designation,
+                           COALESCE(po.conditionnement, p.conditionnement) AS conditionnement,
+                           COALESCE(po.unit_price, p.unit_price) AS unit_price,
+                           COALESCE(po.vat, p.vat) AS vat,
+                           p.usual_cartons, r.last_order_date,
+                           ROUND(r.average_interval_days) AS average_interval_days,
+                           CAST(
+                               julianday(?) - julianday(r.last_order_date)
+                               - r.average_interval_days AS INTEGER
+                           ) AS overdue_days
+                    FROM rhythm r
+                    JOIN products p ON p.id = r.product_id
+                    LEFT JOIN product_overrides po ON po.product_id = p.id
+                    WHERE p.active = 1 AND r.interval_count >= 2
+                      AND julianday(?) - julianday(r.last_order_date)
+                          >= r.average_interval_days * 0.85
+                    ORDER BY overdue_days DESC, p.supplier_name,
+                             COALESCE(po.designation, p.designation)
+                    LIMIT ?
+                    """,
+                    (
+                        reference_date.isoformat(),
+                        reference_date.isoformat(),
+                        limit,
+                    ),
+                )
+            )
+
+    def find_recent_similar_order(
+        self,
+        supplier_id: int,
+        lines: Sequence[Mapping[str, object]],
+        days: int = 7,
+    ) -> sqlite3.Row | None:
+        requested = {
+            str(line.get("product_id") or line.get("code_cahpp") or line.get("supplier_ref") or "")
+            for line in lines
+        }
+        requested.discard("")
+        if not requested:
+            return None
+        with self.connect() as connection:
+            candidates = list(
+                connection.execute(
+                    """
+                    SELECT o.id, o.order_number, o.order_date, o.status,
+                           s.name AS supplier_name
+                    FROM orders o JOIN suppliers s ON s.id = o.supplier_id
+                    WHERE o.supplier_id = ? AND o.deleted_at = ''
+                      AND julianday(o.order_date) >= julianday('now', ?)
+                    ORDER BY o.order_date DESC, o.id DESC
+                    """,
+                    (supplier_id, f"-{max(1, days)} days"),
+                )
+            )
+            for candidate in candidates:
+                existing = {
+                    str(
+                        row["product_id"]
+                        or row["code_cahpp"]
+                        or row["supplier_ref"]
+                        or ""
+                    )
+                    for row in connection.execute(
+                        """
+                        SELECT product_id, code_cahpp, supplier_ref
+                        FROM order_lines WHERE order_id = ?
+                        """,
+                        (candidate["id"],),
+                    )
+                }
+                existing.discard("")
+                if existing == requested:
+                    return candidate
+        return None
 
     def get_order(self, order_id: int) -> tuple[sqlite3.Row, list[sqlite3.Row]]:
         with self.connect() as connection:
@@ -1513,6 +1876,44 @@ class Database:
             selected_date=selected_date or date.today(),
             order_number=order_number,
             shared_uid=shared_uid,
+            requester_service=order["requester_service"] or "",
+        )
+
+    def duplicate_order_lines(
+        self,
+        order_id: int,
+        line_uids: Sequence[str],
+        selected_date: date | None = None,
+        order_number: str | None = None,
+        shared_uid: str | None = None,
+    ) -> int:
+        selected = {str(value) for value in line_uids}
+        order, lines = self.get_order(order_id)
+        duplicated_lines = [
+            {
+                "product_id": line["product_id"],
+                "code_cahpp": line["code_cahpp"],
+                "supplier_ref": line["supplier_ref"],
+                "designation": line["designation"],
+                "cartons": line["cartons"],
+                "units_per_carton": line["units_per_carton"],
+                "unit_price": line["unit_price"],
+                "vat": line["vat"],
+            }
+            for line in lines
+            if str(line["line_uid"]) in selected
+        ]
+        if not duplicated_lines:
+            raise ValueError("Sélectionnez au moins un article à recommander.")
+        return self.save_order(
+            supplier_id=int(order["supplier_id"]),
+            lines=duplicated_lines,
+            notes=order["notes"] or "",
+            status="Brouillon",
+            selected_date=selected_date or date.today(),
+            order_number=order_number,
+            shared_uid=shared_uid,
+            requester_service=order["requester_service"] or "",
         )
 
     def daily_supplier_order_sequence(self, order_id: int) -> int:
@@ -1729,7 +2130,7 @@ class Database:
                     order_id,
                 ),
             )
-            status = self._recompute_order_workflow(connection, order_id, now)
+            self._recompute_order_workflow(connection, order_id, now)
             self._record_order_audit(
                 connection,
                 order_id,
@@ -2198,7 +2599,22 @@ class Database:
                     SELECT s.name AS supplier_name,
                            COUNT(*) AS order_count,
                            COALESCE(SUM(o.total_ht), 0) AS total_ht,
-                           COALESCE(SUM(o.total_ttc), 0) AS total_ttc
+                           COALESCE(SUM(o.total_ttc), 0) AS total_ttc,
+                           ROUND(AVG(
+                               CASE WHEN o.confirmed_at <> '' THEN
+                                   julianday(o.confirmed_at) - julianday(o.sent_at)
+                               END
+                           ), 1) AS average_confirmation_days,
+                           ROUND(AVG(
+                               CASE WHEN o.delivered_at <> '' THEN
+                                   julianday(o.delivered_at) - julianday(o.sent_at)
+                               END
+                           ), 1) AS average_delivery_days,
+                           SUM(
+                               CASE WHEN o.delivery_status IN (
+                                   'En attente', 'Partiellement livrée'
+                               ) THEN 1 ELSE 0 END
+                           ) AS incomplete_count
                     FROM orders o
                     JOIN suppliers s ON s.id = o.supplier_id
                     WHERE {order_filter}
@@ -2227,10 +2643,53 @@ class Database:
                     parameters,
                 )
             )
+            price_variances = list(
+                connection.execute(
+                    f"""
+                    WITH ranked AS (
+                        SELECT ol.product_id, s.name AS supplier_name,
+                               ol.supplier_ref, ol.designation,
+                               ol.unit_price AS ordered_price,
+                               o.order_date, o.order_number,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY ol.product_id
+                                   ORDER BY o.order_date DESC, o.id DESC
+                               ) AS position
+                        FROM order_lines ol
+                        JOIN orders o ON o.id = ol.order_id
+                        JOIN suppliers s ON s.id = o.supplier_id
+                        WHERE {order_filter} AND ol.product_id IS NOT NULL
+                    )
+                    SELECT r.supplier_name, r.supplier_ref, r.designation,
+                           r.order_number, r.order_date, r.ordered_price,
+                           COALESCE(po.unit_price, p.unit_price) AS current_price,
+                           COALESCE(po.unit_price, p.unit_price) - r.ordered_price
+                               AS difference,
+                           CASE WHEN r.ordered_price <> 0 THEN
+                               100 * (
+                                   COALESCE(po.unit_price, p.unit_price)
+                                   - r.ordered_price
+                               ) / r.ordered_price
+                           ELSE 0 END AS difference_percent
+                    FROM ranked r
+                    JOIN products p ON p.id = r.product_id
+                    LEFT JOIN product_overrides po ON po.product_id = p.id
+                    WHERE r.position = 1
+                      AND COALESCE(po.unit_price, p.unit_price) IS NOT NULL
+                      AND ABS(
+                          COALESCE(po.unit_price, p.unit_price) - r.ordered_price
+                      ) > 0.00005
+                    ORDER BY ABS(difference_percent) DESC, r.designation
+                    LIMIT 500
+                    """,
+                    parameters,
+                )
+            )
         return {
             "summary": dict(summary) if summary else {},
             "suppliers": suppliers,
             "products": products,
+            "price_variances": price_variances,
         }
 
     def quick_integrity_check(self) -> tuple[bool, str]:
@@ -2411,6 +2870,7 @@ class Database:
                 for row in connection.execute(
                     """
                     SELECT code_cahpp, favorite, usual_cartons, short_name,
+                           internal_notes, replacement_code_cahpp,
                            updated_at, updated_by
                     FROM product_team_state
                     """
@@ -2437,6 +2897,7 @@ class Database:
                            p.designation, p.conditionnement, p.qml, p.vat,
                            p.unit_price, p.unit_packaging, p.active,
                            p.favorite, p.usual_cartons, p.short_name,
+                           p.internal_notes, p.replacement_code_cahpp,
                            p.created_at, p.updated_at, p.created_by, p.updated_by
                     FROM products p
                     WHERE p.source = 'LOCAL'
@@ -2570,10 +3031,11 @@ class Database:
                         code_cahpp, supplier_id, supplier_name, supplier_ref,
                         designation, conditionnement, qml, vat, unit_price,
                         unit_packaging, active, source, favorite,
-                        usual_cartons, short_name, created_by, updated_by,
+                        usual_cartons, short_name, internal_notes,
+                        replacement_code_cahpp, created_by, updated_by,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'LOCAL', ?, ?, ?,
-                              ?, ?, ?, ?)
+                              ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(code_cahpp) DO UPDATE SET
                         supplier_id = excluded.supplier_id,
                         supplier_name = excluded.supplier_name,
@@ -2588,6 +3050,8 @@ class Database:
                         favorite = excluded.favorite,
                         usual_cartons = excluded.usual_cartons,
                         short_name = excluded.short_name,
+                        internal_notes = excluded.internal_notes,
+                        replacement_code_cahpp = excluded.replacement_code_cahpp,
                         updated_by = excluded.updated_by,
                         updated_at = excluded.updated_at
                     """,
@@ -2606,6 +3070,8 @@ class Database:
                         int(bool(record.get("favorite", 0))),
                         record.get("usual_cartons") or 1,
                         record.get("short_name") or "",
+                        record.get("internal_notes") or "",
+                        record.get("replacement_code_cahpp") or "",
                         record.get("created_by") or "",
                         record.get("updated_by") or "",
                         record.get("created_at")
@@ -2636,12 +3102,15 @@ class Database:
                     """
                     INSERT INTO product_team_state(
                         code_cahpp, favorite, usual_cartons, short_name,
+                        internal_notes, replacement_code_cahpp,
                         updated_at, updated_by
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(code_cahpp) DO UPDATE SET
                         favorite = excluded.favorite,
                         usual_cartons = excluded.usual_cartons,
                         short_name = excluded.short_name,
+                        internal_notes = excluded.internal_notes,
+                        replacement_code_cahpp = excluded.replacement_code_cahpp,
                         updated_at = excluded.updated_at,
                         updated_by = excluded.updated_by
                     """,
@@ -2650,6 +3119,8 @@ class Database:
                         int(bool(record.get("favorite", 0))),
                         record.get("usual_cartons") or 1,
                         record.get("short_name") or "",
+                        record.get("internal_notes") or "",
+                        record.get("replacement_code_cahpp") or "",
                         record.get("updated_at") or "",
                         record.get("updated_by") or "",
                     ),
@@ -2657,13 +3128,16 @@ class Database:
                 connection.execute(
                     """
                     UPDATE products
-                    SET favorite = ?, usual_cartons = ?, short_name = ?
+                    SET favorite = ?, usual_cartons = ?, short_name = ?,
+                        internal_notes = ?, replacement_code_cahpp = ?
                     WHERE code_cahpp = ?
                     """,
                     (
                         int(bool(record.get("favorite", 0))),
                         record.get("usual_cartons") or 1,
                         record.get("short_name") or "",
+                        record.get("internal_notes") or "",
+                        record.get("replacement_code_cahpp") or "",
                         code,
                     ),
                 )
@@ -2809,6 +3283,7 @@ class Database:
             for key in (
                 "order_number",
                 "order_date",
+                "requester_service",
                 "status",
                 "notes",
                 "total_ht",
@@ -2945,6 +3420,7 @@ class Database:
                 order_number,
                 supplier_id,
                 order.get("order_date") or date.today().isoformat(),
+                order.get("requester_service") or "",
                 order.get("status") or "Brouillon",
                 order.get("notes") or "",
                 order.get("total_ht") or 0,
@@ -2982,7 +3458,8 @@ class Database:
                 cursor = connection.execute(
                     """
                     INSERT INTO orders(
-                        order_number, supplier_id, order_date, status, notes,
+                        order_number, supplier_id, order_date, requester_service,
+                        status, notes,
                         total_ht, total_vat, total_ttc, pdf_path,
                         email_prepared_at, sent_at, confirmed_at, confirmed_by,
                         delivery_status, delivered_at, delivered_by,
@@ -2994,7 +3471,7 @@ class Database:
                         last_synced_at,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values,
                 )
@@ -3005,7 +3482,8 @@ class Database:
                     """
                     UPDATE orders SET
                         order_number = ?, supplier_id = ?, order_date = ?,
-                        status = ?, notes = ?, total_ht = ?, total_vat = ?,
+                        requester_service = ?, status = ?, notes = ?,
+                        total_ht = ?, total_vat = ?,
                         total_ttc = ?, pdf_path = ?, email_prepared_at = ?,
                         sent_at = ?, confirmed_at = ?, confirmed_by = ?,
                         delivery_status = ?, delivered_at = ?, delivered_by = ?,

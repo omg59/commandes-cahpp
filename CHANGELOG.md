@@ -1,5 +1,23 @@
 # Historique des versions
 
+## 1.3.0
+
+- alertes configurables lorsqu'une commande reste sans confirmation ou dépasse
+  son échéance de livraison ;
+- affichage des alertes sur le tableau de bord avec accès direct à la commande ;
+- page **À recommander** calculant les échéances à partir des intervalles réels ;
+- recommandation sélective de certains articles d'une ancienne commande ;
+- détection d'une commande probablement créée en double dans les sept jours ;
+- filtres personnalisés enregistrables dans l'historique ;
+- délais moyens de confirmation et de livraison par fournisseur ;
+- comparaison du dernier prix commandé avec le prix actuel du catalogue ;
+- export Excel multi-feuilles des statistiques ;
+- notes internes et référence de remplacement configurables sur un article ;
+- ajout d'un service ou d'une unité destinataire sur la commande et son PDF ;
+- lancement direct d'un installateur trouvé dans le dossier partagé, puis
+  fermeture propre de l'application ;
+- migration automatique du schéma SQLite de la version 12 à 13.
+
 ## 1.2.0
 
 - ajout du statut **Confirmée** et d'une date de livraison prévisionnelle ;

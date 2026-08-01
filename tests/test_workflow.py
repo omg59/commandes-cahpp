@@ -30,6 +30,7 @@ from cahpp_app.local_services import (
     remove_document,
 )
 from cahpp_app.pdf_export import generate_order_pdf
+from cahpp_app.statistics_export import export_statistics_workbook
 from cahpp_app.ui import (
     TreeviewColumnSizer,
     TreeviewSorter,
@@ -449,6 +450,14 @@ class WorkflowTest(unittest.TestCase):
                 total_ht REAL NOT NULL DEFAULT 0,
                 line_order INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE product_team_state (
+                code_cahpp TEXT PRIMARY KEY,
+                favorite INTEGER NOT NULL DEFAULT 0,
+                usual_cartons REAL NOT NULL DEFAULT 1,
+                short_name TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL DEFAULT ''
+            );
             INSERT INTO suppliers(name) VALUES ('ANCIEN FOURNISSEUR');
             INSERT INTO orders(
                 order_number, supplier_id, order_date, created_at, updated_at
@@ -469,6 +478,12 @@ class WorkflowTest(unittest.TestCase):
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(orders)")
             }
+            team_state_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(product_team_state)"
+                )
+            }
             tables = {
                 row["name"]
                 for row in connection.execute(
@@ -483,14 +498,175 @@ class WorkflowTest(unittest.TestCase):
             {"contact_name", "address", "website", "minimum_order_ht"}
             <= supplier_columns
         )
-        self.assertTrue({"email_prepared_at", "sent_at"} <= order_columns)
+        self.assertTrue(
+            {"email_prepared_at", "sent_at", "requester_service"}
+            <= order_columns
+        )
+        self.assertTrue(
+            {"internal_notes", "replacement_code_cahpp"}
+            <= team_state_columns
+        )
         self.assertIn("product_overrides", tables)
         migrated_settings = migrated.get_settings()
         self.assertTrue(migrated_settings["mail_compose_url"])
         self.assertEqual(migrated_settings["sync_interval_seconds"], "60")
         self.assertEqual(migrated_settings["pause_sync_while_editing"], "1")
-        self.assertEqual(version, 12)
+        self.assertEqual(version, 13)
         self.assertTrue(migrated_line_uid)
+
+    def test_alerts_recommendations_filters_metrics_and_export(self):
+        catalogue = self.root / "catalogue-v13.xlsx"
+        create_catalog(
+            catalogue,
+            [
+                self.row("V13-1", "REF-V13", "ARTICLE RÉCURRENT", 3, 10),
+                self.row("V13-2", "REF-REMPL", "ARTICLE DE REMPLACEMENT", 4, 10),
+            ],
+        )
+        CatalogImporter(self.database).import_file(catalogue)
+        recurring = self.database.search_products("ARTICLE RÉCURRENT")[0]
+        replacement = self.database.search_products("REMPLACEMENT")[0]
+        self.database.update_product_team_details(
+            int(recurring["id"]),
+            internal_notes="Privilégier le nouveau conditionnement.",
+            replacement_code_cahpp=str(replacement["code_cahpp"]),
+        )
+
+        order_ids = []
+        for order_date in (date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)):
+            order_id = self.database.save_order(
+                int(recurring["supplier_id"]),
+                [
+                    {
+                        "product_id": int(recurring["id"]),
+                        "code_cahpp": recurring["code_cahpp"],
+                        "supplier_ref": recurring["supplier_ref"],
+                        "designation": recurring["designation"],
+                        "cartons": 1,
+                        "units_per_carton": 10,
+                        "unit_price": 3,
+                        "vat": 20,
+                    }
+                ],
+                selected_date=order_date,
+                requester_service="Unité protégée",
+            )
+            self.database.update_order_status(order_id, "Envoyée")
+            order_ids.append(order_id)
+        with self.database.session() as connection:
+            connection.execute(
+                """
+                UPDATE orders
+                SET sent_at = '2026-01-02T08:00:00',
+                    confirmed_at = '2026-01-04T08:00:00',
+                    delivered_at = '2026-01-10T08:00:00',
+                    delivery_status = 'Livrée', status = 'Livrée'
+                WHERE id = ?
+                """,
+                (order_ids[0],),
+            )
+        service_pdf = generate_order_pdf(
+            self.database, order_ids[0], self.root / "commande-service.pdf"
+        )
+        service_text = "\n".join(
+            page.extract_text() or "" for page in PdfReader(service_pdf).pages
+        )
+        self.assertIn("Unité protégée", service_text)
+        suggestions = self.database.reorder_suggestions(date(2026, 4, 5))
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["product_id"], recurring["id"])
+
+        _, first_lines = self.database.get_order(order_ids[0])
+        duplicate_id = self.database.duplicate_order_lines(
+            order_ids[0], [first_lines[0]["line_uid"]]
+        )
+        duplicate, duplicate_lines = self.database.get_order(duplicate_id)
+        self.assertEqual(duplicate["requester_service"], "Unité protégée")
+        self.assertEqual(len(duplicate_lines), 1)
+
+        alert_id = self.database.save_order(
+            int(recurring["supplier_id"]),
+            [
+                {
+                    "product_id": int(recurring["id"]),
+                    "code_cahpp": recurring["code_cahpp"],
+                    "supplier_ref": recurring["supplier_ref"],
+                    "designation": recurring["designation"],
+                    "cartons": 1,
+                    "units_per_carton": 10,
+                    "unit_price": 3,
+                    "vat": 20,
+                }
+            ],
+            selected_date=date(2026, 7, 20),
+        )
+        self.database.update_order_status(alert_id, "Envoyée")
+        with self.database.session() as connection:
+            connection.execute(
+                """
+                UPDATE orders
+                SET sent_at = '2026-07-20T08:00:00',
+                    expected_delivery_date = '2026-07-25'
+                WHERE id = ?
+                """,
+                (alert_id,),
+            )
+        alerts = self.database.order_alerts(
+            date(2026, 8, 1), confirmation_days=5, delivery_days=14
+        )
+        self.assertEqual(
+            {row["alert_type"] for row in alerts if row["id"] == alert_id},
+            {"Confirmation attendue", "Livraison en retard"},
+        )
+
+        self.database.save_order_filter(
+            "Retards Hartmann", "HARTMANN", "Tous", "À recevoir", False
+        )
+        filters = self.database.list_saved_order_filters()
+        self.assertEqual(filters[0]["name"], "Retards Hartmann")
+        self.database.delete_order_filter("Retards Hartmann")
+        self.assertEqual(self.database.list_saved_order_filters(), [])
+
+        self.database.set_product_override(
+            int(recurring["id"]),
+            supplier_ref=str(recurring["supplier_ref"]),
+            designation=str(recurring["designation"]),
+            conditionnement=10,
+            unit_packaging="",
+            unit_price=4,
+            vat=20,
+        )
+        statistics = self.database.statistics(date(2026, 1, 1), date(2026, 12, 31))
+        supplier_metrics = statistics["suppliers"][0]
+        self.assertEqual(supplier_metrics["average_confirmation_days"], 2)
+        self.assertEqual(supplier_metrics["average_delivery_days"], 8)
+        self.assertTrue(statistics["price_variances"])
+        export_path = export_statistics_workbook(
+            statistics,
+            date(2026, 1, 1),
+            date(2026, 12, 31),
+            self.root / "statistiques.xlsx",
+        )
+        self.assertTrue(export_path.is_file())
+        with zipfile.ZipFile(export_path) as archive:
+            workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+        self.assertIn("Fournisseurs", workbook_xml)
+        self.assertIn("Écarts de prix", workbook_xml)
+
+        second_database = Database(self.root / "second-v13.sqlite3")
+        CatalogImporter(second_database).import_file(catalogue)
+        second_database.apply_team_state(self.database.export_team_state())
+        synced = second_database.get_product(int(recurring["id"]))
+        self.assertEqual(
+            synced["internal_notes"], "Privilégier le nouveau conditionnement."
+        )
+        self.assertEqual(synced["replacement_code_cahpp"], replacement["code_cahpp"])
+        imported_order_id, changed = second_database.import_order(
+            self.database.export_order(order_ids[0])
+        )
+        self.assertTrue(changed)
+        imported_order, _ = second_database.get_order(imported_order_id)
+        self.assertEqual(imported_order["requester_service"], "Unité protégée")
 
     def test_partial_receipts_milestones_comments_and_sync(self):
         catalogue = self.root / "catalogue-receptions.xlsx"
