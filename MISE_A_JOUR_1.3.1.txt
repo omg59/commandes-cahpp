@@ -1,0 +1,19 @@
+COMMANDES CAHPP — MISE À JOUR 1.3.1
+==================================
+
+Cette version corrige l'affichage de la vue d'ensemble :
+
+- l'application s'ouvre maximisée afin d'utiliser l'espace disponible ;
+- le séparateur entre les livraisons et les alertes peut être déplacé ;
+- chaque tableau possède son propre ascenseur vertical ;
+- l'état de la sauvegarde et de l'intégrité reste visible ;
+- les boutons « Préparer une commande » et « Importer un catalogue » ne sont
+  plus masqués en bas de la fenêtre.
+
+INSTALLATION
+------------
+
+Fermez Commandes CAHPP, puis lancez CommandesCAHPP-Setup-1.3.1.exe.
+
+La base, le catalogue, les paramètres, les documents et l'espace partagé sont
+conservés. Cette correction ne modifie pas le schéma de la base de données.

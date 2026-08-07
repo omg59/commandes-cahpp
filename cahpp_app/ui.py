@@ -309,6 +309,26 @@ def format_price(value: object, decimals: int = 4) -> str:
     return f"{Decimal(str(value)):.{decimals}f}".replace(".", ",") + " €"
 
 
+def supplier_field_display_value(field: str, value: object) -> str:
+    """Formate en français les montants, sans altérer les champs texte."""
+    if value is None:
+        return ""
+    text = str(value)
+    if field in {"minimum_order_ht", "franco_ht"}:
+        return text.replace(".", ",")
+    return text
+
+
+def product_field_display_value(field: str, value: object) -> str:
+    """Localise seulement les valeurs numériques éditables d'un article."""
+    if value is None:
+        return ""
+    text = str(value)
+    if field in {"conditionnement", "unit_price", "vat"}:
+        return text.replace(".", ",")
+    return text
+
+
 def format_timestamp(value: object) -> str:
     if not value:
         return "—"
@@ -547,12 +567,23 @@ class App(ttk.Frame):
         )
         self.user_label.pack(side="bottom", fill="x")
         self.show_page("dashboard")
+        self.root.after_idle(self._maximize_initial_window)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.after(1200, self._start_background_maintenance)
         self.root.after(1800, self._offer_shared_installer)
         if self.collaboration:
             self.root.after(700, self.sync_collaboration)
             self._start_periodic_collaboration()
+
+    def _maximize_initial_window(self) -> None:
+        """Utilise par défaut tout l'espace de travail disponible."""
+        try:
+            self.root.state("zoomed")
+        except tk.TclError:
+            try:
+                self.root.attributes("-zoomed", True)
+            except tk.TclError:
+                pass
 
     def _configure_window_icon(self) -> None:
         icon_path = ROOT_DIR / "assets" / "app_icon.png"
@@ -1249,16 +1280,25 @@ class DashboardPage(BasePage):
         )
         self.import_detail.pack(fill="x", pady=(4, 0))
 
-        delivery_box = tk.Frame(
+        self.dashboard_panes = ttk.Panedwindow(
             self,
+            orient="vertical",
+        )
+        self.dashboard_panes.pack(fill="both", expand=True, pady=(16, 0))
+
+        self.delivery_box = tk.Frame(
+            self.dashboard_panes,
             bg=COLORS["surface"],
             highlightbackground=COLORS["border"],
             highlightthickness=1,
             padx=14,
             pady=12,
         )
-        delivery_box.pack(fill="both", expand=True, pady=(16, 0))
-        delivery_header = tk.Frame(delivery_box, bg=COLORS["surface"])
+        self.dashboard_panes.add(
+            self.delivery_box,
+            weight=3,
+        )
+        delivery_header = tk.Frame(self.delivery_box, bg=COLORS["surface"])
         delivery_header.pack(fill="x", pady=(0, 8))
         tk.Label(
             delivery_header,
@@ -1272,12 +1312,20 @@ class DashboardPage(BasePage):
             text="Voir dans l'historique",
             command=self.open_deliveries,
         ).pack(side="right")
+        delivery_table = tk.Frame(self.delivery_box, bg=COLORS["surface"])
+        delivery_table.pack(fill="both", expand=True)
         self.delivery_tree = ttk.Treeview(
-            delivery_box,
+            delivery_table,
             columns=("number", "sent", "supplier", "state", "remaining", "days"),
             show="headings",
-            height=6,
+            height=3,
         )
+        delivery_scroll = ttk.Scrollbar(
+            delivery_table,
+            orient="vertical",
+            command=self.delivery_tree.yview,
+        )
+        self.delivery_tree.configure(yscrollcommand=delivery_scroll.set)
         for column, title, width, anchor in (
             ("number", "N° commande", 130, "center"),
             ("sent", "Envoyée le", 135, "center"),
@@ -1293,33 +1341,45 @@ class DashboardPage(BasePage):
                 anchor=anchor,
                 stretch=column == "supplier",
             )
-        self.delivery_tree.pack(fill="both", expand=True)
+        delivery_scroll.pack(side="right", fill="y")
+        self.delivery_tree.pack(side="left", fill="both", expand=True)
         self.delivery_tree.bind(
             "<Double-1>", lambda event: self.open_deliveries()
         )
 
-        alert_box = tk.Frame(
-            self,
+        self.alert_box = tk.Frame(
+            self.dashboard_panes,
             bg=COLORS["surface"],
             highlightbackground=COLORS["border"],
             highlightthickness=1,
             padx=14,
             pady=10,
         )
-        alert_box.pack(fill="x", pady=(12, 0))
+        self.dashboard_panes.add(
+            self.alert_box,
+            weight=2,
+        )
         tk.Label(
-            alert_box,
+            self.alert_box,
             text="Alertes nécessitant une vérification",
             bg=COLORS["surface"],
             fg=COLORS["text"],
             font=("Segoe UI Semibold", 11),
         ).pack(anchor="w", pady=(0, 6))
+        alerts_table = tk.Frame(self.alert_box, bg=COLORS["surface"])
+        alerts_table.pack(fill="both", expand=True)
         self.alerts_tree = ttk.Treeview(
-            alert_box,
+            alerts_table,
             columns=("number", "supplier", "type", "days"),
             show="headings",
-            height=4,
+            height=3,
         )
+        alerts_scroll = ttk.Scrollbar(
+            alerts_table,
+            orient="vertical",
+            command=self.alerts_tree.yview,
+        )
+        self.alerts_tree.configure(yscrollcommand=alerts_scroll.set)
         for column, title, width, anchor in (
             ("number", "N° commande", 130, "center"),
             ("supplier", "Fournisseur", 330, "w"),
@@ -1334,7 +1394,8 @@ class DashboardPage(BasePage):
                 stretch=column in {"supplier", "type"},
             )
         self.alerts_tree.tag_configure("warning", foreground=COLORS["danger"])
-        self.alerts_tree.pack(fill="x")
+        alerts_scroll.pack(side="right", fill="y")
+        self.alerts_tree.pack(side="left", fill="both", expand=True)
         self.alerts_tree.bind("<Double-1>", lambda event: self.open_alert())
 
         self.health_label = tk.Label(
@@ -1347,19 +1408,26 @@ class DashboardPage(BasePage):
         )
         self.health_label.pack(fill="x", pady=(10, 0))
 
-        actions = ttk.Frame(self)
-        actions.pack(fill="x", pady=(20, 0))
+        self.actions = ttk.Frame(self)
+        self.actions.pack(fill="x", pady=(20, 0))
         ttk.Button(
-            actions,
+            self.actions,
             text="Préparer une commande",
             style="Accent.TButton",
             command=lambda: self.app.show_page("new_order"),
         ).pack(side="left")
         ttk.Button(
-            actions,
+            self.actions,
             text="Importer un catalogue",
             command=lambda: self.app.show_page("import"),
         ).pack(side="left", padx=8)
+        self.after(180, self._set_initial_dashboard_sash)
+
+    def _set_initial_dashboard_sash(self) -> None:
+        """Donne un peu plus de place aux livraisons, puis laisse le réglage libre."""
+        height = self.dashboard_panes.winfo_height()
+        if height > 260:
+            self.dashboard_panes.sashpos(0, int(height * 0.58))
 
     def open_deliveries(self) -> None:
         selected = self.delivery_tree.selection()
@@ -2000,9 +2068,8 @@ class ProductEditDialog(tk.Toplevel):
             ttk.Label(surface, text=label).grid(
                 row=row, column=0, sticky="w", pady=7
             )
-            value = self.product[key]
             variable = tk.StringVar(
-                value="" if value is None else str(value).replace(".", ",")
+                value=product_field_display_value(key, self.product[key])
             )
             ttk.Entry(surface, textvariable=variable, width=52).grid(
                 row=row, column=1, sticky="ew", padx=(14, 0), pady=7
@@ -5030,8 +5097,7 @@ class SuppliersPage(BasePage):
             return
         self._loaded_supplier_id = supplier_id
         for key, variable in self.fields.items():
-            value = supplier[key]
-            variable.set("" if value is None else str(value).replace(".", ","))
+            variable.set(supplier_field_display_value(key, supplier[key]))
         self.notes.delete("1.0", "end")
         self.notes.insert("1.0", supplier["notes"] or "")
         self._supplier_baseline = self._current_supplier_values()

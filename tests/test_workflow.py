@@ -38,6 +38,8 @@ from cahpp_app.ui import (
     configured_pdf_directory,
     filter_supplier_names,
     fractional_carton_lines,
+    product_field_display_value,
+    supplier_field_display_value,
     suggested_pdf_filename,
 )
 
@@ -511,8 +513,87 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(migrated_settings["mail_compose_url"])
         self.assertEqual(migrated_settings["sync_interval_seconds"], "60")
         self.assertEqual(migrated_settings["pause_sync_while_editing"], "1")
-        self.assertEqual(version, 13)
+        self.assertEqual(version, 14)
         self.assertTrue(migrated_line_uid)
+
+    def test_supplier_contact_punctuation_is_preserved_and_repaired(self):
+        self.assertEqual(
+            supplier_field_display_value("email", "commande@exemple.fr"),
+            "commande@exemple.fr",
+        )
+        self.assertEqual(
+            supplier_field_display_value("website", "www.exemple.fr"),
+            "www.exemple.fr",
+        )
+        self.assertEqual(
+            supplier_field_display_value("franco_ht", 400.0),
+            "400,0",
+        )
+        self.assertEqual(
+            product_field_display_value("supplier_ref", "REF.123"),
+            "REF.123",
+        )
+        self.assertEqual(
+            product_field_display_value("unit_price", 12.5),
+            "12,5",
+        )
+
+        path = self.root / "fournisseurs-corrompus.sqlite3"
+        damaged = Database(path)
+        with damaged.session() as connection:
+            connection.execute(
+                """
+                INSERT INTO suppliers(
+                    name, contact_name, email, phone, website, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "FOURNISSEUR TEST",
+                    "03,20,30,40,50 service,client@test,fr",
+                    "commande@test,fr",
+                    "03,20,30,40,50",
+                    "www,test,fr",
+                    "2026-08-01T10:00:00",
+                ),
+            )
+            connection.execute("PRAGMA user_version = 13")
+
+        repaired = Database(path)
+        supplier = repaired.list_suppliers()[0]
+        self.assertEqual(
+            supplier["contact_name"],
+            "03.20.30.40.50 service.client@test.fr",
+        )
+        self.assertEqual(supplier["email"], "commande@test.fr")
+        self.assertEqual(supplier["phone"], "03.20.30.40.50")
+        self.assertEqual(supplier["website"], "www.test.fr")
+        with repaired.connect() as connection:
+            self.assertEqual(
+                connection.execute("PRAGMA user_version").fetchone()[0],
+                14,
+            )
+
+        repaired.apply_team_state(
+            {
+                "suppliers": {
+                    "FOURNISSEUR SYNCHRONISÉ": {
+                        "email": "commandes@fournisseur,fr",
+                        "phone": "01,02,03,04,05",
+                        "website": "www,fournisseur,fr",
+                        "updated_at": "2026-08-04T12:00:00",
+                        "updated_by": "Collègue",
+                    }
+                }
+            }
+        )
+        synchronized = next(
+            row
+            for row in repaired.list_suppliers()
+            if row["name"] == "FOURNISSEUR SYNCHRONISÉ"
+        )
+        self.assertEqual(synchronized["email"], "commandes@fournisseur.fr")
+        self.assertEqual(synchronized["phone"], "01.02.03.04.05")
+        self.assertEqual(synchronized["website"], "www.fournisseur.fr")
 
     def test_alerts_recommendations_filters_metrics_and_export(self):
         catalogue = self.root / "catalogue-v13.xlsx"

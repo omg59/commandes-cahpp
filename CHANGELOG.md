@@ -1,5 +1,37 @@
 # Historique des versions
 
+## 1.3.3
+
+- correction de la conversion des points en virgules dans les coordonnées des
+  fournisseurs ;
+- format français limité aux seuls champs numériques **Minimum HT** et
+  **Franco HT** ;
+- réparation automatique et prudente des adresses e-mail, sites web, numéros
+  de téléphone et coordonnées de contact déjà touchés par le défaut ;
+- normalisation également appliquée aux données fournisseurs reçues par la
+  synchronisation collaborative ;
+- conservation des points dans les références, désignations, détails de
+  conditionnement et notes lors de la modification d'un article ;
+- migration automatique du schéma SQLite de la version 13 à 14.
+
+## 1.3.2
+
+- remplacement du séparateur classique du tableau de bord par le composant
+  `ttk` compatible avec l'environnement Windows de compilation ;
+- correction du blocage au démarrage provoqué par une option graphique non
+  reconnue dans la première archive 1.3.1 ;
+- conservation des tableaux redimensionnables et de leurs ascenseurs.
+
+## 1.3.1
+
+- ouverture maximisée par défaut afin d'utiliser l'espace réellement
+  disponible sur l'écran ;
+- séparation redimensionnable entre les tableaux des livraisons et des
+  alertes ;
+- ajout d'un ascenseur vertical indépendant sur chacun de ces tableaux ;
+- conservation de l'état de sauvegarde et des boutons d'action en bas de la
+  vue d'ensemble.
+
 ## 1.3.0
 
 - alertes configurables lorsqu'une commande reste sans confirmation ou dépasse

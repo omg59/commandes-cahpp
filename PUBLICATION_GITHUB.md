@@ -2,7 +2,7 @@
 
 Ce dossier est un dépôt Git complet reconstruit à partir de toutes les
 archives conservées pendant le développement. Il contient les versions taguées
-de `v0.1` à `v1.3.0`.
+de `v0.1` à `v1.3.3`.
 
 ## Repartir proprement après la première publication
 
@@ -37,6 +37,9 @@ Le dépôt local est préconfiguré pour :
 | `v1.1.0` | Livraisons, statistiques, archivage et maintenance |
 | `v1.2.0` | Réceptions partielles, reliquats, confirmations et notes |
 | `v1.3.0` | Alertes, recommandations, analyses et export Excel |
+| `v1.3.1` | Adaptation verticale du tableau de bord |
+| `v1.3.2` | Correctif de démarrage du tableau de bord |
+| `v1.3.3` | Correction des coordonnées fournisseurs |
 
 La version 0.5 n'a jamais été publiée. Cette absence dans la numérotation
 est donc normale.

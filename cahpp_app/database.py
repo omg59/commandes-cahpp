@@ -352,6 +352,57 @@ PRODUCT_SELECT = """
 """
 
 
+_SIMPLE_EMAIL_PATTERN = re.compile(
+    r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$"
+)
+
+
+def repair_supplier_contact_value(field: str, value: object) -> str:
+    """Répare uniquement les virgules manifestement issues du bug fournisseur."""
+    text = str(value or "")
+    if "," not in text:
+        return text
+
+    def repair_email_token(match: re.Match[str]) -> str:
+        token = match.group(0)
+        candidate = token.replace(",", ".")
+        return candidate if _SIMPLE_EMAIL_PATTERN.fullmatch(candidate) else token
+
+    if field == "email":
+        candidate = text.replace(",", ".")
+        if _SIMPLE_EMAIL_PATTERN.fullmatch(candidate):
+            return candidate
+        return text
+    if field == "website":
+        if not re.search(r"\s", text):
+            return text.replace(",", ".")
+        return re.sub(
+            r"(?:https?://|www\.)?[^\s,]+(?:,[^\s,]+)+",
+            lambda match: match.group(0).replace(",", "."),
+            text,
+            flags=re.IGNORECASE,
+        )
+    if field == "phone":
+        if re.fullmatch(r"[\d\s+().,/-]+", text):
+            return re.sub(r"(?<=\d),(?=\d)", ".", text)
+        return text
+    if field == "contact_name":
+        repaired = re.sub(r"\S+@\S+", repair_email_token, text)
+        repaired = re.sub(
+            r"(?:\d{1,3},){2,}\d{1,3}",
+            lambda match: match.group(0).replace(",", "."),
+            repaired,
+        )
+        repaired = re.sub(
+            r"www(?:,[^\s,]+)+",
+            lambda match: match.group(0).replace(",", "."),
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        return repaired
+    return text
+
+
 def money(value: Decimal | float | int | str | None) -> Decimal:
     if value in (None, ""):
         return Decimal("0")
@@ -414,7 +465,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 13")
+            connection.execute("PRAGMA user_version = 14")
 
     @staticmethod
     def _ensure_column(
@@ -434,6 +485,9 @@ class Database:
 
     def _migrate_schema(self, connection: sqlite3.Connection) -> None:
         """Ajoute sans perte les champs apparus après le prototype 0.4."""
+        previous_version = int(
+            connection.execute("PRAGMA user_version").fetchone()[0]
+        )
         for column, declaration in (
             ("contact_name", "TEXT NOT NULL DEFAULT ''"),
             ("address", "TEXT NOT NULL DEFAULT ''"),
@@ -442,6 +496,8 @@ class Database:
             ("updated_by", "TEXT NOT NULL DEFAULT ''"),
         ):
             self._ensure_column(connection, "suppliers", column, declaration)
+        if previous_version < 14:
+            self._repair_supplier_contact_punctuation(connection)
         for column, declaration in (
             ("email_prepared_at", "TEXT NOT NULL DEFAULT ''"),
             ("sent_at", "TEXT NOT NULL DEFAULT ''"),
@@ -568,6 +624,41 @@ class Database:
             WHERE sent_at <> '' AND delivery_status = 'Non suivie'
             """
         )
+
+    @staticmethod
+    def _repair_supplier_contact_punctuation(
+        connection: sqlite3.Connection,
+    ) -> None:
+        repaired_at = datetime.now().isoformat(timespec="microseconds")
+        for row in connection.execute(
+            """
+            SELECT id, contact_name, email, phone, website
+            FROM suppliers
+            """
+        ).fetchall():
+            values = {
+                field: repair_supplier_contact_value(field, row[field])
+                for field in ("contact_name", "email", "phone", "website")
+            }
+            if all(values[field] == (row[field] or "") for field in values):
+                continue
+            connection.execute(
+                """
+                UPDATE suppliers
+                SET contact_name = ?, email = ?, phone = ?, website = ?,
+                    updated_at = ?, updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    values["contact_name"],
+                    values["email"],
+                    values["phone"],
+                    values["website"],
+                    repaired_at,
+                    "Correctif 1.3.3",
+                    row["id"],
+                ),
+            )
 
     def set_current_user(self, user_id: str, user_name: str) -> None:
         self.current_user_id = user_id.strip()
@@ -737,6 +828,12 @@ class Database:
         minimum_order_ht: float | None = None,
     ) -> None:
         _, actor_name = self._actor()
+        contact_name = repair_supplier_contact_value(
+            "contact_name", contact_name
+        )
+        email = repair_supplier_contact_value("email", email)
+        phone = repair_supplier_contact_value("phone", phone)
+        website = repair_supplier_contact_value("website", website)
         with self.session() as connection:
             connection.execute(
                 """
@@ -2981,11 +3078,19 @@ class Database:
                         record.get("cahpp_id"),
                         name,
                         record.get("customer_number") or "",
-                        record.get("contact_name") or "",
-                        record.get("email") or "",
-                        record.get("phone") or "",
+                        repair_supplier_contact_value(
+                            "contact_name", record.get("contact_name")
+                        ),
+                        repair_supplier_contact_value(
+                            "email", record.get("email")
+                        ),
+                        repair_supplier_contact_value(
+                            "phone", record.get("phone")
+                        ),
                         record.get("address") or "",
-                        record.get("website") or "",
+                        repair_supplier_contact_value(
+                            "website", record.get("website")
+                        ),
                         record.get("franco_ht"),
                         record.get("minimum_order_ht"),
                         record.get("notes") or "",
