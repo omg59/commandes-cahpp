@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import json
+import logging
 import os
 import queue
 import re
@@ -18,6 +19,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Callable
 
 from . import __version__
+from .app_logging import log_failure
 from .catalog_importer import CatalogImporter, ImportResult
 from .catalog_search import LatestCatalogSearchWorker, SearchOutcome
 from .collaboration import (
@@ -44,6 +46,8 @@ from .local_services import (
 from .paths import BACKUP_DIR, EXPORT_DIR, ROOT_DIR
 from .pdf_export import generate_order_pdf
 from .statistics_export import export_statistics_workbook
+
+logger = logging.getLogger(__name__)
 
 
 COLORS = {
@@ -776,6 +780,7 @@ class App(ttk.Frame):
     ) -> None:
         self._syncing = False
         if error:
+            log_failure(logger, "synchronisation_echec", error)
             self.last_sync_error = f"{type(error).__name__}: {error}"
             self.sync_label.configure(
                 text="Hors ligne — cache local", fg="#F0C36A"
@@ -791,6 +796,7 @@ class App(ttk.Frame):
                 self.pages["settings"].refresh()
             return
         self.last_sync_result = result
+        logger.info("synchronisation_terminee")
         self.last_sync_error = ""
         pending = len(self.database.pending_order_ids())
         if pending:
@@ -5598,6 +5604,7 @@ class ImportPage(BasePage):
                 )
             self.messages.put(("done", result, publication))
         except Exception as exc:
+            log_failure(logger, "import_catalogue_echec", exc)
             self.messages.put(("error", str(exc)))
 
     def _poll_messages(self) -> None:

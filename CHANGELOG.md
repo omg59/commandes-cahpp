@@ -1,5 +1,23 @@
 # Historique des versions
 
+## 1.4.2
+
+- journal local rotatif (4 fichiers de 1 Mio maximum) pour le démarrage,
+  la recherche, les erreurs d'interface, de workers, de PDF et de synchronisation ;
+- journalisation des types d'erreurs, codes système et piles techniques sans
+  enregistrer les recherches saisies, les données de commande ni les messages
+  bruts d'exception ;
+- rapport de diagnostic enrichi avec les événements récents, l'architecture
+  du processus et les versions SQLite et Tk ;
+- nettoyage des fichiers temporaires après échec d'une écriture JSON atomique ;
+- retrait des verrous perdus de la liste des verrous utilisables ;
+- tests de panne de publication, reprise, JSON endommagé et perte de verrou ;
+- tests du journal, de sa rotation et du fonctionnement sans droit d'écriture ;
+- test graphique isolé : construction et visite des neuf pages et recherche ;
+- workflow GitHub Actions Windows/Linux : tests, Ruff, compilation Python et
+  vérification PyInstaller sur Windows ;
+- conservation du schéma SQLite 14.
+
 ## 1.4.1
 
 - suppression autorisée dans l'historique pour les commandes **Brouillon**,

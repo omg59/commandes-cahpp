@@ -23,5 +23,6 @@ dist/
 # Fichiers temporaires et paramètres locaux
 tmp/
 *.log
+logs/
 .DS_Store
 Thumbs.db

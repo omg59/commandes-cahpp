@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import logging
 from dataclasses import dataclass
 from typing import Callable
 
@@ -9,6 +10,9 @@ from .database import (
     ProductSearchResult,
     SearchCancelled,
 )
+from .app_logging import log_failure
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -110,8 +114,13 @@ class LatestCatalogSearchWorker:
             except SearchCancelled:
                 continue
             except Exception as exc:
+                log_failure(logger, "recherche_echec", exc)
                 outcome = SearchOutcome(request.generation, error=exc)
             else:
+                logger.info(
+                    "recherche_terminee mode=%s duree_ms=%d resultats=%d repare=%s",
+                    result.mode, result.elapsed_ms, len(result.rows), result.repaired,
+                )
                 outcome = SearchOutcome(request.generation, result=result)
             with self._condition:
                 self._current_cancel = None

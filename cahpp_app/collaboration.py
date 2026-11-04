@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -12,6 +13,9 @@ from pathlib import Path
 from typing import Mapping
 
 from .database import Database
+from .app_logging import log_failure
+
+logger = logging.getLogger(__name__)
 
 
 WORKSPACE_FORMAT = 1
@@ -56,17 +60,27 @@ def _read_json(path: Path, default: object | None = None):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        log_failure(logger, "partage_lecture_echec", exc)
         raise CollaborationError(f"Fichier partagé illisible : {path.name}") from exc
 
 
 def _atomic_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
+    try:
+        temporary.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except Exception as exc:
+        log_failure(logger, "partage_ecriture_echec", exc)
+        raise
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError as exc:
+            log_failure(logger, "partage_nettoyage_temporaire_echec", exc)
 
 
 def _record_key(record: Mapping[str, object] | None) -> tuple[str, str]:
@@ -324,8 +338,10 @@ class CollaborationManager:
         for handle in list(self._active_locks.values()):
             try:
                 handle.refresh()
-            except (CollaborationError, OSError):
+            except (CollaborationError, OSError) as exc:
+                log_failure(logger, "verrou_renouvellement_echec", exc)
                 handle.released = True
+                self._active_locks.pop(handle.resource, None)
 
     def release_all_locks(self) -> None:
         for handle in list(self._active_locks.values()):
@@ -696,6 +712,7 @@ class CollaborationManager:
                 published += 1
             except (ResourceLockedError, SyncConflictError):
                 conflicts += 1
+                logger.warning("synchronisation_conflit_ou_verrou")
         return {
             "imported": imported,
             "published": published,

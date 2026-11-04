@@ -1,0 +1,24 @@
+COMMANDES CAHPP — MISE À JOUR 1.4.2
+
+Cette version améliore les diagnostics et les protections de synchronisation.
+
+Le journal logs/commandes-cahpp.log conserve les événements techniques utiles.
+Il tourne automatiquement sur quatre fichiers de 1 Mio maximum chacun,
+sans conserver les recherches saisies ni le contenu des commandes.
+Si le dossier de journal n'est pas accessible en écriture, l'application reste
+utilisable et le diagnostic indique que la journalisation est indisponible.
+
+En cas de problème : Paramètres > Diagnostic > Exporter. Le rapport inclut
+les 25 événements techniques les plus récents et les versions du moteur SQLite,
+de Tk et l'architecture du processus. Vérifiez le rapport avant de le partager :
+il contient également les chemins locaux et les noms de profil déjà présents
+dans le diagnostic des versions précédentes.
+
+Les écritures réseau interrompues nettoient leurs fichiers temporaires et
+conservent les données locales en attente de synchronisation. Un verrou perdu
+ne peut plus être réutilisé comme s'il était encore valide.
+
+Compiler build_installer_windows.bat puis installer
+CommandesCAHPP-Setup-1.4.2.exe sur les postes concernés.
+Python 3.12 et Inno Setup 6 ou 7 restent compatibles.
+Pas de migration du schéma SQLite. Données et documents existants conservés.

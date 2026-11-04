@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import logging
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -26,6 +27,9 @@ from reportlab.platypus import (
 from .database import Database
 from .local_services import resolve_portable_path
 from .paths import RESOURCE_DIR
+from .app_logging import log_failure
+
+logger = logging.getLogger(__name__)
 
 
 BLUE = colors.HexColor("#174A7E")
@@ -45,8 +49,8 @@ try:
         pdfmetrics.registerFont(TTFont("CAHPP-Bold", str(bold_path)))
         REGULAR_FONT = "CAHPP-Regular"
         BOLD_FONT = "CAHPP-Bold"
-except Exception:
-    pass
+except Exception as exc:
+    log_failure(logger, "pdf_polices_repli", exc)
 
 
 def _decimal(value: object) -> Decimal:
@@ -176,7 +180,8 @@ def generate_order_pdf(
     if logo_path.is_file():
         try:
             logo = Image(str(logo_path), width=28 * mm, height=20 * mm, kind="proportional")
-        except Exception:
+        except Exception as exc:
+            log_failure(logger, "pdf_logo_ignore", exc)
             logo = ""
     establishment_lines = [
         settings.get("establishment_name", ""),

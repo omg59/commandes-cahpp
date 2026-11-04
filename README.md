@@ -5,7 +5,7 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
-**Version stable actuelle : 1.4.1**
+**Version actuelle : 1.4.2**
 
 ## Principes
 
@@ -124,7 +124,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.4.1.exe
+dist-installer\CommandesCAHPP-Setup-1.4.2.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans

@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import platform
 import sys
+import sqlite3
+import struct
+import tkinter
 from datetime import datetime
 
 from .collaboration import CollaborationManager
 from .database import Database
+from .app_logging import logging_snapshot
 
 
 def _size(value: object) -> str:
@@ -38,6 +42,9 @@ def build_diagnostic_report(
         f"Système : {platform.system()} {platform.release()} "
         f"({platform.machine()})",
         f"Python : {platform.python_version()}",
+        f"Architecture du processus : {struct.calcsize('P') * 8} bits",
+        f"SQLite : {sqlite3.sqlite_version}",
+        f"Tk : {tkinter.TkVersion}",
         f"Exécutable compilé : {'oui' if getattr(sys, 'frozen', False) else 'non'}",
         f"Utilisateur : {database.current_user_name}",
         "",
@@ -174,6 +181,14 @@ def build_diagnostic_report(
     if last_sync_error:
         lines.append(f"Dernière erreur : {last_sync_error}")
 
+    journal = logging_snapshot()
+    lines.extend([
+        "", "JOURNAL TECHNIQUE", "-----------------",
+        f"Fichier : {journal['path'] or 'non initialisé'}",
+        f"État : {journal['error'] or 'OK'}",
+        "Événements récents (sans recherche saisie ni données de commande) :",
+        *(line.rstrip() for line in journal["recent"]),
+    ])
     lines.extend(
         [
             "",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 import sqlite3
 import threading
 import time
@@ -11,6 +12,9 @@ from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Sequence
+from .app_logging import log_failure
+
+logger = logging.getLogger(__name__)
 
 
 SCHEMA = """
@@ -478,6 +482,7 @@ class Database:
             try:
                 self._create_search_table(connection)
             except sqlite3.DatabaseError as exc:
+                log_failure(logger, "fts_initialisation_echec", exc)
                 self.fts_available = False
                 self.fts_error = f"{type(exc).__name__}: {exc}"
             connection.executemany(
@@ -963,8 +968,10 @@ class Database:
             status = self.search_index_status()
             repaired = False
             if not bool(status.get("consistent")):
+                logger.warning("fts_reconstruction_necessaire")
                 repaired = self.rebuild_search()
                 status = self.search_index_status()
+                logger.info("fts_reconstruction terminee=%s", status.get("consistent"))
             status["repaired"] = repaired and bool(status.get("consistent"))
             self._fts_verified = bool(status.get("consistent"))
             self._fts_status_cache = dict(status)
@@ -1508,9 +1515,8 @@ class Database:
             )
             self._add_product_to_search(connection, product_id)
 
-    @staticmethod
     def _add_product_to_search(
-        connection: sqlite3.Connection, product_id: int
+        self, connection: sqlite3.Connection, product_id: int
     ) -> None:
         try:
             connection.execute(
@@ -1531,19 +1537,20 @@ class Database:
                 """,
                 (product_id,),
             )
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as exc:
+            self._fts_verified = False
+            log_failure(logger, "fts_article_indexation_echec", exc)
 
-    @staticmethod
     def _remove_product_from_search(
-        connection: sqlite3.Connection, product_id: int
+        self, connection: sqlite3.Connection, product_id: int
     ) -> None:
         try:
             connection.execute(
                 "DELETE FROM product_search WHERE rowid = ?", (product_id,)
             )
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as exc:
+            self._fts_verified = False
+            log_failure(logger, "fts_article_retrait_echec", exc)
 
     def _record_order_audit(
         self,
