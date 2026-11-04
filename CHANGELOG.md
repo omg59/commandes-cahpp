@@ -1,5 +1,23 @@
 # Historique des versions
 
+## 1.4.0
+
+- recherche du catalogue déplacée hors du thread graphique afin d'éviter les
+  gels de l'interface sur les postes plus lents ;
+- worker unique conservant seulement la saisie la plus récente et annulant les
+  recherches devenues obsolètes ;
+- vérification automatique de la cohérence entre les articles et l'index FTS5 ;
+- reconstruction automatique d'un index incomplet, absent ou endommagé ;
+- suppression du basculement silencieux vers une recherche intégrale coûteuse ;
+- mode de secours limité dans le temps lorsque FTS5 reste indisponible ;
+- délai de saisie porté à 400 ms et recherche automatique à partir de deux
+  caractères ;
+- affichage progressif par lots de 25 lignes, avec 100 résultats initiaux et
+  bouton **Afficher 100 de plus** ;
+- enrichissement du rapport de diagnostic avec le nombre d'articles indexés,
+  les entrées manquantes et les entrées orphelines ;
+- ajout de tests de régression sur l'auto-réparation et les frappes rapides.
+
 ## 1.3.3
 
 - correction de la conversion des points en virgules dans les coordonnées des

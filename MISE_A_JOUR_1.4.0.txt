@@ -1,0 +1,29 @@
+COMMANDES CAHPP — MISE À JOUR 1.4.0
+====================================
+
+Cette version fiabilise la recherche dans les catalogues volumineux et sur les
+postes moins performants.
+
+Nouveautés principales :
+- recherche exécutée en arrière-plan sans bloquer l'interface ;
+- annulation automatique des anciennes recherches pendant la saisie ;
+- contrôle et réparation automatiques de l'index FTS5 local ;
+- affichage progressif de 100 résultats, puis chargement à la demande ;
+- mode de secours borné afin qu'une recherche dégradée ne monopolise pas le PC ;
+- diagnostic enrichi avec l'état et la cohérence de l'index de recherche.
+
+INSTALLATION
+------------
+
+Fermez Commandes CAHPP, puis lancez :
+
+CommandesCAHPP-Setup-1.4.0.exe
+
+L'installation remplace uniquement le programme. La base locale, les commandes,
+les documents, les paramètres et les sauvegardes sont conservés.
+
+Au premier accès au Catalogue, l'index de recherche est vérifié. S'il est
+incomplet ou absent, sa reconstruction s'effectue automatiquement en arrière-plan.
+
+Il est recommandé d'installer la version 1.4.0 sur les deux postes utilisant le
+même espace collaboratif.

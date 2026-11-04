@@ -14,6 +14,9 @@ set "ISCC_EXE="
 if defined INNO_SETUP_ISCC if exist "%INNO_SETUP_ISCC%" set "ISCC_EXE=%INNO_SETUP_ISCC%"
 where ISCC.exe >nul 2>nul
 if not errorlevel 1 if not defined ISCC_EXE set "ISCC_EXE=ISCC.exe"
+if not defined ISCC_EXE if exist "%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe" set "ISCC_EXE=%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe"
+if not defined ISCC_EXE if exist "%LOCALAPPDATA%\Inno Setup 7\ISCC.exe" set "ISCC_EXE=%LOCALAPPDATA%\Inno Setup 7\ISCC.exe"
+if not defined ISCC_EXE if exist "%ProgramFiles%\Inno Setup 7\ISCC.exe" set "ISCC_EXE=%ProgramFiles%\Inno Setup 7\ISCC.exe"
 if not defined ISCC_EXE if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 if not defined ISCC_EXE if exist "%LOCALAPPDATA%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%LOCALAPPDATA%\Inno Setup 6\ISCC.exe"
 if not defined ISCC_EXE if exist "%LOCALAPPDATA%\Microsoft\WinGet\Links\ISCC.exe" set "ISCC_EXE=%LOCALAPPDATA%\Microsoft\WinGet\Links\ISCC.exe"
@@ -23,6 +26,8 @@ if not defined ISCC_EXE if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISC
 
 if not defined ISCC_EXE (
   for %%K in (
+    "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 7_is1"
+    "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 7_is1"
     "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"
     "HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"
     "HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"
@@ -35,7 +40,7 @@ if not defined ISCC_EXE (
 
 if not defined ISCC_EXE (
   echo.
-  echo Inno Setup 6 est introuvable.
+  echo Inno Setup 6 ou 7 est introuvable.
   echo Installez-le une fois sur le PC de compilation puis relancez ce fichier.
   echo.
   echo Si Inno Setup est installe dans un dossier personnalise, lancez :
@@ -61,7 +66,7 @@ if errorlevel 1 (
 
 echo.
 echo Installeur termine :
-echo %CD%\dist-installer\CommandesCAHPP-Setup-1.3.3.exe
+echo %CD%\dist-installer\CommandesCAHPP-Setup-1.4.0.exe
 echo.
 echo Cet EXE remplace uniquement l'application et conserve la base,
 echo les documents, le logo, les PDF et les sauvegardes.

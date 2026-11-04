@@ -2,7 +2,7 @@
 
 Ce dossier est un dépôt Git complet reconstruit à partir de toutes les
 archives conservées pendant le développement. Il contient les versions taguées
-de `v0.1` à `v1.3.3`.
+de `v0.1` à `v1.4.0`.
 
 ## Versions disponibles
 
@@ -22,6 +22,7 @@ de `v0.1` à `v1.3.3`.
 | `v1.3.1` | Adaptation verticale du tableau de bord |
 | `v1.3.2` | Correctif de démarrage du tableau de bord |
 | `v1.3.3` | Correction des coordonnées fournisseurs |
+| `v1.4.0` | Fiabilisation et auto-réparation de la recherche catalogue |
 
 La version 0.5 n'a jamais été publiée. Cette absence dans la numérotation
 est donc normale.

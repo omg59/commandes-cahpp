@@ -19,6 +19,7 @@ from typing import Callable
 
 from . import __version__
 from .catalog_importer import CatalogImporter, ImportResult
+from .catalog_search import LatestCatalogSearchWorker, SearchOutcome
 from .collaboration import (
     CollaborationError,
     CollaborationManager,
@@ -26,7 +27,7 @@ from .collaboration import (
     ResourceLockedError,
     SyncConflictError,
 )
-from .database import Database
+from .database import Database, SearchIndexError, SearchTimeoutError
 from .diagnostics import build_diagnostic_report
 from .local_services import (
     MAIL_TEMPLATE_VARIABLES,
@@ -1083,6 +1084,8 @@ class App(ttk.Frame):
             handle.release()
 
     def close(self) -> None:
+        for page in self.pages.values():
+            page.shutdown()
         if self.collaboration:
             self.collaboration.release_all_locks()
         self.root.destroy()
@@ -1197,6 +1200,9 @@ class BasePage(ttk.Frame):
         return False
 
     def fit_visible_columns(self) -> None:
+        pass
+
+    def shutdown(self) -> None:
         pass
 
     def refresh(self) -> None:
@@ -1559,17 +1565,22 @@ class CatalogPage(BasePage):
             width=30,
         )
         self.supplier_box.pack(side="left", padx=7)
-        self.supplier_box.bind("<<ComboboxSelected>>", lambda event: self.search())
+        self.supplier_box.bind(
+            "<<ComboboxSelected>>", lambda event: self.search(force=True)
+        )
         self.favorite_var = tk.BooleanVar()
         ttk.Checkbutton(
             filters,
             text="Favoris uniquement",
             variable=self.favorite_var,
-            command=self.search,
+            command=lambda: self.search(force=True),
         ).pack(side="left", padx=10)
-        ttk.Button(filters, text="Rechercher", command=self.search).pack(
-            side="right"
+        self.search_button = ttk.Button(
+            filters,
+            text="Rechercher",
+            command=lambda: self.search(force=True),
         )
+        self.search_button.pack(side="right")
 
         table_frame = ttk.Frame(self)
         table_frame.pack(fill="both", expand=True)
@@ -1659,6 +1670,13 @@ class CatalogPage(BasePage):
             bottom, text="", style="Subtitle.TLabel"
         )
         self.result_label.pack(side="left")
+        self.more_button = ttk.Button(
+            bottom,
+            text="Afficher 100 de plus",
+            command=self._show_more,
+            state="disabled",
+        )
+        self.more_button.pack(side="left", padx=8)
         ttk.Button(
             bottom,
             text="Ajouter / retirer des favoris",
@@ -1697,12 +1715,44 @@ class CatalogPage(BasePage):
         ).pack(side="right")
 
         self.supplier_map: dict[str, int | None] = {}
-        self._after_id = None
+        self._after_id: str | None = None
+        self._poll_after_id: str | None = None
+        self._render_after_id: str | None = None
+        self._display_limit = 100
+        self._render_rows: list[dict[str, object]] = []
+        self._render_position = 0
+        self._render_meta: tuple[bool, int, str, bool, str] = (
+            False,
+            0,
+            "",
+            False,
+            "",
+        )
+        self._search_generation = 0
+        self._search_pending = False
+        self._last_search_error = ""
+        self._search_results: queue.Queue[SearchOutcome] = queue.Queue()
+        self._search_worker = LatestCatalogSearchWorker(
+            self.database,
+            self._search_results.put,
+        )
 
     def _schedule_search(self, event=None) -> None:
         if self._after_id:
             self.after_cancel(self._after_id)
-        self._after_id = self.after(300, self.search)
+        self._after_id = None
+        self._display_limit = 100
+        query = self.search_var.get().strip()
+        if query and len(query) < 2:
+            self._cancel_render()
+            self.tree.delete(*self.tree.get_children())
+            self.result_label.configure(
+                text="Saisissez au moins 2 caractères.",
+                foreground=COLORS["muted"],
+            )
+            self.more_button.configure(state="disabled")
+            return
+        self._after_id = self.after(400, self.search)
 
     def _load_suppliers(self) -> None:
         suppliers = self.database.list_suppliers(used_only=True)
@@ -1714,16 +1764,119 @@ class CatalogPage(BasePage):
         if current not in self.supplier_map:
             self.supplier_var.set(values[0] if values else "")
 
-    def search(self) -> None:
+    def search(self, force: bool = False, reset_limit: bool = True) -> None:
+        self._after_id = None
+        if reset_limit:
+            self._display_limit = 100
+        query = self.search_var.get().strip()
+        if query and len(query) < 2 and not force:
+            self.result_label.configure(
+                text="Saisissez au moins 2 caractères.",
+                foreground=COLORS["muted"],
+            )
+            return
         supplier_id = self.supplier_map.get(self.supplier_var.get())
-        rows = self.database.search_products(
-            query=self.search_var.get(),
+        self._cancel_render()
+        self.more_button.configure(state="disabled")
+        self.result_label.configure(
+            text="Recherche en cours…",
+            foreground=COLORS["muted"],
+        )
+        self.search_button.configure(state="disabled")
+        self._search_pending = True
+        self._search_generation = self._search_worker.submit(
+            query=query,
             supplier_id=supplier_id,
             favorite_only=self.favorite_var.get(),
-            limit=300,
+            limit=self._display_limit + 1,
+            allow_slow_fallback=force or len(query) >= 3,
         )
+        self._start_result_polling()
+
+    def _show_more(self) -> None:
+        self._display_limit += 100
+        self.search(force=True, reset_limit=False)
+
+    def _start_result_polling(self) -> None:
+        if self._poll_after_id is None:
+            self._poll_after_id = self.after(50, self._poll_search_results)
+
+    def _poll_search_results(self) -> None:
+        self._poll_after_id = None
+        outcome: SearchOutcome | None = None
+        try:
+            while True:
+                candidate = self._search_results.get_nowait()
+                if candidate.generation == self._search_generation:
+                    outcome = candidate
+        except queue.Empty:
+            pass
+        if outcome is not None:
+            self._search_pending = False
+            self.search_button.configure(state="normal")
+            self._handle_search_outcome(outcome)
+        if self._search_pending:
+            self._poll_after_id = self.after(50, self._poll_search_results)
+
+    def _handle_search_outcome(self, outcome: SearchOutcome) -> None:
+        if outcome.error is not None:
+            error = outcome.error
+            if isinstance(error, SearchTimeoutError):
+                message = (
+                    "Recherche interrompue : l'index local doit probablement "
+                    "être réparé. Consultez Paramètres > Diagnostic."
+                )
+            elif isinstance(error, SearchIndexError):
+                message = (
+                    "Index de recherche indisponible. Consultez "
+                    "Paramètres > Diagnostic."
+                )
+            else:
+                message = f"Recherche impossible : {type(error).__name__}: {error}"
+            self.result_label.configure(
+                text=message,
+                foreground=COLORS["danger"],
+            )
+            if message != self._last_search_error:
+                self._last_search_error = message
+                messagebox.showwarning("Recherche catalogue", message, parent=self)
+            return
+        result = outcome.result
+        if result is None:
+            return
+        self._last_search_error = ""
+        has_more = len(result.rows) > self._display_limit
+        rows = result.rows[: self._display_limit]
+        self._begin_render(
+            rows,
+            has_more=has_more,
+            elapsed_ms=result.elapsed_ms,
+            mode=result.mode,
+            repaired=result.repaired,
+            warning=result.warning,
+        )
+
+    def _begin_render(
+        self,
+        rows: list[dict[str, object]],
+        *,
+        has_more: bool,
+        elapsed_ms: int,
+        mode: str,
+        repaired: bool,
+        warning: str,
+    ) -> None:
+        self._cancel_render()
         self.tree.delete(*self.tree.get_children())
-        for row in rows:
+        self._render_rows = rows
+        self._render_position = 0
+        self._render_meta = (has_more, elapsed_ms, mode, repaired, warning)
+        self._render_next_batch()
+
+    def _render_next_batch(self) -> None:
+        self._render_after_id = None
+        end = min(self._render_position + 25, len(self._render_rows))
+        for row in self._render_rows[self._render_position : end]:
             designation = row["short_name"] or row["designation"]
             self.tree.insert(
                 "",
@@ -1747,12 +1900,40 @@ class CatalogPage(BasePage):
                     format_number(row["vat"], 1) + " %",
                 ),
             )
-        suffix = " (limite 300)" if len(rows) == 300 else ""
+        self._render_position = end
+        if end < len(self._render_rows):
+            self.result_label.configure(
+                text=f"Affichage… {end}/{len(self._render_rows)}",
+                foreground=COLORS["muted"],
+            )
+            self._render_after_id = self.after(1, self._render_next_batch)
+            return
+        has_more, elapsed_ms, mode, repaired, warning = self._render_meta
+        details = [f"{len(self._render_rows)} résultat(s)"]
+        if has_more:
+            details.append("d'autres résultats sont disponibles")
+        details.append(f"{elapsed_ms} ms")
+        if repaired:
+            details.append("index réparé automatiquement")
+        elif mode == "like":
+            details.append("mode de secours")
         self.result_label.configure(
-            text=f"{len(rows)} résultat(s){suffix}"
+            text=" • ".join(details),
+            foreground=COLORS["warning"] if warning or mode == "like" else COLORS["muted"],
         )
+        self.more_button.configure(state="normal" if has_more else "disabled")
         self.tree_sorter.reapply()
         self.update_product_actions()
+
+    def _cancel_render(self) -> None:
+        if self._render_after_id:
+            try:
+                self.after_cancel(self._render_after_id)
+            except tk.TclError:
+                pass
+            self._render_after_id = None
+        self._render_rows = []
+        self._render_position = 0
 
     def selected_product_id(self) -> int | None:
         selected = self.tree.selection()
@@ -1902,11 +2083,27 @@ class CatalogPage(BasePage):
 
     def refresh(self) -> None:
         self._load_suppliers()
-        self.search()
+        self.search(force=True)
         self._valid = True
 
     def fit_visible_columns(self) -> None:
         self.tree_column_sizer.fit()
+
+    def shutdown(self) -> None:
+        for after_id in (
+            self._after_id,
+            self._poll_after_id,
+            self._render_after_id,
+        ):
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+        self._after_id = None
+        self._poll_after_id = None
+        self._render_after_id = None
+        self._search_worker.close()
 
 
 class SuggestionsPage(BasePage):

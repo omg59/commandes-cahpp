@@ -58,6 +58,7 @@ def build_diagnostic_report(
     else:
         counts = dict(local.get("counts") or {})
         anomalies = dict(local.get("anomalies") or {})
+        search_index = dict(local.get("search_index") or {})
         quick_check = list(local.get("quick_check") or [])
         integrity_ok = quick_check == ["ok"]
         lines.extend(
@@ -68,6 +69,18 @@ def build_diagnostic_report(
                 f"Schéma : {local.get('schema_version', '')}",
                 f"Mode SQLite : {local.get('journal_mode', '')}",
                 f"Recherche plein texte : {_yes_no(local.get('fts_available'))}",
+                "Index de recherche : "
+                + (
+                    "OK"
+                    if search_index.get("consistent")
+                    else "À RÉPARER"
+                ),
+                "Articles indexés : "
+                f"{search_index.get('indexed', 0)} / "
+                f"{search_index.get('products', 0)}",
+                "Entrées manquantes/orphelines : "
+                f"{search_index.get('missing', 0)} / "
+                f"{search_index.get('orphaned', 0)}",
                 f"Contrôle d'intégrité : {_yes_no(integrity_ok)}",
                 f"Articles : {counts.get('products', 0)} "
                 f"({counts.get('active_products', 0)} actifs)",

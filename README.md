@@ -5,7 +5,7 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
-**Version stable actuelle : 1.3.3**
+**Version stable actuelle : 1.4.0**
 
 ## Principes
 
@@ -16,6 +16,9 @@ travailler ensemble à travers un simple dossier partagé, sans serveur.
   précédente ;
 - conservation des tarifs historiques et des lignes de commandes déjà créées ;
 - recherche par fournisseur, code CAHPP, référence ou désignation ;
+- recherche catalogue non bloquante, avec annulation des saisies obsolètes ;
+- contrôle et réparation automatiques de l'index plein texte FTS5 ;
+- affichage progressif des résultats par pages de 100 articles ;
 - tri des tableaux par clic sur les titres de colonnes ;
 - favoris et quantités habituelles ;
 - duplication des commandes récurrentes ;
@@ -119,7 +122,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.3.3.exe
+dist-installer\CommandesCAHPP-Setup-1.4.0.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans

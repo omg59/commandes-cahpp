@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import queue
 import sqlite3
 import tempfile
+import time
 import unittest
 import zipfile
 from datetime import date, datetime
@@ -14,11 +16,12 @@ from PIL import Image
 from pypdf import PdfReader
 
 from cahpp_app.catalog_importer import CatalogImporter, EXPECTED_COLUMNS
+from cahpp_app.catalog_search import LatestCatalogSearchWorker
 from cahpp_app.collaboration import (
     CollaborationManager,
     ResourceLockedError,
 )
-from cahpp_app.database import Database
+from cahpp_app.database import Database, ProductSearchResult, SearchCancelled
 from cahpp_app.diagnostics import build_diagnostic_report
 from cahpp_app import local_services
 from cahpp_app.local_services import (
@@ -1267,6 +1270,95 @@ class WorkflowTest(unittest.TestCase):
         self.assertFalse(remote_cached_copy.exists())
         with self.assertRaises(ValueError):
             self.database.delete_draft(order_id)
+
+    def test_catalog_search_repairs_incomplete_fts_index(self):
+        catalog = self.root / "catalogue-recherche.xlsx"
+        create_catalog(
+            catalog,
+            [
+                self.row("DM100", "REF-100", "GANT NITRILE", 0.08),
+                self.row("DM101", "REF-101", "COMPRESSE STERILE", 0.12),
+            ],
+        )
+        CatalogImporter(self.database).import_file(catalog)
+        status = self.database.search_index_status()
+        self.assertTrue(status["consistent"])
+        with self.database.session() as connection:
+            connection.execute(
+                "DELETE FROM product_search WHERE rowid = "
+                "(SELECT id FROM products WHERE code_cahpp = 'DM100')"
+            )
+        self.database._fts_verified = False
+
+        result = self.database.search_products_detailed("gant")
+
+        self.assertEqual([row["code_cahpp"] for row in result.rows], ["DM100"])
+        self.assertEqual(result.mode, "fts5")
+        self.assertTrue(result.repaired)
+        self.assertTrue(self.database.search_index_status()["consistent"])
+
+    def test_catalog_search_recreates_missing_fts_table(self):
+        catalog = self.root / "catalogue-index-absent.xlsx"
+        create_catalog(
+            catalog,
+            [self.row("DM200", "REF-200", "MASQUE CHIRURGICAL", 0.04)],
+        )
+        CatalogImporter(self.database).import_file(catalog)
+        with self.database.session() as connection:
+            connection.execute("DROP TABLE product_search")
+        self.database._fts_verified = False
+
+        result = self.database.search_products_detailed("masque")
+
+        self.assertEqual(len(result.rows), 1)
+        self.assertTrue(result.repaired)
+        self.assertTrue(self.database.search_index_status()["consistent"])
+
+    def test_latest_catalog_search_worker_discards_obsolete_request(self):
+        class SlowDatabase:
+            def search_products_detailed(
+                self,
+                query,
+                supplier_id,
+                favorite_only,
+                limit,
+                allow_slow_fallback,
+                cancel_event,
+            ):
+                if query == "ancienne":
+                    for _ in range(100):
+                        if cancel_event.is_set():
+                            raise SearchCancelled()
+                        time.sleep(0.002)
+                return ProductSearchResult(
+                    rows=[{"query": query}],
+                    mode="fts5",
+                    elapsed_ms=1,
+                )
+
+        outcomes = queue.Queue()
+        worker = LatestCatalogSearchWorker(SlowDatabase(), outcomes.put)
+        try:
+            worker.submit(
+                query="ancienne",
+                supplier_id=None,
+                favorite_only=False,
+                limit=101,
+                allow_slow_fallback=False,
+            )
+            time.sleep(0.01)
+            latest = worker.submit(
+                query="nouvelle",
+                supplier_id=None,
+                favorite_only=False,
+                limit=101,
+                allow_slow_fallback=False,
+            )
+            outcome = outcomes.get(timeout=2)
+        finally:
+            worker.close()
+        self.assertEqual(outcome.generation, latest)
+        self.assertEqual(outcome.result.rows, [{"query": "nouvelle"}])
 
 
 if __name__ == "__main__":
