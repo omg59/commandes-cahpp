@@ -61,9 +61,12 @@ class InterfaceSmokeTest(unittest.TestCase):
                     # comme la liste déroulante interne d'un ttk.Combobox Windows.
                     root.tk.call("entry", ".native_focus")
                     root.tk.call("pack", ".native_focus")
+                    # Windows exige que le widget soit réellement affiché avant
+                    # de lui donner le focus, contrairement au serveur X de test.
+                    root.update()
                     root.tk.call("focus", "-force", ".native_focus")
                     root.update()
-                    assert str(root.tk.call("focus")) == ".native_focus"
+                    assert str(root.tk.call("focus")) == ".native_focus", "Focus Tcl natif non établi"
                     try:
                         root.focus_get()
                     except KeyError:
