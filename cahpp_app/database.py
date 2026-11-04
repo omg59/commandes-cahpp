@@ -2080,18 +2080,39 @@ class Database:
             )
 
     def delete_draft(self, order_id: int) -> list[str]:
+        return self.delete_unsent_order(order_id, drafts_only=True)
+
+    @staticmethod
+    def can_delete_unsent_order(order: Mapping[str, object]) -> bool:
+        return (
+            not order["deleted_at"]
+            and order["status"] in {"Brouillon", "Générée", "E-mail préparé"}
+            and not order["sent_at"]
+            and not order["confirmed_at"]
+            and not order["invoiced_at"]
+            and order["delivery_status"] == "Non suivie"
+        )
+
+    def delete_unsent_order(
+        self, order_id: int, *, drafts_only: bool = False
+    ) -> list[str]:
         now = datetime.now().isoformat(timespec="seconds")
         _, actor_name = self._actor()
         with self.session() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             order = connection.execute(
-                "SELECT status, deleted_at FROM orders WHERE id = ?",
+                "SELECT * FROM orders WHERE id = ?",
                 (order_id,),
             ).fetchone()
             if order is None or order["deleted_at"]:
-                raise ValueError("Brouillon introuvable.")
-            if order["status"] != "Brouillon":
+                raise ValueError("Commande introuvable ou déjà supprimée.")
+            if drafts_only and order["status"] != "Brouillon":
                 raise ValueError(
                     "Seuls les brouillons peuvent être supprimés."
+                )
+            if not self.can_delete_unsent_order(order):
+                raise ValueError(
+                    "Une commande envoyée ou déjà suivie ne peut pas être supprimée."
                 )
             stored_paths = [
                 str(row["stored_path"] or "")
@@ -2106,7 +2127,8 @@ class Database:
             self._record_order_audit(
                 connection,
                 order_id,
-                "Brouillon supprimé",
+                "Brouillon supprimé" if order["status"] == "Brouillon"
+                else "Commande non envoyée supprimée",
                 occurred_at=now,
             )
             connection.execute(

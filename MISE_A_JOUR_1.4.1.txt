@@ -1,0 +1,21 @@
+COMMANDES CAHPP — MISE À JOUR 1.4.1
+
+Dans Historique, sélectionner une commande puis cliquer sur Supprimer.
+Cette action est désormais possible pour les statuts Brouillon, Générée et
+E-mail préparé, tant que la commande n'a pas été marquée envoyée et qu'aucun
+suivi de confirmation, livraison ou facturation n'est enregistré.
+
+Une confirmation est demandée. La suppression est transmise aux autres postes
+par la synchronisation habituelle. Le numéro n'est pas réutilisé : une trace
+de suppression reste en base pour éviter que la commande ne réapparaisse.
+
+Les pièces jointes gérées par l'application et les fichiers de préparation
+d'e-mail sont nettoyés. Les PDF exportés séparément restent sur le disque.
+Un brouillon déjà ouvert dans votre messagerie doit être supprimé manuellement.
+L'application ne sait pas si un e-mail a été envoyé hors de son suivi : marquez
+toujours une commande envoyée dès son envoi réel au fournisseur.
+
+Compiler avec build_installer_windows.bat (Python 3.12 + Inno Setup 6 ou 7).
+Installer CommandesCAHPP-Setup-1.4.1.exe sur chaque poste après sauvegarde.
+Cette mise à jour conserve la base, les paramètres et les documents existants.
+Aucun changement de schéma SQLite n'est nécessaire.

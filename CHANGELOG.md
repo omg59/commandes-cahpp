@@ -1,5 +1,20 @@
 # Historique des versions
 
+## 1.4.1
+
+- suppression autorisée dans l'historique pour les commandes **Brouillon**,
+  **Générée** et **E-mail préparé**, tant qu'elles n'ont pas été marquées envoyées ;
+- protection conservée si un envoi, une confirmation, une réception ou une
+  facturation est enregistré, même si le statut affiché est incohérent ;
+- confirmation explicite avant suppression et journal de suppression conservé ;
+- propagation de la suppression aux autres postes par le mécanisme collaboratif ;
+- nettoyage des pièces jointes locales et du dossier de préparation d'e-mail ;
+- conservation des PDF exportés séparément ; rappel de retirer manuellement
+  tout brouillon déjà ouvert dans la messagerie ;
+- vérification atomique de l'éligibilité avant suppression ;
+- tests de suppression après génération/préparation d'e-mail, synchronisation
+  et refus de suppression des commandes envoyées ou suivies.
+
 ## 1.4.0
 
 - recherche du catalogue déplacée hors du thread graphique afin d'éviter les

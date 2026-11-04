@@ -120,8 +120,18 @@ def remove_document(database: Database, attachment_id: int) -> None:
 
 
 def delete_draft(database: Database, order_id: int) -> None:
+    _delete_order_files(database, order_id, drafts_only=True)
+
+
+def delete_unsent_order(database: Database, order_id: int) -> None:
+    _delete_order_files(database, order_id, drafts_only=False)
+
+
+def _delete_order_files(
+    database: Database, order_id: int, *, drafts_only: bool
+) -> None:
     order, _ = database.get_order(order_id)
-    stored_paths = database.delete_draft(order_id)
+    stored_paths = database.delete_unsent_order(order_id, drafts_only=drafts_only)
     for value in stored_paths:
         if not value or value.startswith("shared:"):
             continue

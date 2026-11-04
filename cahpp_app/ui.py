@@ -34,7 +34,7 @@ from .local_services import (
     attach_document,
     create_complete_backup,
     configure_shared_workspace,
-    delete_draft,
+    delete_unsent_order,
     mark_order_sent,
     portable_path,
     prepare_mail_order,
@@ -4363,7 +4363,7 @@ class OrdersPage(BasePage):
         ttk.Button(
             actions,
             text="Supprimer",
-            command=self.delete_selected_draft,
+            command=self.delete_selected_order,
         ).pack(side="left")
         ttk.Button(
             actions,
@@ -4555,27 +4555,29 @@ class OrdersPage(BasePage):
             self.app.publish_order(order_id)
         self.refresh()
 
-    def delete_selected_draft(self) -> None:
+    def delete_selected_order(self) -> None:
         order_id = self.selected_order()
         if not order_id:
             messagebox.showinfo(
-                "Supprimer", "Sélectionnez un brouillon.", parent=self
+                "Supprimer", "Sélectionnez une commande non envoyée.", parent=self
             )
             return
         order, _ = self.database.get_order(order_id)
-        if order["status"] != "Brouillon":
+        if not self.database.can_delete_unsent_order(order):
             messagebox.showinfo(
                 "Supprimer",
-                "Seuls les brouillons peuvent être supprimés.",
+                "Une commande envoyée ou déjà suivie ne peut pas être supprimée.",
                 parent=self,
             )
             return
         if not messagebox.askyesno(
-            "Supprimer le brouillon",
+            "Supprimer la commande non envoyée",
             (
-                f"Supprimer définitivement le brouillon "
+                f"Supprimer la commande non envoyée "
                 f"{order['order_number']} ?\n\n"
-                "La suppression sera répercutée sur les autres postes."
+                "La suppression sera répercutée sur les autres postes.\n\n"
+                "Les PDF exportés restent sur le disque. Si un e-mail a été "
+                "préparé, supprimez aussi son brouillon dans votre messagerie."
             ),
             icon="warning",
             parent=self,
@@ -4585,10 +4587,10 @@ class OrdersPage(BasePage):
             if not allowed:
                 return
             try:
-                delete_draft(self.database, order_id)
+                delete_unsent_order(self.database, order_id)
             except (OSError, ValueError) as exc:
                 messagebox.showerror(
-                    "Supprimer le brouillon", str(exc), parent=self
+                    "Supprimer la commande", str(exc), parent=self
                 )
                 return
             self.app.publish_order(order_id)

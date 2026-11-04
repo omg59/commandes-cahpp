@@ -28,6 +28,7 @@ from cahpp_app.local_services import (
     attach_document,
     create_complete_backup,
     delete_draft,
+    delete_unsent_order,
     mark_order_sent,
     prepare_mail_order,
     remove_document,
@@ -1270,6 +1271,91 @@ class WorkflowTest(unittest.TestCase):
         self.assertFalse(remote_cached_copy.exists())
         with self.assertRaises(ValueError):
             self.database.delete_draft(order_id)
+
+    def test_delete_generated_and_email_prepared_orders_syncs(self):
+        catalog = self.root / "deletion.xlsx"
+        create_catalog(catalog, [self.row("DEL1", "REF-DEL", "ARTICLE TEST", 1)])
+        CatalogImporter(self.database).import_file(catalog)
+        other = Database(self.root / "other.sqlite3")
+        CatalogImporter(other).import_file(catalog)
+        shared = self.root / "shared"
+        first = CollaborationManager(self.database, "a", "Damien", shared)
+        second = CollaborationManager(other, "b", "Collègue", shared)
+        first.initialize_workspace()
+        second.initialize_workspace()
+        product = self.database.search_products("article")[0]
+        for prepared in (False, True):
+            with self.subTest(prepared=prepared):
+                order_id = self.database.save_order(
+                    product["supplier_id"],
+                    [{"product_id": product["id"], "designation": "ARTICLE TEST",
+                      "cartons": 1, "units_per_carton": 100,
+                      "unit_price": 1, "vat": 20}],
+                    order_number=first.reserve_order_number(),
+                )
+                pdf = generate_order_pdf(self.database, order_id,
+                                         self.root / f"export-{order_id}.pdf")
+                attachment_id = attach_document(self.database, order_id, pdf, "Devis")
+                attachment = local_services.resolve_portable_path(
+                    self.database.get_order_attachment(attachment_id)["stored_path"]
+                )
+                staging = local_services.MAIL_PREP_DIR / local_services.safe_filename(
+                    self.database.get_order(order_id)[0]["order_number"]
+                )
+                staging.mkdir(parents=True)
+                if prepared:
+                    self.database.update_order_status(order_id, "E-mail préparé")
+                first.publish_order(order_id)
+                second.sync_orders()
+                self.assertEqual(len(other.list_orders()), 1)
+                with first.acquire_lock("commande", str(
+                    self.database.get_order(order_id)[0]["shared_uid"]
+                )):
+                    delete_unsent_order(self.database, order_id)
+                    first.publish_order(order_id)
+                second.sync_orders()
+                self.assertEqual(self.database.list_orders(), [])
+                self.assertEqual(other.list_orders(), [])
+                self.assertFalse(attachment.exists())
+                self.assertFalse(staging.exists())
+                self.assertTrue(pdf.is_file())  # Le PDF exporté appartient à l'utilisateur.
+                deleted, lines = self.database.get_order(order_id)
+                self.assertTrue(deleted["deleted_at"])
+                self.assertEqual(lines, [])
+                with self.assertRaises(ValueError):
+                    delete_unsent_order(self.database, order_id)
+
+    def test_delete_unsent_order_refuses_sent_or_followed_orders(self):
+        catalog = self.root / "protected.xlsx"
+        create_catalog(catalog, [self.row("DEL2", "REF-DEL", "ARTICLE TEST", 1)])
+        CatalogImporter(self.database).import_file(catalog)
+        product = self.database.search_products("article")[0]
+        protections = [
+            {"status": "Envoyée"},
+            {"status": "Générée", "sent_at": "2026-11-05T09:00:00"},
+            {"confirmed_at": "2026-11-05T09:00:00"},
+            {"invoiced_at": "2026-11-05T09:00:00"},
+            {"delivery_status": "Partiellement livrée"},
+            {"status": "Livrée"},
+        ]
+        for fields in protections:
+            with self.subTest(fields=fields):
+                order_id = self.database.save_order(
+                    product["supplier_id"],
+                    [{"designation": "ARTICLE TEST", "cartons": 1,
+                      "units_per_carton": 1, "unit_price": 1, "vat": 20}],
+                )
+                with self.database.session() as connection:
+                    connection.execute(
+                        "UPDATE orders SET " + ", ".join(f"{key} = ?" for key in fields)
+                        + " WHERE id = ?", [*fields.values(), order_id],
+                    )
+                before, lines = self.database.get_order(order_id)
+                with self.assertRaises(ValueError):
+                    delete_unsent_order(self.database, order_id)
+                after, remaining = self.database.get_order(order_id)
+                self.assertEqual(dict(before), dict(after))
+                self.assertEqual(len(lines), len(remaining))
 
     def test_catalog_search_repairs_incomplete_fts_index(self):
         catalog = self.root / "catalogue-recherche.xlsx"

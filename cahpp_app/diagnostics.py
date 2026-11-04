@@ -86,7 +86,7 @@ def build_diagnostic_report(
                 f"({counts.get('active_products', 0)} actifs)",
                 f"Fournisseurs : {counts.get('suppliers', 0)}",
                 f"Commandes : {counts.get('orders', 0)}",
-                "Brouillons supprimés mémorisés : "
+                "Commandes supprimées mémorisées : "
                 f"{counts.get('deleted_drafts', 0)}",
                 f"Commandes archivées : {counts.get('archived_orders', 0)}",
                 "Livraisons en attente : "
