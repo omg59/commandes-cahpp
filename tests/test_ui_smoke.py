@@ -60,22 +60,24 @@ class InterfaceSmokeTest(unittest.TestCase):
                     # Reproduit une fenêtre Tcl native inconnue du registre Python,
                     # comme la liste déroulante interne d'un ttk.Combobox Windows.
                     root.tk.call("entry", ".native_focus")
-                    root.tk.call("pack", ".native_focus")
-                    # Windows exige que le widget soit réellement affiché avant
-                    # de lui donner le focus, contrairement au serveur X de test.
-                    root.update()
-                    root.tk.call("focus", "-force", ".native_focus")
-                    root.update()
-                    assert str(root.tk.call("focus")) == ".native_focus", "Focus Tcl natif non établi"
+                    # Le runner Windows peut refuser le focus d'une fenêtre native.
+                    # Contrôler la réponse Tcl conserve le vrai nametowidget Python
+                    # et reproduit le KeyError sans dépendre du bureau du runner.
+                    root.tk.call("rename", "focus", "_test_original_focus")
+                    root.tk.call("proc", "focus", "args", "return .native_focus")
                     try:
-                        root.focus_get()
-                    except KeyError:
-                        pass
-                    else:
-                        raise AssertionError("Le scénario doit reproduire le KeyError")
-                    order_page._hide_supplier_suggestions_if_unused()
-                    assert not order_page._supplier_matches
-                    root.tk.call("destroy", ".native_focus")
+                        try:
+                            root.focus_get()
+                        except KeyError:
+                            pass
+                        else:
+                            raise AssertionError("Le scénario doit reproduire le KeyError")
+                        order_page._hide_supplier_suggestions_if_unused()
+                        assert not order_page._supplier_matches
+                    finally:
+                        root.tk.call("rename", "focus", "")
+                        root.tk.call("rename", "_test_original_focus", "focus")
+                        root.tk.call("destroy", ".native_focus")
 
                     assert not errors, repr(errors)
                     error_box.assert_not_called()
