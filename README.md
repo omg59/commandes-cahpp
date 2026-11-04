@@ -5,7 +5,14 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
-**Version actuelle : 1.4.2**
+**Version actuelle : 1.4.3**
+
+## Documentation
+
+- [Historique des versions](CHANGELOG.md)
+- [Guide du mode collaboratif](docs/collaboration.md)
+- [Tests et checklist de validation](docs/validation.md)
+- [Développement et publication](docs/developpement.md)
 
 ## Principes
 
@@ -114,7 +121,7 @@ compilation ne copie aucune base de développement.
 ## Création de l'installeur Windows
 
 Pour obtenir un seul fichier `.exe` d'installation et de mise à jour, installez
-une fois [Inno Setup 6](https://jrsoftware.org/isinfo.php) sur le PC Windows qui
+une fois [Inno Setup 6 ou 7](https://jrsoftware.org/isinfo.php) sur le PC Windows qui
 sert à compiler, puis lancez :
 
 ```bat
@@ -124,7 +131,7 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.4.2.exe
+dist-installer\CommandesCAHPP-Setup-1.4.3.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
@@ -162,7 +169,7 @@ et laisse l'installateur remplacer uniquement les fichiers du programme.
 6. Marquer les articles habituels comme favoris.
 7. Préparer une commande et générer le PDF.
 
-Le guide détaillé [GUIDE_COLLABORATION_0.9.0.md](GUIDE_COLLABORATION_0.9.0.md)
+Le guide détaillé du [mode collaboratif](docs/collaboration.md)
 explique l'installation à deux postes et les comportements en cas de coupure.
 
 ## Diagnostic et assistance
@@ -183,7 +190,7 @@ contenu de commande ou document. Il peut donc être transmis pour analyser un
 problème sans exposer les données métier.
 
 Avant de considérer la version comme validée, suivre
-[CHECKLIST_VALIDATION_V1.md](CHECKLIST_VALIDATION_V1.md) sur les deux postes.
+la [checklist de validation commune](docs/validation.md) sur les deux postes.
 
 La liste des fournisseurs de l'écran **Nouvelle commande** est filtrée pendant
 la saisie du nom. Depuis **Catalogue**, sélectionner un article puis cliquer sur

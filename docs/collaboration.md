@@ -1,14 +1,12 @@
-# Guide du mode collaboratif — version 0.9.0
+# Guide du mode collaboratif
 
 ## Architecture retenue
 
 Chaque PC possède une installation locale et une base SQLite locale. Le dossier
 réseau sert uniquement de boîte d'échange entre les postes.
 
-```text
-PC de l'utilisateur A                 Dossier partagé                 PC de l'utilisateur B
-Application + base locale   <->   fichiers JSON/PDF/catalogue   <->   Application + base locale
-```
+Les postes échangent leurs commandes, documents et catalogues par ce dossier.
+Chaque application continue à interroger sa propre base locale.
 
 Il ne faut pas exécuter l'application depuis le partage et il ne faut pas y
 copier `data\commandes_cahpp.sqlite3`. Cette séparation évite les lenteurs de la
@@ -89,6 +87,7 @@ L'application gère elle-même ces éléments :
 - `equipe` : fournisseurs, favoris, corrections, produits locaux et paramètres
   communs ;
 - `verrous` : petits fichiers temporaires de coordination ;
+- `mises-a-jour` : installateurs partagés déclenchant la notification de mise à jour ;
 - `espace-collaboratif.json` : identité technique de l'espace.
 
 Il ne faut pas renommer ou modifier ces fichiers manuellement. Une suppression
@@ -108,3 +107,15 @@ Dans **Paramètres > Collaboration**, choisir le nouvel emplacement, tester
 l'accès puis enregistrer. Pour conserver l'historique commun, copier auparavant
 l'intégralité de l'ancien dossier partagé vers le nouveau lorsque les deux
 applications sont fermées.
+
+## Supprimer une commande non envoyée
+
+Dans **Historique**, sélectionner une commande puis **Supprimer**. Une commande
+au statut **Brouillon**, **Générée** ou **E-mail préparé** peut être supprimée tant
+qu'aucun envoi ni suivi n'est enregistré. La suppression se propage aux autres
+postes et une trace technique est conservée pour éviter sa réapparition.
+
+Les PDF exportés séparément restent sur le disque. Un brouillon déjà ouvert
+dans la messagerie doit être supprimé manuellement. L'application ne peut pas
+détecter un envoi effectué en dehors de son suivi : marquer la commande envoyée
+dès l'envoi réel au fournisseur.

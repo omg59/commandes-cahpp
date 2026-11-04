@@ -1,5 +1,25 @@
 # Historique des versions
 
+## 1.4.3
+
+- documentation regroupée dans `docs/` : guide collaboratif, validation commune
+  et développement/publication ; retrait des checklists et notices par version
+  devenues redondantes avec le changelog et les guides courants ;
+- correction du `KeyError` lors de la fermeture des suggestions fournisseur
+  quand le focus appartient à une fenêtre Tcl native (liste de combobox) ;
+- test graphique reproduisant un focus Tcl inconnu du registre Python ;
+- fermeture déterministe des connexions SQLite après chaque bloc de lecture
+  ou de transaction, y compris lors de l'initialisation ;
+- conservation de la validation et de l'annulation des transactions en cas
+  d'erreur ; libération garantie des connexions de sauvegarde ;
+- correction des erreurs Windows `WinError 32` lors du nettoyage des bases
+  temporaires encore ouvertes ;
+- correction du test de dossier PDF lorsque Windows utilise un chemin court
+  (`RUNNER~1`) pour le même dossier physique ;
+- quatre tests de non-régression de fermeture, commit et rollback, sans
+  dépendre du ramasse-miettes Python ;
+- aucun changement de schéma de base de données.
+
 ## 1.4.2
 
 - journal local rotatif (4 fichiers de 1 Mio maximum) pour le démarrage,

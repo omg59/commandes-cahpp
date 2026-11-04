@@ -48,6 +48,32 @@ class InterfaceSmokeTest(unittest.TestCase):
                         time.sleep(0.01)
                     assert not catalog._search_pending, "Recherche bloquée"
                     root.update()
+
+                    app.show_page("new_order")
+                    order_page = app.pages["new_order"]
+                    order_page._show_supplier_suggestions(["FOURNISSEUR TEST"])
+                    order_page.supplier_suggestions.focus_force()
+                    root.update()
+                    order_page._hide_supplier_suggestions_if_unused()
+                    assert order_page._supplier_matches
+
+                    # Reproduit une fenêtre Tcl native inconnue du registre Python,
+                    # comme la liste déroulante interne d'un ttk.Combobox Windows.
+                    root.tk.call("entry", ".native_focus")
+                    root.tk.call("pack", ".native_focus")
+                    root.tk.call("focus", "-force", ".native_focus")
+                    root.update()
+                    assert str(root.tk.call("focus")) == ".native_focus"
+                    try:
+                        root.focus_get()
+                    except KeyError:
+                        pass
+                    else:
+                        raise AssertionError("Le scénario doit reproduire le KeyError")
+                    order_page._hide_supplier_suggestions_if_unused()
+                    assert not order_page._supplier_matches
+                    root.tk.call("destroy", ".native_focus")
+
                     assert not errors, repr(errors)
                     error_box.assert_not_called()
                     warning_box.assert_not_called()

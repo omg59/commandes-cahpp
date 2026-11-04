@@ -2696,8 +2696,14 @@ class OrderPage(BasePage):
         self._supplier_matches = []
 
     def _hide_supplier_suggestions_if_unused(self) -> None:
-        focused = self.focus_get()
-        if focused not in (self.supplier_box, self.supplier_suggestions):
+        # La liste native d'un ttk.Combobox existe dans Tcl mais pas dans le
+        # registre de widgets Python. focus_get() tente de la résoudre en
+        # objet Python et peut lever KeyError ; le chemin Tcl suffit ici.
+        try:
+            focused = str(self.tk.call("focus"))
+        except tk.TclError:
+            return  # Fenêtre/interpréteur déjà fermé lors du callback différé.
+        if focused not in (str(self.supplier_box), str(self.supplier_suggestions)):
             self._hide_supplier_suggestions()
 
     def _move_supplier_suggestion(self, event=None, direction: int = 1):

@@ -157,7 +157,7 @@ class WorkflowTest(unittest.TestCase):
             {"pdf_default_directory": str(pdf_directory)}
         )
         self.assertEqual(
-            configured_pdf_directory(self.database), pdf_directory
+            configured_pdf_directory(self.database), pdf_directory.resolve()
         )
 
         first_path = self.root / "catalogue-1.xlsx"

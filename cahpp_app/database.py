@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -437,6 +437,21 @@ class ProductSearchResult:
     warning: str = ""
 
 
+class ManagedConnection(sqlite3.Connection):
+    """Valide/annule la transaction puis ferme la connexion à la sortie du with.
+
+    Le context manager sqlite3 standard ne ferme pas la connexion. L'application
+    ouvre une connexion par opération ; sa durée de vie doit rester bornée,
+    notamment pour libérer les handles et journaux WAL sous Windows.
+    """
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 class Database:
     def __init__(self, path: Path | str):
         self.path = Path(path)
@@ -451,10 +466,14 @@ class Database:
         self.initialize()
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
+        connection = sqlite3.connect(self.path, timeout=30, factory=ManagedConnection)
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA busy_timeout = 30000")
+        except Exception:
+            connection.close()
+            raise
         return connection
 
     @contextmanager
@@ -473,7 +492,7 @@ class Database:
         # Le mode WAL est configuré une seule fois. Le répéter à chaque
         # recherche provoquait des verrouillages coûteux, surtout lorsque
         # l'application avait été copiée sur un partage réseau.
-        with sqlite3.connect(self.path, timeout=30) as bootstrap:
+        with self.connect() as bootstrap:
             bootstrap.execute("PRAGMA busy_timeout = 30000")
             bootstrap.execute("PRAGMA journal_mode = WAL")
         with self.session() as connection:
@@ -4165,13 +4184,8 @@ class Database:
     def backup(self, destination: Path | str) -> Path:
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        source = self.connect()
-        target = sqlite3.connect(destination)
-        try:
+        with closing(self.connect()) as source, closing(sqlite3.connect(destination)) as target:
             source.backup(target)
-        finally:
-            target.close()
-            source.close()
         return destination
 
     def diagnostic_snapshot(self) -> dict[str, object]:
