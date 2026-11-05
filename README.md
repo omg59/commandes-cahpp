@@ -5,7 +5,7 @@ rapidement les articles, préparer des commandes fournisseurs et générer des b
 de commande PDF. Le mode collaboratif optionnel permet à plusieurs postes de
 travailler ensemble à travers un simple dossier partagé, sans serveur.
 
-**Version actuelle : 1.4.3**
+**Version en préparation : 1.5.1 — validation Windows requise avant diffusion**
 
 ## Documentation
 
@@ -24,11 +24,15 @@ travailler ensemble à travers un simple dossier partagé, sans serveur.
 - conservation des tarifs historiques et des lignes de commandes déjà créées ;
 - recherche par fournisseur, code CAHPP, référence ou désignation ;
 - recherche catalogue non bloquante, avec annulation des saisies obsolètes ;
+- recherche non bloquante et résultats progressifs dans **Nouvelle commande** ;
 - contrôle et réparation automatiques de l'index plein texte FTS5 ;
 - affichage progressif des résultats par pages de 100 articles ;
 - tri des tableaux par clic sur les titres de colonnes ;
 - favoris et quantités habituelles ;
 - duplication des commandes récurrentes ;
+- reprise d'une commande générée ou avec e-mail préparé, avant son envoi,
+  en conservant son numéro ;
+- avertissement avant de quitter avec des saisies non enregistrées ;
 - suppression des commandes non envoyées, même après génération du PDF ou
   préparation d'un e-mail, avec propagation aux autres postes ;
 - recherche dans tout l'historique, y compris les références et désignations ;
@@ -131,13 +135,19 @@ build_installer_windows.bat
 Le fichier obtenu se trouve dans :
 
 ```text
-dist-installer\CommandesCAHPP-Setup-1.4.3.exe
+dist-installer\CommandesCAHPP-Setup-1.5.1.exe
 ```
 
 Le script détecte Inno Setup dans le `PATH`, dans `Program Files`, dans
 `%LOCALAPPDATA%\Programs\Inno Setup 6`, ainsi que dans les emplacements WinGet,
 Scoop et les entrées de registre habituelles. Une installation limitée au
 compte utilisateur est donc prise en charge.
+
+Pour préparer une version à diffuser, utiliser **`build_release.bat`** : il
+contrôle les numéros de version, lance Ruff et les tests avec interface, puis
+construit l'installateur et ses fichiers de contrôle SHA-256 et JSON dans
+`dist-installer`. Tout échec interrompt cette préparation. Il reste nécessaire
+de tester l'installation, la mise à jour et le lancement de l'EXE sur Windows.
 
 L'installeur fonctionne sans droit administrateur. Il remplace uniquement
 `CommandesCAHPP.exe` et `_internal` ; il conserve la base `data`, les documents,
@@ -173,6 +183,24 @@ Le guide détaillé du [mode collaboratif](docs/collaboration.md)
 explique l'installation à deux postes et les comportements en cas de coupure.
 
 ## Diagnostic et assistance
+
+Si la recherche signale un index indisponible, ouvrir **Paramètres → Collaboration
+→ Diagnostic**, puis cliquer sur **Reconstruire l'index**. Attendre la fin de
+l'opération : elle s'exécute en arrière-plan. Le logiciel recrée uniquement
+l'index local à partir des articles présents, vérifie son intégrité FTS5 et
+teste une recherche avec classement avant de confirmer la réussite.
+
+Les commandes, les fournisseurs, les corrections d'articles et le dossier
+partagé ne sont pas modifiés par cette reconstruction. Relancer ensuite la
+recherche dans le catalogue. En cas d'échec, utiliser **Exporter le rapport**
+avant de fermer l'application : il contient le résultat de la dernière
+reconstruction de cette session, sa durée et la catégorie d'erreur SQLite.
+Le bouton reste disponible pour réessayer après correction du problème.
+
+La réparation automatique attend 30 secondes avant de réessayer après un
+échec, pour éviter de reconstruire à chaque frappe. Le bouton manuel permet
+de réessayer immédiatement. Si la recherche dépasse son délai autorisé,
+le message le précise sans conclure à un index endommagé.
 
 Le bouton **Diagnostic** de l'onglet **Collaboration** contrôle :
 
@@ -249,27 +277,37 @@ BC-2026-07-28_2_Hartmann.pdf
 BC-2026-07-28_3_Hartmann.pdf
 ```
 
-## Modifier un brouillon
+## Reprendre une commande avant envoi
 
 1. Ouvrir **Historique**.
-2. Sélectionner une commande ayant le statut **Brouillon**.
-3. Cliquer sur **Modifier le brouillon** ou double-cliquer sur la ligne.
+2. Sélectionner une commande **Brouillon**, **Générée** ou **E-mail préparé**
+   qui n'a pas encore été envoyée.
+3. Cliquer sur **Reprendre / corriger** ou double-cliquer sur la ligne ;
+   confirmer la reprise si le PDF ou l'e-mail a déjà été préparé.
 4. Modifier les articles, quantités ou la note.
 5. Enregistrer à nouveau le brouillon ou générer le PDF.
 
-Une commande déjà générée reste figée. Cela évite de modifier par erreur un bon
-qui aurait déjà été envoyé au fournisseur.
+La commande redevient un brouillon avec le même numéro, la même date, ses
+pièces jointes et son journal. La référence au PDF et la préparation d'e-mail
+sont invalidées : régénérer le PDF après correction. Les copies déjà exportées
+restent sur le disque ; supprimer soi-même tout brouillon ouvert dans la
+messagerie et remplacer ses pièces jointes avant l'envoi.
+
+Une commande marquée envoyée, confirmée, réceptionnée ou facturée ne peut pas
+être reprise. En mode collaboratif, un verrou réserve la commande au poste
+qui la corrige et le retour au statut brouillon est synchronisé.
 
 Pour repartir d'une ancienne commande, sélectionnez-la dans **Historique** puis
 cliquez sur **Dupliquer**. Un nouveau brouillon daté du jour est créé avec les
 prix et conditionnements de la commande d'origine.
 
-Un brouillon devenu inutile peut être retiré avec **Supprimer le brouillon**.
+Une commande non envoyée devenue inutile peut être retirée avec **Supprimer**.
 L'application demande une confirmation et, en mode collaboratif, vérifie
 d'abord que le brouillon n'est pas ouvert sur un autre poste. La suppression
 est ensuite synchronisée et le brouillon ne réapparaît pas lorsqu'un poste
-resté hors ligne se reconnecte. Les commandes générées, préparées ou envoyées
-ne sont pas supprimables afin de préserver la traçabilité.
+resté hors ligne se reconnecte. Cela reste possible après génération du PDF
+ou préparation d'un e-mail. Les commandes envoyées ou déjà suivies ne sont
+pas supprimables afin de préserver la traçabilité.
 
 L'historique affiche la date de création, le créateur, l'état de
 synchronisation et la première date d'envoi. Cette dernière est renseignée avec

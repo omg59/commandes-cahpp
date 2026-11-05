@@ -39,8 +39,7 @@ def build_diagnostic_report(
         "=" * 43,
         f"Généré le : {generated_at}",
         f"Version : {version}",
-        f"Système : {platform.system()} {platform.release()} "
-        f"({platform.machine()})",
+        f"Système : {platform.system()} {platform.release()} ({platform.machine()})",
         f"Python : {platform.python_version()}",
         f"Architecture du processus : {struct.calcsize('P') * 8} bits",
         f"SQLite : {sqlite3.sqlite_version}",
@@ -77,27 +76,23 @@ def build_diagnostic_report(
                 f"Mode SQLite : {local.get('journal_mode', '')}",
                 f"Recherche plein texte : {_yes_no(local.get('fts_available'))}",
                 "Index de recherche : "
-                + (
-                    "OK"
-                    if search_index.get("consistent")
-                    else "À RÉPARER"
-                ),
+                + ("OK" if search_index.get("consistent") else "À RÉPARER"),
                 "Articles indexés : "
                 f"{search_index.get('indexed', 0)} / "
                 f"{search_index.get('products', 0)}",
                 "Entrées manquantes/orphelines : "
                 f"{search_index.get('missing', 0)} / "
                 f"{search_index.get('orphaned', 0)}",
+                f"Contenus d'index différents : {search_index.get('mismatched', 0)}",
+                f"Test de recherche avec classement : {_yes_no(search_index.get('functional'))}",
                 f"Contrôle d'intégrité : {_yes_no(integrity_ok)}",
                 f"Articles : {counts.get('products', 0)} "
                 f"({counts.get('active_products', 0)} actifs)",
                 f"Fournisseurs : {counts.get('suppliers', 0)}",
                 f"Commandes : {counts.get('orders', 0)}",
-                "Commandes supprimées mémorisées : "
-                f"{counts.get('deleted_drafts', 0)}",
+                f"Commandes supprimées mémorisées : {counts.get('deleted_drafts', 0)}",
                 f"Commandes archivées : {counts.get('archived_orders', 0)}",
-                "Livraisons en attente : "
-                f"{counts.get('pending_deliveries', 0)}",
+                f"Livraisons en attente : {counts.get('pending_deliveries', 0)}",
                 f"Commandes à synchroniser : {counts.get('pending_orders', 0)}",
                 f"Documents liés : {counts.get('attachments', 0)}",
                 f"Réceptions enregistrées : {counts.get('receipts', 0)}",
@@ -116,6 +111,34 @@ def build_diagnostic_report(
             ]
         )
 
+        if search_index.get("error"):
+            lines.append(f"Détail de l'index : {search_index['error']}")
+        repair = dict(local.get("last_search_repair") or {})
+        lines.extend(
+            [
+                "",
+                "DERNIÈRE RECONSTRUCTION DE L'INDEX",
+                "---------------------------------",
+            ]
+        )
+        if repair:
+            lines.extend(
+                [
+                    f"Début : {repair.get('started_at', '')}",
+                    f"Fin : {repair.get('finished_at', 'en cours')}",
+                    f"Déclenchement : {repair.get('origin', '')}",
+                    f"Résultat : {_yes_no(repair.get('success'))}",
+                    f"Durée : {repair.get('elapsed_ms', 0)} ms",
+                    f"Détail : {repair.get('detail', '')}",
+                ]
+            )
+            if repair.get("success"):
+                lines.append(
+                    f"Articles reconstruits : {repair.get('indexed', 0)} / {repair.get('products', 0)}"
+                )
+        else:
+            lines.append("Aucune reconstruction depuis ce lancement.")
+
     lines.extend(["", "COLLABORATION", "-------------"])
     if collaboration is None:
         lines.append("Mode collaboratif : désactivé ou indisponible")
@@ -131,18 +154,13 @@ def build_diagnostic_report(
             )
         else:
             integrity = shared.get("catalog_integrity")
-            catalog_status = (
-                "non publié"
-                if integrity is None
-                else _yes_no(integrity)
-            )
+            catalog_status = "non publié" if integrity is None else _yes_no(integrity)
             lines.extend(
                 [
                     f"Dossier : {shared.get('path', '')}",
                     f"Lecture : {_yes_no(shared.get('readable'))}",
                     f"Écriture : {_yes_no(shared.get('writable'))}",
-                    "Renommage atomique : "
-                    f"{_yes_no(shared.get('atomic_rename'))}",
+                    f"Renommage atomique : {_yes_no(shared.get('atomic_rename'))}",
                     f"Identifiant : {shared.get('workspace_id', '')}",
                     "Identifiant cohérent : "
                     f"{_yes_no(shared.get('workspace_matches'))}",
@@ -154,10 +172,7 @@ def build_diagnostic_report(
                     f"Verrous actifs : {shared.get('active_locks', 0)}",
                     f"Verrous expirés : {shared.get('expired_locks', 0)}",
                     "Utilisateurs actifs : "
-                    + (
-                        ", ".join(shared.get("lock_owners") or [])
-                        or "aucun"
-                    ),
+                    + (", ".join(shared.get("lock_owners") or []) or "aucun"),
                 ]
             )
 
@@ -182,13 +197,17 @@ def build_diagnostic_report(
         lines.append(f"Dernière erreur : {last_sync_error}")
 
     journal = logging_snapshot()
-    lines.extend([
-        "", "JOURNAL TECHNIQUE", "-----------------",
-        f"Fichier : {journal['path'] or 'non initialisé'}",
-        f"État : {journal['error'] or 'OK'}",
-        "Événements récents (sans recherche saisie ni données de commande) :",
-        *(line.rstrip() for line in journal["recent"]),
-    ])
+    lines.extend(
+        [
+            "",
+            "JOURNAL TECHNIQUE",
+            "-----------------",
+            f"Fichier : {journal['path'] or 'non initialisé'}",
+            f"État : {journal['error'] or 'OK'}",
+            "Événements récents (sans recherche saisie ni données de commande) :",
+            *(line.rstrip() for line in journal["recent"]),
+        ]
+    )
     lines.extend(
         [
             "",

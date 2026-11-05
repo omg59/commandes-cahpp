@@ -1,5 +1,55 @@
 # Historique des versions
 
+## 1.5.1 — en préparation
+
+- ajout de **Reconstruire l'index** dans **Paramètres → Collaboration → Diagnostic**,
+  avec exécution en arrière-plan et protection contre les lancements multiples ;
+- recréation de la table FTS5 et de ses entrées à partir du catalogue local,
+  puis contrôle d'intégrité et test d'une recherche avec classement avant validation ;
+- reconstruction transactionnelle : retour à l'index précédent en cas d'échec,
+  sans modification des commandes, fournisseurs, articles ni réglages ;
+- contrôle automatique renforcé : détection des textes périmés et des structures
+  FTS5 défectueuses même lorsque les nombres d'articles et d'entrées correspondent ;
+- délai de 30 secondes entre deux reconstructions automatiques échouées,
+  sans empêcher une nouvelle tentative manuelle ;
+- rapport de diagnostic enrichi avec le test fonctionnel, le dernier résultat
+  de reconstruction de la session, sa durée et une catégorie d'erreur technique ;
+- messages de recherche distinguant un index indisponible d'un dépassement de délai ;
+- tests de corruption avec comptes identiques, de schéma incorrect, de rollback,
+  de transaction d'import et du bouton Tk en arrière-plan ;
+- conservation du schéma SQLite 14 ; compilation et installation Windows
+  à valider sur un poste de test avant diffusion.
+
+## 1.5.0 — en préparation
+
+- reprise depuis l'historique des commandes générées ou avec e-mail préparé,
+  tant qu'elles ne sont ni envoyées ni suivies ; conservation du numéro,
+  des lignes, de la date, des pièces jointes et du journal ;
+- invalidation de la référence au PDF et de la préparation d'e-mail lors de
+  la reprise, avec avertissement sur les copies exportées et brouillons externes ;
+- contrôle transactionnel interdisant la modification directe d'une commande
+  envoyée ou générée ; vérification du verrou collaboratif avant enregistrement ;
+- recherche de produits en arrière-plan dans **Nouvelle commande**,
+  annulation dès la frappe et affichage par lots de 25, avec pages de 100 ;
+- annulation immédiate des recherches obsolètes également dans **Catalogue** ;
+- protection des saisies de commande contre les rafraîchissements automatiques
+  et confirmation avant de quitter avec des modifications non enregistrées ;
+- retours des workers de synchronisation, de diagnostic et de maintenance
+  transmis par une file consommée par le thread graphique ; renouvellement
+  périodique des verrous déplacé en arrière-plan ;
+- découpage de l'ancien `ui.py` en modules par écran et composants communs,
+  en conservant l'import public `cahpp_app.ui.App` ;
+- conversion numérique commune avec virgules et espaces français, refus des
+  valeurs non finies et validation des quantités, prix et taux de TVA ;
+- affichage des nombres avec arrondi décimal `ROUND_HALF_UP` ; le stockage
+  SQLite des montants reste inchangé ;
+- tests de reprise, de synchronisation, de validation et d'annulation ;
+  scénario graphique fournisseur/article/commande avec fermeture et réouverture ;
+- script `build_release.bat` : cohérence des versions, lint, tests, compilation
+  et manifeste de l'installateur avec empreinte SHA-256 ;
+- conservation du schéma SQLite 14 ; validation Windows et installation
+  manuelle encore requises avant publication.
+
 ## 1.4.3
 
 - documentation regroupée dans `docs/` : guide collaboratif, validation commune

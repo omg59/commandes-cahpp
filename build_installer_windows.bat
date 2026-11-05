@@ -66,8 +66,9 @@ if errorlevel 1 (
 
 echo.
 echo Installeur termine :
-echo %CD%\dist-installer\CommandesCAHPP-Setup-1.4.3.exe
+echo %CD%\dist-installer\CommandesCAHPP-Setup-1.5.1.exe
 echo.
 echo Cet EXE remplace uniquement l'application et conserve la base,
 echo les documents, le logo, les PDF et les sauvegardes.
+if /I "%~1"=="--no-pause" exit /b 0
 pause

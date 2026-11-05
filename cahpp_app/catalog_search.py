@@ -23,6 +23,7 @@ class SearchRequest:
     favorite_only: bool
     limit: int
     allow_slow_fallback: bool
+    fallback_to_all: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ class LatestCatalogSearchWorker:
         favorite_only: bool,
         limit: int,
         allow_slow_fallback: bool,
+        fallback_to_all: bool = False,
     ) -> int:
         with self._condition:
             if self._closed:
@@ -74,12 +76,22 @@ class LatestCatalogSearchWorker:
                 favorite_only,
                 limit,
                 allow_slow_fallback,
+                fallback_to_all,
             )
             self._pending = request
             if self._current_cancel is not None:
                 self._current_cancel.set()
             self._condition.notify()
             return request.generation
+
+    def invalidate(self) -> int:
+        """Annule dès la frappe, sans attendre la soumission après le délai UI."""
+        with self._condition:
+            self._generation += 1
+            self._pending = None
+            if self._current_cancel is not None:
+                self._current_cancel.set()
+            return self._generation
 
     def close(self) -> None:
         with self._condition:
@@ -111,6 +123,12 @@ class LatestCatalogSearchWorker:
                     allow_slow_fallback=request.allow_slow_fallback,
                     cancel_event=cancel_event,
                 )
+                if (request.fallback_to_all and not request.query.strip()
+                        and request.favorite_only and not result.rows):
+                    result = self.database.search_products_detailed(
+                        supplier_id=request.supplier_id, favorite_only=False,
+                        limit=request.limit, cancel_event=cancel_event,
+                    )
             except SearchCancelled:
                 continue
             except Exception as exc:

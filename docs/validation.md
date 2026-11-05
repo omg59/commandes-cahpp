@@ -9,6 +9,8 @@ ne signifie pas que les essais manuels ont déjà été réalisés.
 
 Installer les dépendances de test : `python -m pip install -r requirements-dev.txt`.
 Lancer `python -m ruff check .` puis `python -m unittest discover -s tests -v`.
+Vérifier aussi `python tools/release_checks.py`. Sous Windows,
+`build_release.bat` enchaîne ces contrôles et la fabrication de l'installateur.
 
 Le test graphique s'exécute dans un processus isolé avec une base temporaire.
 Sous Linux sans écran, utiliser `xvfb-run -a python -m unittest discover -s tests -v`.
@@ -24,9 +26,14 @@ Ruff cible les erreurs certaines ; ce n'est pas un contrôle de style exhaustif.
 ## Limites des tests actuels
 
 Les pannes réseau sont simulées : elles ne remplacent pas un essai sur le
-partage SMB réel. Le test graphique couvre les neuf pages et une recherche,
-pas encore tous les dialogues ni tous les parcours utilisateur.
+partage SMB réel. Les tests graphiques couvrent les neuf pages, une recherche,
+les fiches fournisseur/article et un parcours brouillon, PDF puis reprise avant
+envoi, avec fermeture et réouverture. Ils ne couvrent pas encore tous les
+dialogues ni tous les parcours utilisateur.
 La construction PyInstaller n'est pas un test du lancement de l'EXE installé.
+
+La version 1.5.1 reste en préparation tant que ses contrôles Windows, son
+installation et sa mise à jour sur un poste de test n'ont pas été validés.
 
 ## Validation manuelle avant déploiement
 
@@ -51,6 +58,11 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
       variations de prix et conservation des anciennes lignes de commande.
 - [ ] Saisir rapidement une recherche, changer de filtre et afficher davantage
       de résultats : seule la dernière recherche est affichée et l'interface répond.
+- [ ] Dans **Paramètres → Collaboration → Diagnostic**, cliquer sur **Reconstruire
+      l'index** : l'interface reste réactive, le rapport confirme l'intégrité FTS5
+      et la recherche avec classement ; refaire une recherche connue du catalogue.
+- [ ] Sur le poste rencontrant l'erreur, exporter le rapport après la tentative,
+      même si elle échoue ; vérifier que les commandes et corrections sont conservées.
 - [ ] Tester le tri dans les deux sens et sa conservation après recherche.
 - [ ] Ajouter un favori, modifier sa quantité habituelle, corriger un article,
       rétablir ses valeurs CAHPP ; créer, modifier puis archiver un article local.
@@ -64,6 +76,11 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
 ### Commandes, PDF et documents
 
 - [ ] Enregistrer, reprendre et modifier un brouillon ; dupliquer une commande.
+- [ ] Reprendre une commande générée puis une commande avec e-mail préparé :
+      même numéro, retour au brouillon, PDF à régénérer, reprise visible sur
+      le second poste ; vérifier le refus pour une commande envoyée ou suivie.
+- [ ] Quitter avec des quantités ou notes non enregistrées : Annuler conserve
+      les saisies ; vérifier aussi la confirmation avant de remplacer la commande.
 - [ ] Vérifier la numérotation distincte sur les deux postes et l'auteur des actions.
 - [ ] Générer puis ouvrir le PDF, vérifier montants, service destinataire et logo.
 - [ ] Vérifier l'absence de mention du franco dans le PDF.
@@ -120,11 +137,10 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
 
 ## Suite proposée
 
-1. Ajouter des tests graphiques des fiches fournisseur et article avec
-   saisie, enregistrement, fermeture et réouverture.
-2. Extraire progressivement les composants communs puis un onglet de `ui.py`,
-   avec contrôles à chaque déplacement ; conserver l'API `cahpp_app.ui.App`.
-3. Séparer progressivement les domaines de persistance sans modifier le schéma.
-4. Auditer les montants, leur stockage et leurs arrondis dans un chantier dédié.
+1. Étendre les scénarios graphiques à l'import et aux réceptions partielles.
+2. Séparer progressivement les domaines de persistance sans modifier le schéma.
+3. Auditer les montants, leur stockage et leurs arrondis dans un chantier dédié.
 
-Le découpage des gros fichiers et l'audit monétaire restent à réaliser.
+Le découpage de l'interface et les tests de réouverture des fiches sont intégrés
+à la préparation de la 1.5.0. Le découpage de la persistance et l'audit monétaire
+complet restent à réaliser.

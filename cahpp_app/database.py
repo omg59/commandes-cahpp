@@ -13,6 +13,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Sequence
 from .app_logging import log_failure
+from .numbers import parse_decimal
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +414,7 @@ def repair_supplier_contact_value(field: str, value: object) -> str:
 def money(value: Decimal | float | int | str | None) -> Decimal:
     if value in (None, ""):
         return Decimal("0")
-    return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return parse_decimal(value).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 
 class SearchCancelled(Exception):
@@ -461,6 +462,8 @@ class Database:
         self._fts_verified = False
         self._fts_status_cache: dict[str, object] = {}
         self._fts_lock = threading.RLock()
+        self._fts_retry_after = 0.0
+        self.last_search_repair: dict[str, object] = {}
         self.current_user_id = ""
         self.current_user_name = "Utilisateur"
         self.initialize()
@@ -923,8 +926,75 @@ class Database:
         terms = re.findall(r"[\w]+", query, flags=re.UNICODE)
         return " AND ".join(f'"{term}"*' for term in terms[:10])
 
-    def search_index_status(self) -> dict[str, object]:
-        """Contrôle que chaque article possède exactement une entrée FTS5."""
+    @staticmethod
+    def _execute_fts_search(connection, fts, where, parameters, limit):
+        """Requête commune au contrôle fonctionnel et à la recherche utilisateur."""
+        return list(connection.execute(
+            f"""SELECT {PRODUCT_SELECT}
+                FROM product_search
+                JOIN products p ON p.id = product_search.rowid
+                LEFT JOIN product_overrides po ON po.product_id = p.id
+                WHERE product_search MATCH ? AND {where}
+                ORDER BY p.favorite DESC, bm25(product_search),
+                         COALESCE(po.designation, p.designation)
+                LIMIT ?""", [fts, *parameters, limit],
+        ))
+
+    def _probe_search_index(self, connection) -> None:
+        """Teste MATCH et le classement sur un article connu, sans exporter son texte."""
+        samples = connection.execute(
+            """SELECT p.id, p.code_cahpp, COALESCE(po.supplier_ref, p.supplier_ref),
+                      COALESCE(po.designation, p.designation), p.supplier_name
+               FROM products p LEFT JOIN product_overrides po ON po.product_id = p.id
+               ORDER BY p.id LIMIT 20"""
+        )
+        for sample in samples:
+            for value in tuple(sample)[1:]:
+                terms = re.findall(r"[^\W_]+", str(value or ""), flags=re.UNICODE)
+                if terms:
+                    rows = self._execute_fts_search(
+                        connection, self._fts_query(terms[0]), "p.id = ?", [sample[0]], 1,
+                    )
+                    if not rows:
+                        raise SearchIndexError(
+                            "Le test de recherche ne retrouve pas un article connu."
+                        )
+                    return
+        # Même un catalogue vide doit permettre d'exécuter MATCH et bm25.
+        self._execute_fts_search(connection, '"cahppindexprobe"', "1 = 1", [], 1)
+
+    def _search_index_failure(self, error: Exception, stage: str) -> str:
+        """Classe l'erreur sans journaliser de requête ni de données métier."""
+        text = str(error).lower()
+        code = getattr(error, "sqlite_errorname", "")
+        if "no such module: fts5" in text:
+            detail = "Le moteur SQLite de cette installation ne fournit pas FTS5."
+        elif code in {"SQLITE_BUSY", "SQLITE_LOCKED"} or "locked" in text:
+            detail = "La base est occupée par une autre opération. Réessayez dans quelques instants."
+        elif "readonly" in text or "read-only" in text:
+            detail = "La base locale n'est pas accessible en écriture."
+        elif code == "SQLITE_FULL":
+            detail = "L'espace disque disponible est insuffisant."
+        elif "bm25" in text or "requested context" in text:
+            detail = "SQLite ne parvient pas à exécuter le classement des résultats FTS5."
+        elif isinstance(error, SearchIndexError):
+            detail = "Le test de recherche ne retrouve pas un article connu."
+        elif "malformed" in text or "corrupt" in text or "checksum" in text or code.startswith("SQLITE_CORRUPT"):
+            detail = "Les structures de l'index de recherche sont endommagées."
+        elif "invalid fts5 file format" in text:
+            detail = "Le format de l'index FTS5 est incompatible avec cette installation."
+        else:
+            detail = "Le contrôle ou la reconstruction de l'index a échoué."
+        self.fts_error = f"{stage} : {detail} ({type(error).__name__}, {code or 'sans code SQLite'})."
+        log_failure(logger, "fts_operation_echec", error)
+        return self.fts_error
+
+    def search_index_status(self, *, deep: bool = False) -> dict[str, object]:
+        with self._fts_lock:
+            return self._search_index_status(deep=deep)
+
+    def _search_index_status(self, *, deep: bool = False) -> dict[str, object]:
+        """Vérifie les entrées, leur contenu et une vraie recherche avec classement."""
         status: dict[str, object] = {
             "available": self.fts_available,
             "consistent": False,
@@ -932,6 +1002,8 @@ class Database:
             "indexed": 0,
             "missing": 0,
             "orphaned": 0,
+            "mismatched": 0,
+            "functional": False,
             "error": self.fts_error,
         }
         try:
@@ -939,8 +1011,6 @@ class Database:
                 status["products"] = int(
                     connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
                 )
-                if not self.fts_available:
-                    return status
                 status["indexed"] = int(
                     connection.execute(
                         "SELECT COUNT(*) FROM product_search"
@@ -966,9 +1036,26 @@ class Database:
                         """
                     ).fetchone()[0]
                 )
-        except sqlite3.DatabaseError as exc:
+                status["mismatched"] = int(connection.execute(
+                    """SELECT COUNT(*) FROM products p
+                       JOIN product_search ps ON ps.rowid = p.id
+                       LEFT JOIN product_overrides po ON po.product_id = p.id
+                       WHERE COALESCE(ps.code_cahpp, '') <> COALESCE(p.code_cahpp, '')
+                          OR COALESCE(ps.supplier_ref, '') <> COALESCE(po.supplier_ref, p.supplier_ref, '')
+                          OR COALESCE(ps.designation, '') <> COALESCE(po.designation, p.designation, '')
+                          OR COALESCE(ps.supplier_name, '') <> COALESCE(p.supplier_name, '')"""
+                ).fetchone()[0])
+                self._probe_search_index(connection)
+                if deep:
+                    connection.execute(
+                        "INSERT INTO product_search(product_search) VALUES('integrity-check')"
+                    )
+                    connection.rollback()
+                status["functional"] = True
+        except (sqlite3.DatabaseError, SearchIndexError) as exc:
             self.fts_available = False
-            self.fts_error = f"{type(exc).__name__}: {exc}"
+            self._fts_verified = False
+            self._search_index_failure(exc, "Contrôle de recherche")
             status["available"] = False
             status["error"] = self.fts_error
             return status
@@ -976,7 +1063,15 @@ class Database:
             int(status["products"]) == int(status["indexed"])
             and int(status["missing"]) == 0
             and int(status["orphaned"]) == 0
+            and int(status["mismatched"]) == 0
+            and bool(status["functional"])
         )
+        self.fts_available = True
+        status["available"] = True
+        if not status["consistent"]:
+            self._fts_verified = False
+        status["error"] = "" if status["consistent"] else "Les entrées de l'index ne correspondent pas au catalogue local."
+        self.fts_error = str(status["error"])
         return status
 
     def ensure_search_index(self, force: bool = False) -> dict[str, object]:
@@ -984,16 +1079,20 @@ class Database:
         with self._fts_lock:
             if self._fts_verified and not force:
                 return dict(self._fts_status_cache)
-            status = self.search_index_status()
+            if not force and time.monotonic() < self._fts_retry_after:
+                return dict(self._fts_status_cache)
+            status = self.search_index_status(deep=True)
             repaired = False
             if not bool(status.get("consistent")):
                 logger.warning("fts_reconstruction_necessaire")
                 repaired = self.rebuild_search()
-                status = self.search_index_status()
+                status = self.search_index_status(deep=True)
                 logger.info("fts_reconstruction terminee=%s", status.get("consistent"))
             status["repaired"] = repaired and bool(status.get("consistent"))
             self._fts_verified = bool(status.get("consistent"))
             self._fts_status_cache = dict(status)
+            if not self._fts_verified:
+                self._fts_retry_after = time.monotonic() + 30
             return dict(status)
 
     @staticmethod
@@ -1054,19 +1153,7 @@ class Database:
                 fts = self._fts_query(query)
                 if fts:
                     try:
-                        rows = connection.execute(
-                            f"""
-                            SELECT {PRODUCT_SELECT}
-                            FROM product_search
-                            JOIN products p ON p.id = product_search.rowid
-                            LEFT JOIN product_overrides po ON po.product_id = p.id
-                            WHERE product_search MATCH ? AND {where}
-                            ORDER BY p.favorite DESC, bm25(product_search),
-                                     COALESCE(po.designation, p.designation)
-                            LIMIT ?
-                            """,
-                            [fts, *parameters, limit],
-                        )
+                        rows = self._execute_fts_search(connection, fts, where, parameters, limit)
                         result = [self._effective_product(row) for row in rows]
                         return ProductSearchResult(
                             result,
@@ -1079,12 +1166,12 @@ class Database:
                             self._raise_interrupted_search(interruption)
                         self.fts_available = False
                         self._fts_verified = False
-                        self.fts_error = f"{type(exc).__name__}: {exc}"
+                        self._search_index_failure(exc, "Recherche")
                         warning = "Index FTS5 indisponible : " + self.fts_error
                     except sqlite3.DatabaseError as exc:
                         self.fts_available = False
                         self._fts_verified = False
-                        self.fts_error = f"{type(exc).__name__}: {exc}"
+                        self._search_index_failure(exc, "Recherche")
                         warning = "Index FTS5 indisponible : " + self.fts_error
 
             if query and not allow_slow_fallback:
@@ -1662,6 +1749,10 @@ class Database:
             units_per_carton = money(line.get("units_per_carton"))
             unit_price = money(line.get("unit_price"))
             vat = money(line.get("vat"))
+            if cartons <= 0 or units_per_carton <= 0:
+                raise ValueError("Les quantités et conditionnements doivent être positifs.")
+            if unit_price < 0 or not 0 <= vat <= 100:
+                raise ValueError("Prix négatif ou TVA hors limites (0 à 100 %).")
             total_units = cartons * units_per_carton
             line_ht = (total_units * unit_price).quantize(
                 Decimal("0.0001"), rounding=ROUND_HALF_UP
@@ -1694,6 +1785,17 @@ class Database:
         is_new = order_id is None
 
         with self.session() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if not is_new:
+                existing = connection.execute(
+                    "SELECT * FROM orders WHERE id = ?", (order_id,)
+                ).fetchone()
+                if (existing is None or not self.can_delete_unsent_order(existing)
+                        or existing["status"] != "Brouillon"):
+                    raise ValueError(
+                        "Seul un brouillon non envoyé peut être modifié. "
+                        "Reprenez d'abord la commande depuis l'historique."
+                    )
             if is_new:
                 order_number = order_number or self._next_order_number(
                     connection, selected_date
@@ -2104,6 +2206,31 @@ class Database:
                     (order_id,),
                 )
             )
+
+    def reopen_unsent_order(self, order_id: int) -> None:
+        """Invalide PDF et préparation mail sous transaction avant correction.
+
+        Conserve numéro, lignes, pièces jointes et audit. Les copies externes
+        ne peuvent pas être retirées : l'utilisateur doit les remplacer.
+        """
+        now = datetime.now().isoformat(timespec="microseconds")
+        _, actor = self._actor()
+        with self.session() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            order = connection.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+            if order is None or not self.can_delete_unsent_order(order):
+                raise ValueError("Une commande envoyée, supprimée ou déjà suivie ne peut pas être reprise.")
+            if order["status"] == "Brouillon":
+                return
+            connection.execute(
+                """UPDATE orders SET status = 'Brouillon', pdf_path = '',
+                   email_prepared_at = '', updated_at = ?, updated_by = ?,
+                   shared_revision = shared_revision + 1,
+                   sync_state = 'À synchroniser' WHERE id = ?""", (now, actor, order_id),
+            )
+            self._record_order_audit(connection, order_id,
+                "Commande reprise avant envoi", occurred_at=now,
+                details="PDF et préparation e-mail invalidés ; régénération nécessaire.")
 
     def delete_draft(self, order_id: int) -> list[str]:
         return self.delete_unsent_order(order_id, drafts_only=True)
@@ -4126,59 +4253,85 @@ class Database:
                 )
             )
 
-    def rebuild_search(self, connection: sqlite3.Connection | None = None) -> bool:
-        """Reconstruit FTS5 et recrée sa table si son contenu est endommagé."""
+    def rebuild_search(
+        self, connection: sqlite3.Connection | None = None, *, manual: bool = False,
+    ) -> bool:
+        """Recrée uniquement l'index dérivé, avec rollback et contrôle avant validation."""
         with self._fts_lock:
+            started = time.perf_counter()
             owns_connection = connection is None
-            connection = connection or self.connect()
-
-            def populate() -> None:
-                self._create_search_table(connection)
-                connection.execute("DELETE FROM product_search")
-                connection.execute(
-                    """
-                    INSERT INTO product_search(
-                        rowid, code_cahpp, supplier_ref, designation, supplier_name
-                    )
-                    SELECT p.id, p.code_cahpp,
-                           COALESCE(po.supplier_ref, p.supplier_ref),
-                           COALESCE(po.designation, p.designation),
-                           p.supplier_name
-                    FROM products p
-                    LEFT JOIN product_overrides po ON po.product_id = p.id
-                    """
-                )
-
+            savepoint = False
+            report: dict[str, object] = {
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "origin": "Manuelle" if manual else "Import" if connection else "Automatique",
+                "success": False,
+            }
+            self.last_search_repair = report
+            logger.info("fts_reconstruction_debut manuelle=%s", manual)
             try:
-                populate()
+                connection = connection or self.connect()
+                connection.execute("SAVEPOINT cahpp_search_rebuild")
+                savepoint = True
+                connection.execute("DROP TABLE IF EXISTS product_search")
+                self._create_search_table(connection)
+                connection.execute(
+                    """INSERT INTO product_search(
+                           rowid, code_cahpp, supplier_ref, designation, supplier_name
+                       )
+                       SELECT p.id, p.code_cahpp,
+                              COALESCE(po.supplier_ref, p.supplier_ref),
+                              COALESCE(po.designation, p.designation), p.supplier_name
+                       FROM products p
+                       LEFT JOIN product_overrides po ON po.product_id = p.id"""
+                )
+                connection.execute(
+                    "INSERT INTO product_search(product_search) VALUES('integrity-check')"
+                )
+                self._probe_search_index(connection)
+                products = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+                indexed = connection.execute("SELECT COUNT(*) FROM product_search").fetchone()[0]
+                if products != indexed:
+                    raise SearchIndexError("Le nombre d'articles indexés est incorrect.")
+                connection.execute("RELEASE cahpp_search_rebuild")
+                savepoint = False
                 if owns_connection:
                     connection.commit()
-            except sqlite3.DatabaseError as first_error:
-                if not owns_connection:
-                    self.fts_available = False
-                    self.fts_error = f"{type(first_error).__name__}: {first_error}"
-                    self._fts_verified = False
-                    return False
-                try:
-                    connection.rollback()
-                    connection.execute("DROP TABLE IF EXISTS product_search")
-                    populate()
-                    connection.commit()
-                except sqlite3.DatabaseError as second_error:
-                    connection.rollback()
-                    self.fts_available = False
-                    self.fts_error = (
-                        f"{type(second_error).__name__}: {second_error}"
-                    )
-                    self._fts_verified = False
-                    return False
+                report.update({
+                    "success": True, "products": products, "indexed": indexed,
+                    "detail": "Index recréé ; intégrité FTS5 et recherche avec classement vérifiées.",
+                })
+            except (sqlite3.DatabaseError, SearchIndexError) as exc:
+                if savepoint:
+                    try:
+                        connection.execute("ROLLBACK TO cahpp_search_rebuild")
+                        connection.execute("RELEASE cahpp_search_rebuild")
+                    except sqlite3.DatabaseError as rollback_error:
+                        log_failure(logger, "fts_rollback_echec", rollback_error)
+                self.fts_available = False
+                self._fts_verified = False
+                report.update({
+                    "detail": self._search_index_failure(exc, "Reconstruction"),
+                    "error_type": type(exc).__name__,
+                    "sqlite_code": getattr(exc, "sqlite_errorname", ""),
+                })
+                self._fts_status_cache = {
+                    "available": False, "consistent": False, "functional": False,
+                    "error": self.fts_error, "repaired": False,
+                }
+                self._fts_retry_after = 0 if manual else time.monotonic() + 30
+                return False
             finally:
-                if owns_connection:
+                if owns_connection and connection is not None:
                     connection.close()
+                report["finished_at"] = datetime.now().isoformat(timespec="seconds")
+                report["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
+                logger.info("fts_reconstruction_fin succes=%s duree_ms=%d",
+                            report["success"], report["elapsed_ms"])
             self.fts_available = True
             self.fts_error = ""
             self._fts_verified = False
             self._fts_status_cache = {}
+            self._fts_retry_after = 0
             return True
 
     def backup(self, destination: Path | str) -> Path:
@@ -4192,7 +4345,7 @@ class Database:
         size = self.path.stat().st_size if self.path.is_file() else 0
         wal_path = self.path.with_name(self.path.name + "-wal")
         shm_path = self.path.with_name(self.path.name + "-shm")
-        search_index = self.search_index_status()
+        search_index = self.search_index_status(deep=True)
         with self.connect() as connection:
             quick_check = [
                 str(row[0])
@@ -4322,6 +4475,7 @@ class Database:
             "journal_mode": journal_mode,
             "fts_available": self.fts_available,
             "search_index": search_index,
+            "last_search_repair": dict(self.last_search_repair),
             "quick_check": quick_check,
             "counts": counts,
             "anomalies": anomalies,

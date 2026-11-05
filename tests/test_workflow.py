@@ -332,6 +332,12 @@ class WorkflowTest(unittest.TestCase):
         remove_document(self.database, attachment_id)
         self.assertEqual(self.database.list_order_attachments(order_id), [])
 
+        # Une commande envoyée doit rester figée : la correction se fait sur
+        # une nouvelle commande issue de la duplication.
+        with self.assertRaises(ValueError):
+            self.database.save_order(supplier_id, [{"designation": "Interdit", "cartons": 1,
+                "units_per_carton": 1, "unit_price": 1, "vat": 20}], order_id=order_id)
+        order_id = self.database.duplicate_order(order_id)
         original_order, _ = self.database.get_order(order_id)
         edited_lines = [
             {

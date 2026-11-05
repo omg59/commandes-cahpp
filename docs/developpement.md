@@ -17,7 +17,8 @@ Installer les dépendances de développement avec
    le nom de l'installateur affiché dans `build_installer_windows.bat` et le README.
 2. Ajouter une entrée dans [CHANGELOG.md](../CHANGELOG.md).
 3. Mettre à jour les guides concernés et la checklist commune si nécessaire.
-4. Exécuter les tests et le lint, puis compiler `build_installer_windows.bat`.
+4. Lancer `build_release.bat` sous Windows : cohérence des versions, lint,
+   tests graphiques, compilation puis manifeste SHA-256 de l'installateur.
 5. Vérifier le démarrage de l'EXE, l'installation et la conservation des données
    sur une installation de test ; consigner les résultats de validation.
 6. Publier les changements, vérifier GitHub Actions puis créer, si nécessaire,
@@ -28,6 +29,39 @@ Installer les dépendances de développement avec
 Ne plus créer de checklist ou de notice séparée pour chaque version. Le
 changelog conserve l'historique, les guides décrivent le fonctionnement courant.
 Les anciens fichiers supprimés restent consultables dans l'historique Git.
+
+`python tools/release_checks.py` vérifie les versions sans compiler.
+L'option `--manifest` exige l'installateur correspondant dans `dist-installer`
+et écrit sa taille et son empreinte dans un manifeste JSON et un fichier
+`.sha256`. Une empreinte sert à contrôler le fichier diffusé ; elle ne remplace
+pas la validation de son installation.
+
+## Organisation du code
+
+L'interface est un paquet `cahpp_app/ui/`. Son `__init__.py` préserve les
+imports publics, notamment `App`. Chaque onglet possède son module :
+`catalog.py`, `order.py`, `history.py`, `suppliers.py`, `settings.py`,
+`dashboard.py`, `statistics.py`, `suggestions.py` et `import_catalog.py`.
+Les dialogues de documents et de suivi sont dans `documents.py` et
+`tracking.py`. `components.py`, `common.py` et `base.py` regroupent les éléments
+partagés ; `app.py` orchestre navigation et collaboration.
+
+Les recherches SQLite utilisent `catalog_search.py`. `ui/search.py` apporte
+la passerelle vers Tk : le worker dépose ses résultats dans une file, puis
+le thread principal les consomme. Les autres workers utilisent `App.post_ui`.
+Ne pas appeler Tk, même `after()`, depuis un thread de travail.
+
+La réparation d'index utilise un savepoint SQLite, y compris pendant un import.
+Seule la table dérivée `product_search` est recréée ; elle est validée par la
+commande FTS5 `integrity-check` et par la requête MATCH avec classement utilisée
+pour les recherches. Une erreur annule le savepoint. Le diagnostic ne lance
+aucune réparation automatique : le bouton explicite la déclenche dans un worker.
+La dernière tentative est conservée dans l'objet `Database` pendant la session.
+
+`numbers.py` centralise conversion et affichage décimal. Les données existantes
+restent compatibles : pas de migration du schéma ni du stockage monétaire.
+`database.py` conserve la persistance ; son découpage par domaine et l'audit
+complet des montants feront l'objet de travaux distincts.
 
 ## Utiliser GitHub Desktop
 

@@ -29,6 +29,7 @@ jobs:
             requirements-dev.txt
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m ruff check .
+      - run: python tools/release_checks.py
       - run: python -m compileall -q cahpp_app tests
       - name: Écran virtuel Linux
         if: runner.os == 'Linux'
