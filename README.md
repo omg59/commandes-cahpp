@@ -1,13 +1,18 @@
 # Commandes CAHPP Horizon
 
-**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a3.**
+**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a4.**
 Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
 
 - [Lancement, fonctions et limites d'Horizon](docs/horizon.md)
 - Windows : `horizon_windows.bat` pour lancer les sources ;
   `horizon_windows.bat build` pour fabriquer le dossier portable.
-- [Build Windows et contrôles automatiques](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml) :
-  télécharger l'artefact **CommandesCAHPP-Horizon-Windows** d'un run réussi.
+- Linux x86_64 : **AppImage** autonome, sans installation de Python ;
+  `bash build_horizon_linux.sh` pour le construire depuis les sources.
+- [Builds Windows/Linux et contrôles automatiques](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml) :
+  ouvrir le dernier run réussi de la branche `feature/horizon-ui`, puis choisir
+  **Artifacts** → **CommandesCAHPP-Horizon-Linux-x86_64**, **CommandesCAHPP-Horizon-Windows**
+  ou **CommandesCAHPP-Horizon-Installer-Windows**. Il faut être connecté à GitHub
+  pour télécharger ces artefacts.
 
 Horizon crée un profil de démonstration séparé. Dans **Paramètres → Maintenance**,
 le bouton **Copier une base 1.6…**

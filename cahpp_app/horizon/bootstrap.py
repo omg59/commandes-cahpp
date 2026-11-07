@@ -34,6 +34,16 @@ def data_root() -> Path:
     ) / "CommandesCAHPP-Horizon"
 
 
+def profile_launch_command(arguments):
+    """Une nouvelle fenêtre AppImage doit conserver son propre montage vivant."""
+    if not getattr(sys, "frozen", False):
+        return sys.executable, [str(resource_root() / "main_horizon.py"), *arguments]
+    appimage = os.environ.get("APPIMAGE", "")
+    if sys.platform == "linux" and appimage and Path(appimage).is_file():
+        return str(Path(appimage).resolve()), list(arguments)
+    return sys.executable, list(arguments)
+
+
 def profile_info(path: Path) -> dict:
     marker = path / MARKER
     if not marker.is_file():

@@ -13,6 +13,7 @@ from PySide6.QtCore import (
     QLibraryInfo,
     QLocale,
     QProcess,
+    QProcessEnvironment,
     QSettings,
     Qt,
     QTimer,
@@ -41,7 +42,7 @@ from ..database import Database
 from ..local_services import create_complete_backup
 from ..paths import BACKUP_DIR, DATABASE_PATH, ensure_directories
 from . import NAME, VERSION
-from .bootstrap import resource_root
+from .bootstrap import resource_root, profile_launch_command
 from .catalog import CatalogPage
 from .dialogs import ProductDialog
 from .jobs import Jobs
@@ -160,7 +161,7 @@ class HorizonWindow(QMainWindow):
             nav.addWidget(b)
         nav.addStretch()
         nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 3 · " + VERSION, "brandSub"))
+        nav.addWidget(label("Alpha 4 · " + VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
@@ -376,10 +377,15 @@ class HorizonWindow(QMainWindow):
             != QMessageBox.StandardButton.Yes
         ):
             return
-        args = ["--copy-database", source]
-        if not getattr(sys, "frozen", False):
-            args = [str(resource_root() / "main_horizon.py"), *args]
-        ok, _ = QProcess.startDetached(sys.executable, args)
+        program, args = profile_launch_command(["--copy-database", source])
+        process = QProcess(self)
+        environment = QProcessEnvironment.systemEnvironment()
+        if getattr(sys, "frozen", False):
+            environment.insert("PYINSTALLER_RESET_ENVIRONMENT", "1")
+        process.setProcessEnvironment(environment)
+        process.setProgram(program)
+        process.setArguments(args)
+        ok, _ = process.startDetached()
         if not ok:
             self.report_error("Le nouveau profil n'a pas pu être lancé.")
         else:

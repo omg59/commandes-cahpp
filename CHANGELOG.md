@@ -1,5 +1,15 @@
 # Historique des versions
 
+## Horizon 2.0.0a4 — paquets Linux, 7 novembre 2026
+
+- construction Linux x86_64 : AppImage autonome et archive portable tar.gz ;
+- lanceur AppRun, entrée de bureau et icône de l'application intégrés ;
+- outils AppImage et runtime figés, vérifiés par empreinte SHA-256 ;
+- construction CI sous Ubuntu 22.04 pour limiter la version minimale de glibc ;
+- lancement et reprise de base testés depuis les vrais paquets, sans FUSE ;
+- ouverture d'une copie dans une instance AppImage indépendante du montage initial ;
+- artefacts Linux, manifeste de construction et empreintes accessibles dans Actions.
+
 ## Horizon 2.0.0a3 — retours d'utilisation, 7 novembre 2026
 
 - logo de l'application et icônes Windows repris exactement de la 1.6.0 ;

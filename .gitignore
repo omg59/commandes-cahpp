@@ -18,6 +18,9 @@ __pycache__/
 .venv/
 .venv-horizon/
 dist-installer-horizon/
+dist-linux/
+.cache-horizon-build/
+.venv-horizon-linux/
 build/
 dist/
 dist-installer/

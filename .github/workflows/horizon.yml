@@ -1,4 +1,4 @@
-name: Horizon — validation et Windows
+name: Horizon — Windows et Linux
 
 on:
   push:
@@ -10,6 +10,9 @@ on:
       - Horizon.spec
       - Horizon.iss
       - build_horizon_installer.bat
+      - build_horizon_linux.sh
+      - tools/build_horizon_linux.py
+      - tools/check_horizon_linux.py
       - requirements-horizon.txt
       - tests/*horizon*
       - ressources/horizon/**
@@ -24,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
@@ -46,13 +49,34 @@ jobs:
       - run: python -m compileall -q cahpp_app tests main_horizon.py
       - name: Dépendances graphiques Linux
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb xauth python3-tk libegl1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth python3-tk libegl1 libgl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libdbus-1-3 libfontconfig1 libfreetype6 desktop-file-utils
       - name: Tous les tests Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a python -m unittest discover -s tests -v
       - name: Tous les tests Windows
         if: runner.os == 'Windows'
         run: python -m unittest discover -s tests -v
+      - name: Construire le portable Linux et l'AppImage
+        if: runner.os == 'Linux'
+        run: python -m tools.build_horizon_linux --skip-tests
+      - name: Vérifier les paquets Linux sans FUSE
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m tools.check_horizon_linux --platform xcb
+      - name: Mettre les paquets Linux à disposition
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommandesCAHPP-Horizon-Linux-x86_64
+          path: |
+            dist-linux/*.AppImage
+            dist-linux/*.tar.gz
+            dist-linux/*.json
+            dist-linux/SHA256SUMS
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
       - name: Construire Horizon Windows
         if: runner.os == 'Windows'
         run: python -m PyInstaller Horizon.spec --noconfirm --clean
@@ -66,7 +90,7 @@ jobs:
           with tempfile.TemporaryDirectory() as profile:
               subprocess.run([str(exe), '--profile', profile, '--smoke-test'], check=True, timeout=40)
               report = json.loads((Path(profile)/'startup-ok.json').read_text())
-              assert report['version'] == '2.0.0a3' and report['qt_translated'], report
+              assert report['version'] == '2.0.0a4' and report['qt_translated'], report
       - name: Mettre le dossier Windows à disposition
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -85,7 +109,7 @@ jobs:
         run: |
           import json, os, subprocess, tempfile
           from pathlib import Path
-          setup = Path('dist-installer-horizon/CommandesCAHPP-Horizon-Setup-2.0.0a3.exe').resolve()
+          setup = Path('dist-installer-horizon/CommandesCAHPP-Horizon-Setup-2.0.0a4.exe').resolve()
           with tempfile.TemporaryDirectory() as folder:
               root = Path(folder)
               target = root / 'programme'

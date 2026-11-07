@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0a3
+# Commandes CAHPP Horizon — 2.0.0a4
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
@@ -17,8 +17,56 @@ L'installation Horizon utilise un identifiant et un dossier programme distincts
 de la 1.6.0. Les mises à jour remplacent le programme ; les profils et documents
 sont conservés. La CI fournit le dossier portable Windows après validation.
 
-Sous Linux, installer `requirements-horizon.txt` dans un environnement Python,
-puis lancer `python main_horizon.py`.
+### Linux : AppImage et portable
+
+Dans la [page Actions Horizon](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
+ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharger
+l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
+pour télécharger les artefacts. Le ZIP contient :
+
+- `CommandesCAHPP-Horizon-2.0.0a4-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0a4-x86_64.tar.gz` : variante portable à décompresser ;
+- `SHA256SUMS` et le manifeste JSON de construction.
+
+Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
+fichier ou utiliser :
+
+```bash
+chmod +x CommandesCAHPP-Horizon-2.0.0a4-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0a4-x86_64.AppImage
+```
+
+Python et Qt sont inclus. Les données restent dans le même profil Linux que le
+lancement depuis Python ; remplacer le fichier AppImage conserve les réglages,
+commandes et documents. Il n'y a pas de paquet à installer ni de droit
+administrateur requis pour lancer l'application.
+
+Si FUSE est indisponible, lancer l'AppImage avec `--appimage-extract-and-run`.
+La variante tar.gz fonctionne aussi : extraire l'archive puis lancer **AppRun**.
+Le format tar conserve les permissions et les liens internes nécessaires au
+programme, contrairement à un ZIP ordinaire du dossier compilé.
+
+Les builds officiels ciblent Linux **x86_64 avec glibc 2.35 ou ultérieure** :
+Ubuntu 22.04+, Debian 12 et distributions récentes comme CachyOS. Le bureau,
+les pilotes graphiques et les bibliothèques système de base restent fournis par
+Linux. Il ne s'agit pas d'une version ARM ni d'un paquet pour les systèmes musl.
+
+### Construire sur Linux
+
+Depuis des sources à jour, exécuter `bash build_horizon_linux.sh`. Le script crée
+un environnement de compilation, installe les dépendances Python, valide les
+tests, construit le programme et produit les deux paquets dans `dist-linux`.
+Python 3.11/3.12 avec `venv` et une connexion Internet sont nécessaires pour la
+construction uniquement. Les paquets obtenus se lancent sans Python installé.
+
+La construction est native : sous un Linux plus récent que celui de la CI,
+le résultat peut demander une glibc plus récente. Pour diffuser le paquet,
+utiliser de préférence le build CI Ubuntu 22.04. Les versions des outils
+AppImage et du runtime sont figées et leurs empreintes vérifiées ; le constructeur
+les extrait pour fonctionner même sans FUSE.
+
+Pour le développement, le lancement direct reste possible après installation de
+`requirements-horizon.txt`, avec `python main_horizon.py`.
 
 ## Profils et reprise des données
 
@@ -145,7 +193,9 @@ facturation et la publication/application d'un catalogue. Les tests hors réseau
 vérifient l'accès au diagnostic et le refus des écritures non protégées.
 
 La CI exécute les contrôles sous Linux et Windows, construit le dossier Windows
-et démarre l'EXE pour vérifier les ressources françaises. La validation manuelle
+et l'AppImage Linux puis les démarre pour vérifier les ressources françaises.
+Elle vérifie aussi la conservation et la copie d'un profil depuis l'AppImage,
+le lancement de l'archive portable et les empreintes des livrables. La validation manuelle
 du poste Windows et du partage de l'établissement reste à effectuer avant un
 remplacement du logiciel utilisé au quotidien.
 
