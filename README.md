@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a9.**
+**Version bêta 2.0.0b1 — branche `feature/horizon-ui`.**
 Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
 Après validation du PDF, une fenêtre propose l'envoi au fournisseur et sa
 confirmation sans quitter la commande. Les fiches fournisseurs sont regroupées
@@ -19,16 +19,14 @@ L'onglet **Paramètres → À propos** présente l'auteur Damien Macq et les cr�
   ou **CommandesCAHPP-Horizon-Installer-Windows**. Il faut être connecté à GitHub
   pour télécharger ces artefacts.
 
-Horizon crée un profil de démonstration séparé. Dans **Paramètres → Maintenance**,
-le bouton **Copier une base 1.6…**
-ouvre une copie indépendante de la base et des documents accessibles.
-Les fonctions métier de la 1.6.0 sont reprises : réglages, fournisseurs,
-réceptions, documents, e-mails, recommandations, statistiques, collaboration et
-diagnostics complets. Le partage est activé explicitement dans les paramètres
-du profil Horizon. `build_horizon_installer.bat` prépare son installateur séparé.
-La validation Windows et du partage de l'établissement précède son usage quotidien.
+Au premier lancement, choisissez **Créer une base vide**, **Importer une base
+CAHPP 1.6…** ou un profil existant. Horizon conserve ce choix et rouvre le même
+profil aux lancements suivants. **Paramètres → Changer de profil…** permet d'en
+ouvrir un autre. Les bases, réglages, commandes et documents des anciens profils
+sont conservés. Une importation crée une copie autonome et ne modifie pas la
+base source ; le partage se réactive dans les paramètres du nouveau profil.
 
-![Accueil Horizon aux couleurs LADAPT, avec données fictives](docs/images/horizon-apercu.png)
+![Horizon bêta : préparation d'une commande, avec données fictives](docs/images/horizon-apercu.png)
 
 ## Documentation du moteur et de la version stable
 

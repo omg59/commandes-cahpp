@@ -84,13 +84,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: python
         run: |
-          import json, subprocess, tempfile
+          import json, os, sqlite3, subprocess, tempfile
           from pathlib import Path
           exe = Path('dist/CommandesCAHPP-Horizon-portable/CommandesCAHPP-Horizon.exe').resolve()
           with tempfile.TemporaryDirectory() as profile:
-              subprocess.run([str(exe), '--profile', profile, '--smoke-test'], check=True, timeout=40)
+              env = dict(os.environ, CAHPP_HORIZON_ROOT=str(Path(profile)/'selection'))
+              subprocess.run([str(exe), '--profile', profile, '--smoke-test'], env=env, check=True, timeout=40)
               report = json.loads((Path(profile)/'startup-ok.json').read_text())
-              assert report['version'] == '2.0.0a9' and report['qt_translated'], report
+              assert report['version'] == '2.0.0b1' and report['qt_translated'], report
+              with sqlite3.connect(Path(profile)/'data/commandes_cahpp.sqlite3') as db:
+                  assert db.execute('SELECT COUNT(*) FROM products').fetchone()[0] == 0
+                  assert db.execute('SELECT COUNT(*) FROM orders').fetchone()[0] == 0
+              (Path(profile)/'startup-ok.json').unlink()
+              subprocess.run([str(exe), '--smoke-test'], env=env, check=True, timeout=40)
+              assert (Path(profile)/'startup-ok.json').is_file()
       - name: Mettre le dossier Windows à disposition
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -109,7 +116,7 @@ jobs:
         run: |
           import json, os, subprocess, tempfile
           from pathlib import Path
-          setup = Path('dist-installer-horizon/CommandesCAHPP-Horizon-Setup-2.0.0a9.exe').resolve()
+          setup = Path('dist-installer-horizon/CommandesCAHPP-Horizon-Setup-2.0.0b1.exe').resolve()
           with tempfile.TemporaryDirectory() as folder:
               root = Path(folder)
               target = root / 'programme'

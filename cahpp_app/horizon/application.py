@@ -10,14 +10,11 @@ from functools import partial
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QLibraryInfo,
-    QLocale,
     QProcess,
     QProcessEnvironment,
     QSettings,
     Qt,
     QTimer,
-    QTranslator,
 )
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
@@ -49,13 +46,14 @@ from .dialogs import ProductDialog
 from .jobs import Jobs
 from .orders import OrdersPage, PreparePage
 from .overview import OverviewPage, StatisticsPage
-from .services import HorizonService, seed_demo
+from .services import HorizonService
 from .theme import apply_theme
 from .widgets import button, label, ThemeSwitch
 from .operations import Operations, months_before
 from .settings import SettingsPage, DiagnosticDialog
 from .suppliers import SuppliersPage, SuggestionsPage
 from .forms import action
+from .qt_runtime import create_application
 from .dates import format_month
 
 logger = logging.getLogger(__name__)
@@ -68,7 +66,7 @@ def inspect_catalog(database, path, *, cancel, progress):
 
 def apply_catalog(database, path, preview, options, *, cancel, progress):
     if not preview.already_imported:
-        progress(0, 100, "Sauvegarde du profil d'essai avant import…")
+        progress(0, 100, "Sauvegarde du profil de travail avant import…")
         destination = BACKUP_DIR / (
             "horizon-avant-import-"
             + datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -109,7 +107,12 @@ class HorizonWindow(QMainWindow):
         apply_theme(
             QApplication.instance(), self.settings.value("dark", False, type=bool)
         )
-        self.setWindowTitle(f"{NAME} {VERSION} — profil d'essai")
+        self.profile_name = (
+            database.get_settings().get("establishment_name")
+            or info.get("display_name")
+            or "Profil principal"
+        )
+        self.setWindowTitle(f"{NAME} {VERSION} — {self.profile_name}")
         self.setMinimumSize(900, 600)
         geometry = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1460, geometry.width() - 30), min(930, geometry.height() - 40))
@@ -161,8 +164,8 @@ class HorizonWindow(QMainWindow):
             self.nav_buttons[key] = b
             nav.addWidget(b)
         nav.addStretch()
-        nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 9 · " + VERSION, "brandSub"))
+        nav.addWidget(label("VERSION BÊTA", "brandSub"))
+        nav.addWidget(label(VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
@@ -263,8 +266,7 @@ class HorizonWindow(QMainWindow):
         self.progress.setMaximumWidth(180)
         self.progress.setTextVisible(False)
         self.statusBar().addPermanentWidget(self.progress)
-        mode = "Démonstration" if info["mode"] == "demo" else "Copie de travail"
-        self.profile_label = label(mode + " · profil Horizon", "muted")
+        self.profile_label = label(self.profile_name + " · profil local", "muted")
         self.statusBar().addPermanentWidget(self.profile_label)
         self.statistics.reload_suppliers()
         self.navigate("overview")
@@ -431,13 +433,19 @@ class HorizonWindow(QMainWindow):
         if (
             QMessageBox.question(
                 self,
-                "Créer un profil d'essai",
+                "Importer une base CAHPP",
                 "Horizon va créer une copie indépendante de la base et des documents accessibles, puis l'ouvrir dans une nouvelle fenêtre. La source reste inchangée. Continuer ?",
             )
             != QMessageBox.StandardButton.Yes
         ):
             return
-        program, args = profile_launch_command(["--copy-database", source])
+        self.launch_profile(["--copy-database", source])
+
+    def choose_profile(self):
+        self.launch_profile(["--choose-profile"])
+
+    def launch_profile(self, arguments):
+        program, args = profile_launch_command(arguments)
         process = QProcess(self)
         environment = QProcessEnvironment.systemEnvironment()
         if getattr(sys, "frozen", False):
@@ -449,7 +457,9 @@ class HorizonWindow(QMainWindow):
         if not ok:
             self.report_error("Le nouveau profil n'a pas pu être lancé.")
         else:
-            self.notify("Ouverture d'un nouveau profil d'essai à partir de la copie.")
+            self.notify(
+                "Le choix du profil s'ouvre dans une nouvelle fenêtre. Ce profil reste accessible ici."
+            )
 
     def choose_catalog(self):
         if self.import_busy:
@@ -496,7 +506,7 @@ class HorizonWindow(QMainWindow):
             )
             + "\n\n".join(preview.warnings)
         )
-        message += "\n\nAppliquer dans le profil d'essai Horizon ? Une sauvegarde sera créée avant tout nouvel import."
+        message += "\n\nAppliquer dans le profil Horizon ? Une sauvegarde sera créée avant tout nouvel import."
         if (
             QMessageBox.question(self, "Vérifier l'import CAHPP", message)
             != QMessageBox.StandardButton.Yes
@@ -747,36 +757,25 @@ class HorizonWindow(QMainWindow):
             )
 
 
-def create_application(argv=None):
-    app = QApplication.instance() or QApplication(argv or sys.argv[:1])
-    app.setApplicationName("Commandes CAHPP Horizon")
-    app.setOrganizationName("Commandes CAHPP")
-    QLocale.setDefault(QLocale(QLocale.Language.French, QLocale.Country.France))
-    translator = QTranslator(app)
-    if translator.load(
-        QLocale("fr_FR"),
-        "qtbase",
-        "_",
-        QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath),
-    ):
-        app.installTranslator(translator)
-    app.horizon_translator = translator
-    return app
-
-
 def run(profile, info):
     ensure_directories()
     configure_logging()
     install_exception_hooks()
     app = create_application()
+    new_database = not DATABASE_PATH.is_file()
     database = Database(DATABASE_PATH)
+    if new_database:
+        database.save_settings(
+            {
+                "establishment_name": info.get("display_name") or "",
+                "user_name": info.get("initial_user_name") or "Utilisateur",
+            }
+        )
     settings = database.get_settings()
     database.set_current_user(
-        settings.get("user_id") or "horizon-test",
+        settings.get("user_id") or "",
         settings.get("user_name") or "Utilisateur Horizon",
     )
-    if info["mode"] == "demo":
-        seed_demo(database)
     window = HorizonWindow(database, profile, info)
     window.show()
     app.aboutToQuit.connect(window.jobs.close)

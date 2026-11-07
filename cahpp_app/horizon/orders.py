@@ -700,7 +700,7 @@ class OrdersPage(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         else:
             self.window.notify(
-                "Le PDF historique n'est pas disponible dans ce profil d'essai. Reprenez la commande pour le régénérer si elle n'a pas été envoyée."
+                "Le PDF historique n'est pas disponible dans ce profil de travail. Reprenez la commande pour le régénérer si elle n'a pas été envoyée."
             )
 
     @action
@@ -724,7 +724,7 @@ class OrdersPage(QWidget):
             QMessageBox.question(
                 self,
                 "Supprimer la commande",
-                "Supprimer cette commande non envoyée du profil d'essai ? Les PDF exportés restent sur le disque.",
+                "Supprimer cette commande non envoyée du profil de travail ? Les PDF exportés restent sur le disque.",
             )
             != QMessageBox.StandardButton.Yes
         ):

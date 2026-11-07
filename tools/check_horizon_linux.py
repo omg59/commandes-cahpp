@@ -65,13 +65,18 @@ def verify(output: Path, platform="offscreen"):
         database = profile / "data/commandes_cahpp.sqlite3"
         connection = sqlite3.connect(database)
         try:
+            assert (
+                connection.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 0
+            )
+            assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0
             connection.execute(
                 "INSERT OR REPLACE INTO settings(key,value) VALUES ('linux_package_test','conservé')"
             )
             connection.commit()
         finally:
             connection.close()
-        smoke([str(image_copy), "--profile", str(profile), "--smoke-test"], profile)
+        (profile / "startup-ok.json").unlink()
+        smoke([str(image_copy), "--smoke-test"], profile)
         connection = sqlite3.connect(database)
         try:
             assert (
@@ -100,8 +105,11 @@ def verify(output: Path, platform="offscreen"):
         markers = list((root / "profils/profils").glob("copie-*/startup-ok.json"))
         if len(markers) != 1:
             raise ValueError("Le profil copié n'a pas été validé.")
+        copied = markers[0].parent
+        markers[0].unlink()
+        smoke([str(image_copy), "--smoke-test"], copied)
         print(
-            "Linux validé : archive portable, AppImage, français, conservation et copie du profil."
+            "Linux validé : base vide, français, copie, conservation et réouverture du profil mémorisé."
         )
 
 

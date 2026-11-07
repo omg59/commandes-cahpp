@@ -1,5 +1,16 @@
 # Historique des versions
 
+## Horizon 2.0.0b1 — première bêta utilisateur, 7 novembre 2026
+
+- suppression du titre redondant dans Paramètres → Fournisseurs ;
+- premier lancement avec création d'une base vide, import d'une base 1.6 ou
+  ouverture d'un profil existant ; choix du profil mémorisé après redémarrage ;
+- sélecteur de profil accessible depuis les paramètres, anciens profils conservés ;
+- retrait du chargement des données d'exemple et des mentions alpha/profil d'essai ;
+- nouvelle capture réelle de l'interface bêta dans le README Horizon ;
+- vérification des bases vides, des imports et de la réouverture du profil mémorisé
+  depuis les véritables paquets Linux et Windows.
+
 ## Horizon 2.0.0a9 — navigation et identité visuelle, 7 novembre 2026
 
 - logo Horizon et titres centrés dans la barre latérale ; logo LADAPT en bas ;

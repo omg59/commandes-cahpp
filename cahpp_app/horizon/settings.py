@@ -171,7 +171,11 @@ class SettingsPage(QWidget):
         self.fields = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(label("Paramètres", "title"))
+        header = QHBoxLayout()
+        header.addWidget(label("Paramètres", "title"), 1)
+        self.choose_profile_button = button("Changer de profil…", window.choose_profile)
+        header.addWidget(self.choose_profile_button)
+        layout.addLayout(header)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
         definitions = [
@@ -306,7 +310,7 @@ class SettingsPage(QWidget):
                     row.addWidget(button(text, callback))
                 body.addLayout(row)
                 body.addWidget(
-                    label("Reprendre les données d'une version 1.6", "heading")
+                    label("Importer les données d'une version 1.6", "heading")
                 )
                 body.addWidget(
                     label(
@@ -316,7 +320,7 @@ class SettingsPage(QWidget):
                     )
                 )
                 self.copy_database_button = button(
-                    "Copier une base 1.6…", window.choose_database
+                    "Importer une base CAHPP 1.6…", window.choose_database
                 )
                 body.addWidget(self.copy_database_button)
             body.addStretch()

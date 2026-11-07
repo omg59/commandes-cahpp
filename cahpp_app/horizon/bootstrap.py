@@ -1,4 +1,4 @@
-"""Profils d'essai isolés ; ce module n'importe ni Qt ni les chemins métier."""
+"""Profils de travail ; ce module n'importe ni Qt ni les chemins métier."""
 
 from __future__ import annotations
 
@@ -16,6 +16,11 @@ from pathlib import Path
 
 MARKER = "horizon-profile.json"
 DATABASE_NAME = "commandes_cahpp.sqlite3"
+ACTIVE_PROFILE = "profil-actif.json"
+
+
+class StartupCancelled(Exception):
+    """L'utilisateur a fermé le choix initial sans ouvrir de profil."""
 
 
 def resource_root() -> Path:
@@ -48,21 +53,27 @@ def profile_info(path: Path) -> dict:
     marker = path / MARKER
     if not marker.is_file():
         raise ValueError(
-            "Ce dossier n'est pas un profil Horizon. Choisissez un dossier d'essai vide."
+            "Ce dossier n'est pas un profil Horizon. Choisissez un profil existant ou un dossier vide."
         )
     info = json.loads(marker.read_text(encoding="utf-8"))
-    if info.get("application") != "commandes-cahpp-horizon" or info.get("format") != 1:
+    if (
+        not isinstance(info, dict)
+        or info.get("application") != "commandes-cahpp-horizon"
+        or info.get("format") != 1
+    ):
         raise ValueError("Profil Horizon non reconnu.")
     return info
 
 
-def initialize_profile(path: Path, *, mode="demo") -> dict:
+def initialize_profile(
+    path: Path, *, mode="work", display_name="", user_name=""
+) -> dict:
     path = path.expanduser().resolve()
     if (path / MARKER).exists():
         return profile_info(path)
     if path.exists() and any(path.iterdir()):
         raise ValueError(
-            "Horizon utilise un dossier d'essai vide et ne peut pas ouvrir directement votre installation habituelle."
+            "Ce dossier contient déjà des fichiers. Pour reprendre une installation CAHPP, utilisez l'import d'une base existante."
         )
     path.mkdir(parents=True, exist_ok=True)
     info = {
@@ -70,9 +81,118 @@ def initialize_profile(path: Path, *, mode="demo") -> dict:
         "format": 1,
         "mode": mode,
         "created_at": datetime.now().isoformat(timespec="seconds"),
+        "display_name": display_name or path.name,
+        "initial_user_name": user_name,
     }
     (path / MARKER).write_text(json.dumps(info, indent=2), encoding="utf-8")
     return info
+
+
+def remember_profile(path: Path):
+    profile_info(path)
+    root = data_root()
+    root.mkdir(parents=True, exist_ok=True)
+    temporary = root / (ACTIVE_PROFILE + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        temporary.write_text(
+            json.dumps({"format": 1, "path": str(path.resolve())}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temporary.replace(root / ACTIVE_PROFILE)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def validate_profile_database(path: Path):
+    db = path / "data" / DATABASE_NAME
+    if not db.is_file():
+        raise ValueError(
+            "Ce profil ne contient pas de base de données. Choisissez son dossier complet."
+        )
+    try:
+        with closing(
+            sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+        ) as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            tables = {
+                r[0]
+                for r in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            if (
+                not 1 <= version <= 15
+                or not {"products", "orders", "order_lines", "settings", "suppliers"}
+                <= tables
+            ):
+                raise ValueError(
+                    "Cette base n'est pas compatible avec cette version de Commandes CAHPP."
+                )
+    except sqlite3.Error as exc:
+        raise ValueError(
+            "La base de ce profil n'est pas une base CAHPP lisible."
+        ) from exc
+
+
+def remembered_profile():
+    state = data_root() / ACTIVE_PROFILE
+    if not state.is_file():
+        return None
+    try:
+        value = json.loads(state.read_text(encoding="utf-8"))
+        if (
+            not isinstance(value, dict)
+            or value.get("format") != 1
+            or not value.get("path")
+        ):
+            raise ValueError("Sélection de profil non reconnue.")
+        path = Path(value["path"]).expanduser().resolve()
+        profile_info(path)
+        validate_profile_database(path)
+        return path
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError(
+            "Le dernier profil est introuvable ou inaccessible. Choisissez à nouveau votre dossier de travail."
+        ) from exc
+
+
+def available_profiles():
+    root = data_root()
+    candidates = [root / "principal", *sorted((root / "profils").glob("*/"))]
+    try:
+        previous = remembered_profile()
+        if previous:
+            candidates.insert(0, previous)
+    except ValueError:
+        pass
+    profiles = []
+    for path in dict.fromkeys(candidates):
+        try:
+            info = profile_info(path)
+        except (OSError, ValueError):
+            continue
+        # Les anciennes bases d'exemple restent sur disque ; elles ne sont
+        # jamais proposées comme base de travail par défaut.
+        if info.get("mode") == "demo":
+            continue
+        name = info.get("display_name") or path.name
+        db = path / "data" / DATABASE_NAME
+        if not db.is_file():
+            continue
+        if db.is_file():
+            try:
+                with closing(
+                    sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)
+                ) as connection:
+                    row = connection.execute(
+                        "SELECT value FROM settings WHERE key='establishment_name'"
+                    ).fetchone()
+                    if row and row[0]:
+                        name = row[0]
+            except sqlite3.Error:
+                pass
+        profiles.append((path, name))
+    return profiles
 
 
 def copy_database(source: Path, profiles: Path) -> Path:
@@ -201,26 +321,73 @@ def copy_database(source: Path, profiles: Path) -> Path:
     return destination
 
 
-def configure(argv=None) -> tuple[Path, dict]:
+def configure(argv=None, *, select_profile=None) -> tuple[Path, dict]:
     parser = argparse.ArgumentParser(
-        description="Horizon : interface Qt sur données d'essai isolées"
+        description="Commandes CAHPP Horizon : ouvrir un profil de travail"
     )
     parser.add_argument(
         "--profile", type=Path, help="Profil Horizon existant ou dossier vide"
+    )
+    parser.add_argument(
+        "--choose-profile", action="store_true", help="Choisir un profil de travail"
     )
     parser.add_argument(
         "--copy-database", type=Path, help="Créer une copie isolée d'une base CAHPP"
     )
     parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    if args.profile and args.copy_database:
-        parser.error("Choisir un profil ou une base à copier.")
-    path = (
-        copy_database(args.copy_database, data_root() / "profils")
-        if args.copy_database
-        else (args.profile or data_root() / "demonstration")
-    )
-    info = initialize_profile(path)
+    if (
+        sum(
+            bool(value)
+            for value in (args.profile, args.copy_database, args.choose_profile)
+        )
+        > 1
+    ):
+        parser.error(
+            "Choisir un profil, une base à importer ou le sélecteur de profil."
+        )
+    if args.copy_database:
+        path = copy_database(args.copy_database, data_root() / "profils")
+        info = profile_info(path)
+    elif args.profile:
+        path = args.profile
+        info = initialize_profile(path)
+        if (path / "data" / DATABASE_NAME).exists():
+            validate_profile_database(path)
+    else:
+        previous_error = ""
+        try:
+            path = None if args.choose_profile else remembered_profile()
+        except ValueError as exc:
+            if select_profile is None:
+                raise
+            path, previous_error = None, str(exc)
+        if path is not None:
+            info = profile_info(path)
+        elif select_profile is not None and not args.smoke_test:
+            selection = select_profile(previous_error)
+            if selection is None:
+                raise StartupCancelled()
+            if selection["action"] == "copy":
+                path = copy_database(Path(selection["path"]), data_root() / "profils")
+                info = profile_info(path)
+            elif selection["action"] == "open":
+                path = Path(selection["path"])
+                info = profile_info(path)
+                validate_profile_database(path)
+            elif selection["action"] == "create":
+                path = data_root() / "profils" / ("profil-" + uuid.uuid4().hex[:12])
+                info = initialize_profile(
+                    path,
+                    display_name=selection["name"],
+                    user_name=selection["user_name"],
+                )
+            else:
+                raise ValueError("Choix de profil non reconnu.")
+        else:
+            path = data_root() / "principal"
+            info = initialize_profile(path, display_name="Principal")
+    remember_profile(path)
     os.environ["CAHPP_PORTABLE_ROOT"] = str(path.resolve())
     os.environ["CAHPP_RESOURCE_ROOT"] = str(resource_root())
     return path.resolve(), {**info, "smoke_test": args.smoke_test}

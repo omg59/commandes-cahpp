@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0a9
+# Commandes CAHPP Horizon — 2.0.0b1
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
@@ -24,16 +24,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0a9-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0a9-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0b1-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0b1-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0a9-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0a9-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0b1-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0b1-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -77,22 +77,30 @@ Pour le développement, le lancement direct reste possible après installation d
 
 ## Profils et reprise des données
 
-Le premier lancement crée une démonstration fictive dans
-`%LOCALAPPDATA%/CommandesCAHPP-Horizon/demonstration` sous Windows, ou
-`$XDG_DATA_HOME/CommandesCAHPP-Horizon/demonstration` sous Linux
-(`~/.local/share` par défaut).
+Le premier lancement propose de **créer une base vide**, d'**importer une base
+CAHPP 1.6…** ou d'**ouvrir un profil existant**. La création demande le nom du
+profil et le nom de l'utilisateur. La base démarre sans fournisseur, article ni
+commande fictive ; importez ensuite votre catalogue depuis **Mise à jour CAHPP**.
 
-Dans **Paramètres → Maintenance**, **Copier une base 1.6…** crée un nouveau profil autonome. La base source est
-ouverte en lecture seule et copiée avec son journal WAL ; elle n'est jamais
-utilisée comme base de travail. Les PDF, pièces jointes et le logo accessibles
-sont copiés et leurs liens réécrits dans le nouveau profil. Les documents absents
-restent signalés comme indisponibles. Le marqueur du profil conserve le nombre
-de fichiers copiés ou absents.
+Le profil choisi est mémorisé et réouvert aux lancements suivants. La sélection
+est enregistrée dans `profil-actif.json`, à côté des profils, sous
+`%LOCALAPPDATA%/CommandesCAHPP-Horizon` sous Windows ou
+`$XDG_DATA_HOME/CommandesCAHPP-Horizon` sous Linux (`~/.local/share` par défaut).
+**Paramètres → Changer de profil…** ouvre le sélecteur dans une nouvelle fenêtre.
+Le profil actuel reste accessible dans sa fenêtre ; son nom figure dans le titre.
 
-La copie reçoit un nouvel identifiant utilisateur. Le partage et le dossier PDF
-de la source sont désactivés/effacés dans cette copie. L'activation ultérieure
-dans **Paramètres → Collaboration** est un choix explicite ; elle est ensuite
-conservée entre les lancements. Les anciens profils alpha 1 restent reconnus.
+Les profils de travail des versions alpha sont reconnus et proposés dans la liste.
+Les anciennes bases d'exemple restent sur disque et ne sont pas sélectionnées
+automatiquement lors du passage à la bêta. **Ouvrir un autre dossier…** permet de sélectionner explicitement un
+ancien profil. Un profil déplacé ou inaccessible déclenche un nouveau choix,
+sans création silencieuse d'une base de remplacement.
+
+L'importation, aussi disponible dans **Paramètres → Maintenance**, crée une copie
+autonome de la base avec son journal WAL, ses documents accessibles et son logo.
+La source reste en lecture seule. Les documents absents sont signalés ; le profil
+conserve le nombre de fichiers copiés ou manquants. La copie reçoit un nouvel
+identifiant utilisateur et son partage est désactivé. Configurez le partage et
+le dossier d'export dans ce nouveau profil avant de les utiliser.
 
 La copie conserve les fiches fournisseurs (numéro client, coordonnées, franco,
 minimum, notes), favoris, réglages d'établissement, identité, modèles PDF/e-mail
@@ -102,7 +110,7 @@ l'application. Les documents accessibles sont dupliqués sans modifier la source
 La mise à jour entre versions Horizon utilise le même installateur Horizon et
 conserve les profils. Le passage depuis la 1.6.0 est actuellement une **migration
 par copie**, avec installation des deux applications côte à côte. L'installateur
-d'essai ne remplace pas une installation 1.6.0. Une mise à niveau directe de la
+Horizon ne remplace pas une installation 1.6.0. Une mise à niveau directe de la
 version stable devra être préparée pour la diffusion finale de la 2.0.
 
 ## Commande et confort d'utilisation
@@ -169,7 +177,7 @@ les crédits et les informations sur les données et composants tiers. Le bouton
 
 Pour rouvrir une copie : `python main_horizon.py --profile "chemin/du/profil"`.
 Pour créer une copie : `python main_horizon.py --copy-database "chemin/base.sqlite3"`.
-`CAHPP_HORIZON_ROOT` change le dossier des profils d'essai. Un dossier existant
+`CAHPP_HORIZON_ROOT` change le dossier des profils. Un dossier existant
 sans marqueur Horizon est refusé.
 
 ## Fonctions de la 1.6.0 dans Horizon

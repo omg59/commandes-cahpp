@@ -26,7 +26,6 @@ class SuppliersPage(QWidget):
         self.source_updated = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(label("Fournisseurs", "title"))
         self.query = QLineEdit()
         self.query.setPlaceholderText("Rechercher un fournisseur…")
         self.query.textChanged.connect(self.filter)

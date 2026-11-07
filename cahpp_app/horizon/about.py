@@ -23,7 +23,7 @@ class AboutPage(QWidget):
         body.setContentsMargins(20, 20, 20, 20)
         body.setSpacing(12)
         body.addWidget(label(NAME, "heading"))
-        body.addWidget(label("Version " + VERSION + " · version d'essai", "badge"))
+        body.addWidget(label("Version " + VERSION + " · bêta", "badge"))
         body.addWidget(label("Auteur : Damien Macq"))
         body.addWidget(label("© 2026 Damien Macq", "muted"))
         for heading, text in [

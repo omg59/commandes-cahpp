@@ -12,7 +12,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cahpp_app.database import Database
-from cahpp_app.horizon.bootstrap import configure, copy_database, initialize_profile
+from cahpp_app.horizon.bootstrap import (
+    configure,
+    copy_database,
+    initialize_profile,
+    remembered_profile,
+    available_profiles,
+    StartupCancelled,
+)
 from cahpp_app.horizon.services import Cart, HorizonService, seed_demo
 
 
@@ -21,6 +28,11 @@ class HorizonCoreTest(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
+        environment = patch.dict(
+            os.environ, {"CAHPP_HORIZON_ROOT": str(self.root / "horizon")}
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
         self.db = Database(self.root / "source" / "data" / "commandes_cahpp.sqlite3")
         self.db.set_current_user("test", "Test")
         seed_demo(self.db)
@@ -42,7 +54,7 @@ class HorizonCoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             initialize_profile(self.root / "source")
         profile = self.root / "empty"
-        self.assertEqual(initialize_profile(profile)["mode"], "demo")
+        self.assertEqual(initialize_profile(profile)["mode"], "work")
         self.assertEqual(
             initialize_profile(profile)["application"], "commandes-cahpp-horizon"
         )
@@ -57,7 +69,77 @@ class HorizonCoreTest(unittest.TestCase):
                     / "ressources/horizon/ladapt.png"
                 ).is_file()
             )
-            self.assertEqual(info["mode"], "demo")
+            self.assertEqual(info["mode"], "work")
+
+    def test_new_working_profile_is_empty_and_next_start_reopens_it(self):
+        profile, info = configure([])
+        self.assertEqual(info["mode"], "work")
+        database = Database(profile / "data/commandes_cahpp.sqlite3")
+        self.assertEqual(database.dashboard_stats()["products"], 0)
+        database.save_settings({"establishment_name": "Mon établissement"})
+        reopened, _ = configure(
+            [],
+            select_profile=lambda message: self.fail(
+                "Le sélecteur ne doit pas s'ouvrir"
+            ),
+        )
+        self.assertEqual(reopened, profile)
+        self.assertEqual(
+            Database(reopened / "data/commandes_cahpp.sqlite3").get_settings()[
+                "establishment_name"
+            ],
+            "Mon établissement",
+        )
+
+    def test_first_selection_creates_profile_and_cancel_preserves_active_choice(self):
+        profile, info = configure(
+            [],
+            select_profile=lambda message: {
+                "action": "create",
+                "name": "Service A",
+                "user_name": "Prénom Nom",
+            },
+        )
+        self.assertEqual(info["display_name"], "Service A")
+        self.assertEqual(info["initial_user_name"], "Prénom Nom")
+        Database(profile / "data/commandes_cahpp.sqlite3")
+        self.assertEqual(remembered_profile(), profile)
+        with self.assertRaises(StartupCancelled):
+            configure(["--choose-profile"], select_profile=lambda message: None)
+        self.assertEqual(remembered_profile(), profile)
+
+    def test_imported_database_is_remembered_without_modifying_source(self):
+        profile, _ = configure(["--copy-database", str(self.db.path)])
+        self.assertEqual(configure([])[0], profile)
+        self.assertEqual(
+            len(Database(profile / "data/commandes_cahpp.sqlite3").list_suppliers()),
+            len(self.db.list_suppliers()),
+        )
+
+    def test_unavailable_active_profile_requires_choice_instead_of_empty_replacement(
+        self,
+    ):
+        profile, _ = configure([])
+        Database(profile / "data/commandes_cahpp.sqlite3")
+        (profile / "horizon-profile.json").unlink()
+        with self.assertRaisesRegex(ValueError, "dernier profil"):
+            configure([])
+        messages = []
+        with self.assertRaises(StartupCancelled):
+            configure([], select_profile=lambda message: messages.append(message))
+        self.assertIn("dernier profil", messages[0])
+
+    def test_existing_alpha_copy_is_available_and_sample_profile_stays_untouched(self):
+        root = self.root / "horizon"
+        old = root / "profils/copie-alpha"
+        initialize_profile(old, mode="copy")
+        Database(old / "data/commandes_cahpp.sqlite3")
+        sample = root / "demonstration"
+        initialize_profile(sample, mode="demo")
+        Database(sample / "data/commandes_cahpp.sqlite3")
+        self.assertIn(old, [p for p, _ in available_profiles()])
+        self.assertNotIn(sample, [p for p, _ in available_profiles()])
+        self.assertTrue((sample / "horizon-profile.json").is_file())
 
     def test_database_copy_includes_wal_and_leaves_source_and_collaboration_unchanged(
         self,

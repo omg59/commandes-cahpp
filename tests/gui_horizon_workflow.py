@@ -163,6 +163,9 @@ def main():
         assert db.get_supplier(sid)["email"] == "commande.fournisseur@example.org"
         assert db.get_supplier(sid)["franco_ht"] == 12.5
         assert not window.suppliers.has_unsaved_changes()
+        assert not any(
+            w.text() == "Fournisseurs" for w in window.suppliers.findChildren(QLabel)
+        )
         with db.connect() as c:
             pid = c.execute(
                 "SELECT id FROM products WHERE supplier_id=? AND catalog_review_token='' ORDER BY id LIMIT 1",
