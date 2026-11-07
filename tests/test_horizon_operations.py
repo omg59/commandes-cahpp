@@ -108,6 +108,21 @@ class HorizonOperationsTest(unittest.TestCase):
             a.save_cart(cart)
         self.assertEqual(self.db.get_order(oid)[1][0]["cartons"], 2)
 
+    def test_network_error_releasing_a_lock_does_not_prevent_closing(self):
+        a, b, other = self.pair()
+        cart = self.cart()
+        oid = a.save_cart(cart)
+        handle = a.order_lock
+        with patch(
+            "cahpp_app.collaboration.Path.unlink",
+            side_effect=OSError("Partage déconnecté"),
+        ):
+            a.close()
+        self.assertTrue(handle.released)
+        self.assertIsNone(a.order_lock)
+        self.assertIn("Partage déconnecté", a.last_sync_error)
+        self.assertEqual(self.db.get_order(oid)[1][0]["cartons"], 2)
+
     def test_nested_resources_do_not_release_the_outer_lock(self):
         a, b, other = self.pair()
         with a.locked_product(self.pid):

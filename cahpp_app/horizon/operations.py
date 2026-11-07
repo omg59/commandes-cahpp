@@ -9,13 +9,17 @@ réservées jusqu'à leur fermeture ; une réservation perdue interdit la sauveg
 from __future__ import annotations
 
 import threading
+import logging
 import uuid
 from contextlib import contextmanager, nullcontext
 from datetime import date, datetime
 from pathlib import Path
 
-from ..collaboration import CollaborationManager
+from ..collaboration import CollaborationManager, CollaborationError
 from ..local_services import configure_shared_workspace
+from ..app_logging import log_failure
+
+logger = logging.getLogger(__name__)
 
 
 class Operations:
@@ -55,7 +59,7 @@ class Operations:
             manager = CollaborationManager(self.database, actor, name, path)
             manager.initialize_workspace()
         if self.manager:
-            self.manager.release_all_locks()
+            self.release_all()
         self.order_lock = None
         self.editing_order = None
         self.database.save_settings({"user_id": actor, "user_name": name})
@@ -106,8 +110,10 @@ class Operations:
                 yield
             finally:
                 if handle:
-                    handle.release()
-                    self.held_resources.pop(resource, None)
+                    try:
+                        self.release_handle(handle)
+                    finally:
+                        self.held_resources.pop(resource, None)
 
     def locked_order(self, order_id):
         order, _ = self.database.get_order(order_id)
@@ -134,9 +140,28 @@ class Operations:
 
     def release_order(self):
         if self.order_lock:
-            self.order_lock.release()
+            self.release_handle(self.order_lock)
         self.order_lock = None
         self.editing_order = None
+
+    def release_handle(self, handle):
+        try:
+            handle.release()
+        except (OSError, CollaborationError) as exc:
+            self.last_sync_error = (
+                f"Libération d'un verrou : {type(exc).__name__}: {exc}"
+            )
+            log_failure(logger, "horizon_liberation_verrou_echec", exc)
+
+    def release_all(self):
+        if self.manager:
+            try:
+                self.manager.release_all_locks()
+            except (OSError, CollaborationError) as exc:
+                self.last_sync_error = (
+                    f"Libération des verrous : {type(exc).__name__}: {exc}"
+                )
+                log_failure(logger, "horizon_fermeture_verrous_echec", exc)
 
     def save_cart(self, cart, notes="", service="", selected_date=None):
         with self.write():
@@ -236,8 +261,7 @@ class Operations:
     def close(self):
         with self.guard:
             self.release_order()
-            if self.manager:
-                self.manager.release_all_locks()
+            self.release_all()
 
     def pending_installer(self, current_version, dismissed=""):
         import re

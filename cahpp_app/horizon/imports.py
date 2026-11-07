@@ -68,6 +68,15 @@ class ImportsPage(QWidget):
             if rows:
                 self.table.selectRow(0)
             self.shared.setEnabled(bool(self.pending))
+            if self.pending:
+                token = str(
+                    self.pending.get("sha256") or self.pending.get("version") or ""
+                )
+                if token and token != self.window.catalog_prompted:
+                    self.window.catalog_prompted = token
+                    self.window.notify(
+                        "Un nouveau catalogue partagé est disponible dans Mise à jour CAHPP."
+                    )
             self.status.setText(
                 "Catalogue partagé disponible : " + str(self.pending.get("version", ""))
                 if self.pending
