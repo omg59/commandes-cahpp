@@ -319,13 +319,23 @@ class SettingsPage(QWidget):
                 body.addWidget(self.copy_database_button)
             body.addStretch()
             self.tabs.addTab(page, title)
+            if title == "Établissement":
+                self.tabs.addTab(window.suppliers, "Fournisseurs")
         row = QHBoxLayout()
-        row.addWidget(button("Enregistrer les paramètres", self.save, "primary"))
+        self.save_button = button("Enregistrer les paramètres", self.save, "primary")
+        row.addWidget(self.save_button)
         row.addWidget(button("Diagnostics et débogage", window.open_diagnostics))
         row.addStretch()
         layout.addLayout(row)
         self.status = label("", "muted", True)
         layout.addWidget(self.status)
+        self.tabs.currentChanged.connect(self.tab_changed)
+
+    def tab_changed(self):
+        suppliers_selected = self.tabs.currentWidget() is self.window.suppliers
+        self.save_button.setVisible(not suppliers_selected)
+        if suppliers_selected:
+            self.window.suppliers.refresh()
 
     def widget(self, key):
         return next(f.widgets[key] for f in self.fields if key in f.widgets)
@@ -341,6 +351,8 @@ class SettingsPage(QWidget):
         return self.baseline is not None and self.values() != self.baseline
 
     def refresh(self):
+        if self.tabs.currentWidget() is self.window.suppliers:
+            self.window.suppliers.refresh()
         if self.has_unsaved_changes():
             return
         settings = self.window.database.get_settings()

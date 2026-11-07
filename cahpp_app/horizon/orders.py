@@ -32,11 +32,11 @@ from .forms import action, FormDialog, open_document, selected_row
 from ..local_services import (
     resolve_portable_path,
     safe_filename,
-    prepare_mail_order,
     mark_order_sent,
     delete_unsent_order,
 )
 from .tracking import OrderWorkspaceDialog
+from .dispatch import OrderDispatchDialog
 
 
 class PreparePage(QWidget):
@@ -124,12 +124,21 @@ class PreparePage(QWidget):
             "Enregistrer le brouillon", self.save_draft, "primary"
         )
         self.pdf_button = button(
-            "Générer le bon PDF…", lambda: self.generate_pdf(choose=True), "accent"
+            "Valider et générer le PDF…",
+            lambda: self.generate_pdf(choose=True),
+            "accent",
         )
         body.addWidget(self.save_button)
         body.addWidget(self.pdf_button)
+        self.send_button = button("Envoyer cette commande…", self.dispatch)
+        self.send_button.hide()
+        body.addWidget(self.send_button)
         body.addWidget(
-            label("La génération du PDF n'envoie rien au fournisseur.", "muted", True)
+            label(
+                "Après validation, une fenêtre propose l'envoi au fournisseur.",
+                "muted",
+                True,
+            )
         )
         split.addWidget(side)
         split.setSizes([580, 520])
@@ -141,6 +150,7 @@ class PreparePage(QWidget):
     def mark_dirty(self):
         if self.cart.lines:
             self.cart.dirty = True
+            self.send_button.hide()
 
     def reload_suppliers(self):
         current = self.suppliers.currentData()
@@ -275,6 +285,19 @@ class PreparePage(QWidget):
         )
         self.save_button.setEnabled(bool(self.cart.lines))
         self.pdf_button.setEnabled(bool(self.cart.lines))
+        order = (
+            self.window.database.get_order(self.cart.order_id)[0]
+            if self.cart.order_id
+            else None
+        )
+        self.send_button.setVisible(
+            bool(
+                order
+                and order["pdf_path"]
+                and not order["sent_at"]
+                and not self.cart.dirty
+            )
+        )
 
     @action
     def save_draft(self):
@@ -351,9 +374,18 @@ class PreparePage(QWidget):
             self.window.report_error(exc)
             return
         self.badge.setText(order["order_number"] + " · Générée, non envoyée")
-        self.window.notify("Bon PDF créé dans le dossier exports du profil Horizon.")
+        self.window.notify("Bon PDF créé : " + str(output))
         self.window.data_changed()
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(output)))
+        self.dispatch()
+
+    @action
+    def dispatch(self):
+        if self.cart.order_id and not self.cart.dirty:
+            OrderDispatchDialog(self.window, self.cart.order_id).exec()
+            self.update_totals()
+            if self.cart.order_id:
+                order, _ = self.window.database.get_order(self.cart.order_id)
+                self.badge.setText(order["order_number"] + " · " + order["status"])
 
     def load_order(self, oid):
         self.window.operations.hold_order(oid)
@@ -546,8 +578,9 @@ class OrdersPage(QWidget):
         self.resume = button("Reprendre en brouillon", self.resume_order)
         self.pdf = button("Ouvrir le PDF", self.open_pdf)
         self.sent = button("Marquer comme envoyée", self.mark_sent, "primary")
+        self.email = button("Envoyer au fournisseur…", self.prepare_email, "accent")
         self.delete = button("Supprimer la commande", self.delete_order)
-        for b in (self.resume, self.pdf, self.sent, self.delete):
+        for b in (self.resume, self.pdf, self.email, self.sent, self.delete):
             body.addWidget(b)
             b.setEnabled(False)
         body.addStretch()
@@ -556,7 +589,6 @@ class OrdersPage(QWidget):
         self.more_actions = QComboBox()
         self.more_actions.addItems(
             [
-                "Préparer l'e-mail",
                 "Régénérer le PDF…",
                 "Dupliquer la commande",
                 "Recommander certains articles…",
@@ -612,7 +644,7 @@ class OrdersPage(QWidget):
         if not row:
             self.heading.setText("Sélectionnez une commande")
             self.details.clear()
-            for b in (self.resume, self.pdf, self.sent, self.delete):
+            for b in (self.resume, self.pdf, self.email, self.sent, self.delete):
                 b.setEnabled(False)
             return
         self.heading.setText(row["order_number"])
@@ -628,6 +660,7 @@ class OrdersPage(QWidget):
         self.resume.setEnabled(editable)
         self.delete.setEnabled(editable)
         self.pdf.setEnabled(bool(row["pdf_path"]))
+        self.email.setEnabled(bool(row["pdf_path"]))
         self.sent.setEnabled(
             editable and row["status"] in ("Générée", "E-mail préparé")
         )
@@ -760,12 +793,10 @@ class OrdersPage(QWidget):
             raise ValueError("Sélectionnez une commande.")
         action_index = self.more_actions.currentIndex()
         if action_index == 0:
-            self.prepare_email()
-        elif action_index == 1:
             self.regenerate_pdf()
-        elif action_index in (2, 3):
-            self.duplicate(selective=action_index == 3)
-        elif action_index == 4:
+        elif action_index in (1, 2):
+            self.duplicate(selective=action_index == 2)
+        elif action_index == 3:
             order, _ = self.window.database.get_order(self.selected_id)
             with self.window.operations.locked_order(self.selected_id):
                 self.window.database.set_order_archived(
@@ -777,24 +808,13 @@ class OrdersPage(QWidget):
 
     @action
     def prepare_email(self):
-        with self.window.operations.locked_order(self.selected_id):
-            url, directory, files = prepare_mail_order(
-                self.window.database, self.selected_id
-            )
-            order, _ = self.window.database.get_order(self.selected_id)
-            if self.window.database.can_delete_unsent_order(order):
-                self.window.database.update_order_status(
-                    self.selected_id, "E-mail préparé"
-                )
+        if not self.selected_id:
+            raise ValueError("Sélectionnez une commande.")
+        order, _ = self.window.database.get_order(self.selected_id)
+        if not order["pdf_path"]:
+            raise ValueError("Générez d'abord le PDF de cette commande.")
+        OrderDispatchDialog(self.window, self.selected_id).exec()
         self.window.data_changed()
-        QMessageBox.information(
-            self,
-            "E-mail préparé",
-            "La fenêtre de composition va s'ouvrir. Ajoutez les fichiers du dossier de préparation avant d'envoyer.\n\n"
-            + "\n".join(p.name for p in files),
-        )
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
-        QDesktopServices.openUrl(QUrl(url))
 
     @action
     def regenerate_pdf(self):

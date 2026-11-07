@@ -16,6 +16,9 @@ class HorizonGuiTest(unittest.TestCase):
     def test_complete_workflow_and_debugging(self):
         self.run_scenario("tests.gui_horizon_workflow")
 
+    def test_pdf_to_supplier_without_changing_pages(self):
+        self.run_scenario("tests.gui_horizon_dispatch")
+
     def run_scenario(self, module):
         if importlib.util.find_spec("PySide6") is None:
             if os.environ.get("CAHPP_REQUIRE_HORIZON_GUI") == "1":

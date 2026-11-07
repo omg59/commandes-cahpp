@@ -45,6 +45,7 @@ def main():
     window.show()
     with (
         patch("cahpp_app.horizon.application.QMessageBox.warning") as warning,
+        patch("cahpp_app.horizon.orders.OrderDispatchDialog.exec", return_value=0),
         patch(
             "cahpp_app.horizon.orders.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,

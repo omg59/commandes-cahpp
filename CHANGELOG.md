@@ -1,5 +1,14 @@
 # Historique des versions
 
+## Horizon 2.0.0a5 — envoi simplifié, 7 novembre 2026
+
+- après validation et création du PDF, fenêtre d'envoi sans quitter la commande ;
+- accès direct au message prérempli, au PDF et au dossier des pièces jointes ;
+- confirmation explicite de l'envoi dans la même fenêtre, avec reprise ultérieure ;
+- bouton d'envoi direct dans l'historique, sans menu d'actions intermédiaire ;
+- gestion des fournisseurs déplacée dans Paramètres → Fournisseurs ;
+- tests du parcours complet, des annulations, des erreurs et des pièces jointes.
+
 ## Horizon 2.0.0a4 — paquets Linux, 7 novembre 2026
 
 - construction Linux x86_64 : AppImage autonome et archive portable tar.gz ;

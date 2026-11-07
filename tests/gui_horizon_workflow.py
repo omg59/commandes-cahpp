@@ -19,6 +19,7 @@ def main():
     from cahpp_app.horizon.services import seed_demo
     from cahpp_app.horizon.services import Cart
     from cahpp_app.horizon.settings import DiagnosticDialog
+    from cahpp_app.horizon.dispatch import OrderDispatchDialog
     from cahpp_app.horizon.tracking import OrderWorkspaceDialog, ReceiptDialog
     from cahpp_app.app_logging import configure_logging
     from openpyxl import load_workbook
@@ -40,6 +41,7 @@ def main():
         patch("PySide6.QtWidgets.QMessageBox.information"),
         patch("PySide6.QtWidgets.QMessageBox.warning") as warnings,
         patch("PySide6.QtGui.QDesktopServices.openUrl", return_value=True),
+        patch.object(OrderDispatchDialog, "exec", return_value=0),
     ):
         topbar = window.findChild(QFrame, "topbar")
         assert not topbar.findChildren(QPushButton)
@@ -85,7 +87,18 @@ def main():
         assert window.preferences.save()
         assert not window.preferences.has_unsaved_changes()
         assert db.get_settings()["email"] == "service.test@example.org"
-        window.navigate("suppliers")
+        assert "suppliers" not in window.nav_buttons
+        window.navigate("settings")
+        tabs = window.preferences.tabs
+        supplier_tab = tabs.indexOf(window.suppliers)
+        assert tabs.tabText(supplier_tab) == "Fournisseurs"
+        QTest.mouseClick(
+            tabs.tabBar(),
+            Qt.MouseButton.LeftButton,
+            pos=tabs.tabBar().tabRect(supplier_tab).center(),
+        )
+        assert tabs.currentWidget() is window.suppliers
+        assert not window.preferences.save_button.isVisible()
         wait(app, lambda: not window.jobs.tasks)
         sid = window.suppliers.current_id
         assert sid
@@ -206,7 +219,8 @@ def main():
         workspace.invoice()
         assert db.get_order(oid)[0]["delivery_status"] == "Livrée"
         assert db.get_order(oid)[0]["invoiced_at"]
-        window.orders.prepare_email()
+        with patch.object(OrderDispatchDialog, "exec", lambda dialog: dialog.compose()):
+            window.orders.prepare_email()
         assert list((profile / "envois").rglob("bl-test.txt"))
         window.orders.duplicate()
         duplicate = window.prepare.cart.order_id

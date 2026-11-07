@@ -150,7 +150,6 @@ class HorizonWindow(QMainWindow):
             ("prepare", "Nouvelle commande"),
             ("orders", "Commandes"),
             ("statistics", "Statistiques"),
-            ("suppliers", "Fournisseurs"),
             ("imports", "Mise à jour CAHPP"),
             ("settings", "Paramètres"),
         ]:
@@ -161,7 +160,7 @@ class HorizonWindow(QMainWindow):
             nav.addWidget(b)
         nav.addStretch()
         nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 4 · " + VERSION, "brandSub"))
+        nav.addWidget(label("Alpha 5 · " + VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
@@ -211,7 +210,6 @@ class HorizonWindow(QMainWindow):
             "prepare": self.prepare,
             "orders": self.orders,
             "statistics": self.statistics,
-            "suppliers": self.suppliers,
             "settings": self.preferences,
             "suggestions": self.suggestions,
             "imports": self.imports,
@@ -266,6 +264,11 @@ class HorizonWindow(QMainWindow):
 
     def navigate(self, key):
         if self.closing:
+            return
+        if key == "suppliers":
+            self.navigate("settings")
+            self.preferences.tabs.setCurrentWidget(self.suppliers)
+            self.suppliers.refresh()
             return
         self.stack.setCurrentWidget(self.containers[key])
         self.nav_buttons[key].setChecked(True)

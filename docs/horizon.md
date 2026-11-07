@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0a4
+# Commandes CAHPP Horizon — 2.0.0a5
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
@@ -24,16 +24,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0a4-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0a4-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0a5-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0a5-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0a4-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0a4-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0a5-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0a5-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -114,6 +114,29 @@ deux colonnes ; les quantités restent éditables dans la colonne **Cartons**.
 Les listes de fournisseurs acceptent la saisie d'un nom ou d'une partie du nom.
 Il faut choisir un résultat existant ; une saisie partielle n'est pas utilisée
 comme fournisseur d'une commande.
+
+Le bouton **Valider et générer le PDF…** crée le bon puis ouvre directement la
+fenêtre **Envoyer la commande au fournisseur**. Elle affiche le destinataire,
+le numéro, le montant et le PDF. **Ouvrir l'e-mail au fournisseur** prépare le
+message selon les modèles enregistrés et ouvre le dossier du PDF et des autres
+documents cochés pour l'e-mail. Joindre ces fichiers puis envoyer depuis la
+messagerie : une composition web ne permet pas de joindre automatiquement des
+fichiers locaux. **J'ai envoyé la commande** confirme ensuite l'envoi, ferme la
+fenêtre et libère le panier, sans passer par l'historique.
+
+**Plus tard** conserve la commande générée. Le bouton **Envoyer cette commande…**
+permet de reprendre depuis la préparation ; l'historique propose aussi un bouton
+direct **Envoyer au fournisseur…**. Un message déjà préparé peut être confirmé
+sans le rouvrir. Annuler la génération du PDF ou rencontrer une erreur de création
+n'ouvre pas la fenêtre d'envoi. Ouvrir la messagerie ne marque jamais la commande
+comme envoyée.
+
+Les fiches fournisseurs sont dans **Paramètres → Fournisseurs**, à côté de
+**Établissement** : coordonnées, e-mail, numéro client, minimum, franco et notes.
+La fiche conserve son propre bouton **Enregistrer la fiche** et protège les
+modifications non enregistrées. Si l'adresse manque dans la fenêtre d'envoi,
+un raccourci ouvre la fiche du fournisseur concerné ; la commande et le PDF sont
+conservés.
 
 La barre supérieure contient la recherche rapide et l'interrupteur soleil/lune
 pour les modes clair/sombre. Le choix est mémorisé dans le profil. Les actions

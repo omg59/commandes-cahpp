@@ -64,6 +64,7 @@ def apply_theme(app, dark=False):
         QPushButton#primary:disabled {{ background:{tint}; color:{muted}; border-color:{border}; }}
         QPushButton#accent {{ background:{YELLOW}; color:#17305B; border-color:{YELLOW}; }}
         QPushButton#accent:hover {{ background:#FFD45F; }}
+        QPushButton#accent:disabled {{ background:{tint}; color:{muted}; border-color:{border}; }}
         QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox,QTextEdit,QPlainTextEdit {{ background:{panel}; border:1px solid {border}; border-radius:7px; padding:8px; min-height:20px; selection-background-color:{BLUE}; selection-color:white; }}
         QLineEdit:focus,QComboBox:focus,QTextEdit:focus {{ border:2px solid {SKY}; }}
         QComboBox QAbstractItemView {{ background:{panel}; color:{text}; selection-background-color:{tint}; selection-color:{text}; }}
