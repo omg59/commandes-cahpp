@@ -137,8 +137,8 @@ class HorizonCoreTest(unittest.TestCase):
         sample = root / "demonstration"
         initialize_profile(sample, mode="demo")
         Database(sample / "data/commandes_cahpp.sqlite3")
-        self.assertIn(old, [p for p, _ in available_profiles()])
-        self.assertNotIn(sample, [p for p, _ in available_profiles()])
+        self.assertIn(old.resolve(), [p.resolve() for p, _ in available_profiles()])
+        self.assertNotIn(sample.resolve(), [p.resolve() for p, _ in available_profiles()])
         self.assertTrue((sample / "horizon-profile.json").is_file())
 
     def test_database_copy_includes_wal_and_leaves_source_and_collaboration_unchanged(
