@@ -85,6 +85,7 @@ jobs:
         shell: python
         run: |
           import json, os, sqlite3, subprocess, tempfile
+          from contextlib import closing
           from pathlib import Path
           exe = Path('dist/CommandesCAHPP-Horizon-portable/CommandesCAHPP-Horizon.exe').resolve()
           with tempfile.TemporaryDirectory() as profile:
@@ -92,7 +93,7 @@ jobs:
               subprocess.run([str(exe), '--profile', profile, '--smoke-test'], env=env, check=True, timeout=40)
               report = json.loads((Path(profile)/'startup-ok.json').read_text())
               assert report['version'] == '2.0.0b1' and report['qt_translated'], report
-              with sqlite3.connect(Path(profile)/'data/commandes_cahpp.sqlite3') as db:
+              with closing(sqlite3.connect(Path(profile)/'data/commandes_cahpp.sqlite3')) as db:
                   assert db.execute('SELECT COUNT(*) FROM products').fetchone()[0] == 0
                   assert db.execute('SELECT COUNT(*) FROM orders').fetchone()[0] == 0
               (Path(profile)/'startup-ok.json').unlink()
