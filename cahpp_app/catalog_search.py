@@ -24,6 +24,7 @@ class SearchRequest:
     limit: int
     allow_slow_fallback: bool
     fallback_to_all: bool = False
+    review_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ class LatestCatalogSearchWorker:
         limit: int,
         allow_slow_fallback: bool,
         fallback_to_all: bool = False,
+        review_only: bool = False,
     ) -> int:
         with self._condition:
             if self._closed:
@@ -77,6 +79,7 @@ class LatestCatalogSearchWorker:
                 limit,
                 allow_slow_fallback,
                 fallback_to_all,
+                review_only,
             )
             self._pending = request
             if self._current_cancel is not None:
@@ -122,6 +125,7 @@ class LatestCatalogSearchWorker:
                     limit=request.limit,
                     allow_slow_fallback=request.allow_slow_fallback,
                     cancel_event=cancel_event,
+                    **({"review_only": True} if request.review_only else {}),
                 )
                 if (request.fallback_to_all and not request.query.strip()
                         and request.favorite_only and not result.rows):

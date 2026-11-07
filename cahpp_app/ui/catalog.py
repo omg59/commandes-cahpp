@@ -60,6 +60,15 @@ class CatalogPage(BasePage):
         )
         self.search_button.pack(side="right")
 
+        review_filters = ttk.Frame(self)
+        review_filters.pack(fill="x", pady=(0, 8))
+        self.review_only_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            review_filters,
+            text="Articles à vérifier uniquement",
+            variable=self.review_only_var,
+            command=lambda: self.search(force=True),
+        ).pack(side="left")
         table_frame = ttk.Frame(self)
         table_frame.pack(fill="both", expand=True)
         columns = (
@@ -272,6 +281,7 @@ class CatalogPage(BasePage):
             favorite_only=self.favorite_var.get(),
             limit=self._display_limit + 1,
             allow_slow_fallback=force or len(query) >= 3,
+            review_only=self.review_only_var.get(),
         )
         self._start_result_polling()
 
@@ -369,6 +379,8 @@ class CatalogPage(BasePage):
                     (
                         "Local"
                         if row["source"] == "LOCAL"
+                        else "CAHPP ⚠"
+                        if row["catalog_review_required"]
                         else "CAHPP ✎"
                         if row["has_override"]
                         else "CAHPP"
@@ -600,12 +612,29 @@ class ProductEditDialog(tk.Toplevel):
         self.transient(parent.winfo_toplevel())
         self.grab_set()
 
-        surface = ttk.Frame(self, padding=20)
-        surface.pack(fill="both", expand=True)
+        outer = ttk.Frame(self)
+        outer.pack(fill="both", expand=True)
+        footer = ttk.Frame(outer, padding=(20, 10))
+        footer.pack(side="bottom", fill="x")
+        body = ttk.Frame(outer)
+        body.pack(fill="both", expand=True)
+        canvas = tk.Canvas(body, highlightthickness=0, background=COLORS["background"])
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        surface = ttk.Frame(canvas, padding=20)
+        window = canvas.create_window(0, 0, anchor="nw", window=surface)
+        surface.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
+        self.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units"))
+        self.bind("<Button-4>", lambda event: canvas.yview_scroll(-1, "units"))
+        self.bind("<Button-5>", lambda event: canvas.yview_scroll(1, "units"))
         ttk.Label(
             surface,
             text=str(self.product["designation"]),
             font=("Segoe UI Semibold", 14),
+            wraplength=570,
         ).grid(row=0, column=0, columnspan=2, sticky="w")
         ttk.Label(
             surface,
@@ -652,25 +681,46 @@ class ProductEditDialog(tk.Toplevel):
                 pady=(12, 0),
             )
 
-        actions = ttk.Frame(surface)
-        actions.grid(
-            row=3 + len(definitions),
-            column=0,
-            columnspan=2,
-            sticky="e",
-            pady=(20, 0),
-        )
+        self.review_confirmed_var = tk.BooleanVar()
+        if self.product["catalog_review_required"]:
+            ttk.Label(
+                surface,
+                text=self.product["catalog_review_reason"]
+                + " Vérifiez les valeurs auprès du fournisseur avant de confirmer.",
+                wraplength=570,
+                foreground=COLORS["warning"],
+            ).grid(
+                row=3 + len(definitions),
+                column=0,
+                columnspan=2,
+                sticky="w",
+                pady=(10, 4),
+            )
+            ttk.Checkbutton(
+                surface,
+                text="J'ai vérifié les informations et corrigé les valeurs ci-dessus.",
+                variable=self.review_confirmed_var,
+            ).grid(row=4 + len(definitions), column=0, columnspan=2, sticky="w")
+        actions = footer
         ttk.Button(actions, text="Annuler", command=self.destroy).pack(side="left")
-        ttk.Button(
+        self.save_button = ttk.Button(
             actions,
             text="Enregistrer",
             style="Accent.TButton",
             command=self.save,
-        ).pack(side="left", padx=(8, 0))
+        )
+        self.save_button.pack(side="left", padx=(8, 0))
         surface.columnconfigure(1, weight=1)
 
     def save(self) -> None:
         try:
+            if (
+                self.product["catalog_review_required"]
+                and not self.review_confirmed_var.get()
+            ):
+                raise ValueError(
+                    "Vérifiez les valeurs puis cochez la confirmation des informations."
+                )
             designation = self.vars["designation"].get().strip()
             if not designation:
                 raise ValueError("La désignation est obligatoire.")
@@ -698,15 +748,20 @@ class ProductEditDialog(tk.Toplevel):
                 "unit_price": unit_price,
                 "vat": vat,
             }
+            if self.product["source"] == "LOCAL":
+                self.database.update_manual_product(self.product_id, **values)
+            else:
+                self.database.set_product_override(
+                    self.product_id,
+                    **values,
+                    catalog_review_confirmed=self.review_confirmed_var.get(),
+                    reviewed_catalog_token=self.product["catalog_review_token"],
+                )
             self.database.update_product_team_details(
                 self.product_id,
                 internal_notes=self.vars["internal_notes"].get(),
                 replacement_code_cahpp=self.vars["replacement_code_cahpp"].get(),
             )
-            if self.product["source"] == "LOCAL":
-                self.database.update_manual_product(self.product_id, **values)
-            else:
-                self.database.set_product_override(self.product_id, **values)
             self.saved = True
             self.destroy()
         except ValueError as exc:

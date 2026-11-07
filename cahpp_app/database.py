@@ -356,8 +356,14 @@ PRODUCT_SELECT = """
     po.conditionnement AS override_conditionnement,
     po.unit_packaging AS override_unit_packaging,
     po.unit_price AS override_unit_price,
-    po.vat AS override_vat
+    po.vat AS override_vat,
+    po.validated_catalog_token AS override_validated_catalog_token
 """
+
+CATALOG_REVIEW_SQL = """(
+    (p.catalog_review_token <> '' AND p.catalog_review_token <> COALESCE(po.validated_catalog_token,''))
+    OR (p.source='CAHPP' AND COALESCE(NULLIF(COALESCE(po.conditionnement,p.conditionnement),0),p.qml,0)<=0)
+)"""
 
 
 _SIMPLE_EMAIL_PATTERN = re.compile(
@@ -464,6 +470,9 @@ class Database:
         self._fts_lock = threading.RLock()
         self._fts_retry_after = 0.0
         self.last_search_repair: dict[str, object] = {}
+        self._search_stats_prepared = False
+        self._search_stats_retry_after = 0.0
+        self.search_plan_preparation: dict[str, object] = {}
         self.current_user_id = ""
         self.current_user_name = "Utilisateur"
         self.initialize()
@@ -511,7 +520,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 14")
+            connection.execute("PRAGMA user_version = 15")
 
     def _create_search_table(self, connection: sqlite3.Connection) -> None:
         connection.execute(
@@ -605,6 +614,18 @@ class Database:
             ("replacement_code_cahpp", "TEXT NOT NULL DEFAULT ''"),
         ):
             self._ensure_column(connection, "products", column, declaration)
+        for column in ("catalog_review_token", "catalog_review_reason"):
+            self._ensure_column(connection, "products", column, "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column(connection, "product_overrides", "validated_catalog_token", "TEXT NOT NULL DEFAULT ''")
+        for column, declaration in (
+            ("mode", "TEXT NOT NULL DEFAULT 'full'"),
+            ("period", "TEXT NOT NULL DEFAULT ''"),
+            ("deactivated_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("review_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("warnings_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("previous_catalog_hash", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            self._ensure_column(connection, "imports", column, declaration)
         for column, declaration in (
             ("internal_notes", "TEXT NOT NULL DEFAULT ''"),
             ("replacement_code_cahpp", "TEXT NOT NULL DEFAULT ''"),
@@ -927,18 +948,69 @@ class Database:
         return " AND ".join(f'"{term}"*' for term in terms[:10])
 
     @staticmethod
-    def _execute_fts_search(connection, fts, where, parameters, limit):
-        """Requête commune au contrôle fonctionnel et à la recherche utilisateur."""
-        return list(connection.execute(
-            f"""SELECT {PRODUCT_SELECT}
+    def _fts_search_sql(where: str) -> str:
+        # Des statistiques périmées peuvent faire choisir une boucle sur tous
+        # les produits, avec réouverture de FTS5 pour chacun. CROSS JOIN impose
+        # de partir des correspondances MATCH, puis de lire chaque produit par ID.
+        return f"""SELECT {PRODUCT_SELECT}
                 FROM product_search
-                JOIN products p ON p.id = product_search.rowid
+                CROSS JOIN products p ON p.id = product_search.rowid
                 LEFT JOIN product_overrides po ON po.product_id = p.id
                 WHERE product_search MATCH ? AND {where}
                 ORDER BY p.favorite DESC, bm25(product_search),
                          COALESCE(po.designation, p.designation)
-                LIMIT ?""", [fts, *parameters, limit],
+                LIMIT ?"""
+
+    @staticmethod
+    def _execute_fts_search(connection, fts, where, parameters, limit):
+        """Requête commune au contrôle fonctionnel et à la recherche utilisateur."""
+        return list(connection.execute(
+            Database._fts_search_sql(where), [fts, *parameters, limit],
         ))
+
+    def _prepare_search_statistics(self) -> None:
+        """Actualise les estimations du planificateur une fois par catalogue/session."""
+        if self._search_stats_prepared or time.monotonic() < self._search_stats_retry_after:
+            return
+        started = time.perf_counter()
+        status: dict[str, object] = {
+            "checked_at": datetime.now().isoformat(timespec="seconds"), "success": False,
+        }
+        try:
+            with self.connect() as connection:
+                # Une analyse concurrente ne doit pas bloquer la recherche 30 s.
+                connection.execute("PRAGMA busy_timeout = 1000")
+                connection.execute("ANALYZE products")
+                connection.execute("ANALYZE product_overrides")
+            self._search_stats_prepared = True
+            self._search_stats_retry_after = 0
+            status["success"] = True
+        except sqlite3.DatabaseError as exc:
+            log_failure(logger, "recherche_statistiques_echec", exc)
+            status["error_type"] = type(exc).__name__
+            status["sqlite_code"] = getattr(exc, "sqlite_errorname", "")
+            self._search_stats_retry_after = time.monotonic() + 30
+        status["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
+        self.search_plan_preparation = status
+        logger.info("recherche_statistiques succes=%s duree_ms=%d", status["success"], status["elapsed_ms"])
+
+    def prepare_catalog_statistics(self) -> None:
+        """Rafraîchit les estimations avant une fusion de catalogue potentiellement massive."""
+        with self._fts_lock:
+            self._search_stats_prepared = False
+            self._search_stats_retry_after = 0
+            self._prepare_search_statistics()
+
+    def catalog_search_plan(self) -> list[str]:
+        """Expose le plan d'une recherche témoin, jamais le texte saisi par l'utilisateur."""
+        try:
+            with self.connect() as connection:
+                return [str(row[3]) for row in connection.execute(
+                    "EXPLAIN QUERY PLAN " + self._fts_search_sql("p.active = 1"),
+                    ('"cahppdiagnostic"', 101),
+                )]
+        except sqlite3.DatabaseError as exc:
+            return [f"Plan indisponible : {type(exc).__name__} / {getattr(exc, 'sqlite_errorname', '')}"]
 
     def _probe_search_index(self, connection) -> None:
         """Teste MATCH et le classement sur un article connu, sans exporter son texte."""
@@ -991,6 +1063,7 @@ class Database:
 
     def search_index_status(self, *, deep: bool = False) -> dict[str, object]:
         with self._fts_lock:
+            self._prepare_search_statistics()
             return self._search_index_status(deep=deep)
 
     def _search_index_status(self, *, deep: bool = False) -> dict[str, object]:
@@ -1077,6 +1150,7 @@ class Database:
     def ensure_search_index(self, force: bool = False) -> dict[str, object]:
         """Vérifie puis répare l'index une seule fois par session si nécessaire."""
         with self._fts_lock:
+            self._prepare_search_statistics()
             if self._fts_verified and not force:
                 return dict(self._fts_status_cache)
             if not force and time.monotonic() < self._fts_retry_after:
@@ -1101,7 +1175,7 @@ class Database:
             raise SearchCancelled()
         if reason.get("value") == "timeout":
             raise SearchTimeoutError(
-                "La recherche de secours a été interrompue pour préserver "
+                "La recherche a été interrompue pour préserver "
                 "la réactivité de l'application."
             )
 
@@ -1113,6 +1187,7 @@ class Database:
         limit: int = 200,
         include_inactive: bool = False,
         *,
+        review_only: bool = False,
         allow_slow_fallback: bool = False,
         cancel_event: threading.Event | None = None,
         timeout_seconds: float = 4.0,
@@ -1127,6 +1202,8 @@ class Database:
             parameters.append(supplier_id)
         if favorite_only:
             filters.append("p.favorite = 1")
+        if review_only:
+            filters.append(CATALOG_REVIEW_SQL)
         where = " AND ".join(filters) if filters else "1 = 1"
         query = query.strip()
         index_status: dict[str, object] = {}
@@ -1244,7 +1321,13 @@ class Database:
             if override is not None:
                 product[field] = override
                 has_override = True
-        product["has_override"] = has_override
+        product["has_override"] = has_override or bool(product.get("override_validated_catalog_token"))
+        product["catalog_review_required"] = bool(
+            product.get("catalog_review_token") and
+            product["catalog_review_token"] != product.get("override_validated_catalog_token")
+        ) or (product["source"] == "CAHPP" and money(product.get("conditionnement") or product.get("qml")) <= 0)
+        if product["catalog_review_required"] and not product["catalog_review_reason"]:
+            product["catalog_review_reason"] = "Conditionnement absent : quantité à renseigner."
         return product
 
     def get_product(self, product_id: int) -> dict[str, object] | None:
@@ -1529,10 +1612,18 @@ class Database:
         unit_packaging: str,
         unit_price: float,
         vat: float,
+        catalog_review_confirmed: bool = False,
+        reviewed_catalog_token: str = "",
     ) -> None:
         product = self.get_product(product_id)
         if product is None or product["source"] != "CAHPP":
             raise ValueError("Cette référence n'est pas issue du catalogue CAHPP.")
+        if product["catalog_review_required"] and (not catalog_review_confirmed or reviewed_catalog_token != product["catalog_review_token"]):
+            raise ValueError("Confirmez la vérification des informations de cet article.")
+        if parse_decimal(conditionnement, "Conditionnement", minimum=0) <= 0:
+            raise ValueError("Le conditionnement doit être supérieur à zéro.")
+        parse_decimal(unit_price, "Prix", minimum=0)
+        parse_decimal(vat, "TVA", minimum=0, maximum=100)
 
         edited: dict[str, object] = {
             "supplier_ref": supplier_ref.strip(),
@@ -1546,22 +1637,26 @@ class Database:
         for field, value in edited.items():
             catalog_value = product[f"catalog_{field}"]
             if field in {"conditionnement", "unit_price", "vat"}:
-                same = money(value) == money(catalog_value)
+                same = catalog_value is not None and money(value) == money(catalog_value)
             else:
                 same = str(value or "").strip() == str(
                     catalog_value or ""
                 ).strip()
             overrides[field] = None if same else value
 
-        now = datetime.now().isoformat(timespec="seconds")
+        now = datetime.now().isoformat(timespec="microseconds")
         _, actor_name = self._actor()
         with self.session() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute("SELECT catalog_review_token FROM products WHERE id=?", (product_id,)).fetchone()
+            if current is None or current[0] != product["catalog_review_token"]:
+                raise ValueError("Le catalogue a changé pendant la modification. Rouvrez la fiche avant de confirmer.")
             connection.execute(
                 """
                 INSERT INTO product_overrides(
                     product_id, supplier_ref, designation, conditionnement,
-                    unit_packaging, unit_price, vat, updated_at, updated_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    unit_packaging, unit_price, vat, updated_at, updated_by, validated_catalog_token
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(product_id) DO UPDATE SET
                     supplier_ref = excluded.supplier_ref,
                     designation = excluded.designation,
@@ -1570,7 +1665,8 @@ class Database:
                     unit_price = excluded.unit_price,
                     vat = excluded.vat,
                     updated_at = excluded.updated_at,
-                    updated_by = excluded.updated_by
+                    updated_by = excluded.updated_by,
+                    validated_catalog_token = excluded.validated_catalog_token
                 """,
                 (
                     product_id,
@@ -1582,6 +1678,7 @@ class Database:
                     overrides["vat"],
                     now,
                     actor_name,
+                    product["catalog_review_token"] if catalog_review_confirmed else (product.get("override_validated_catalog_token") or ""),
                 ),
             )
             connection.execute(
@@ -1594,7 +1691,7 @@ class Database:
             self._add_product_to_search(connection, product_id)
 
     def reset_product_override(self, product_id: int) -> None:
-        now = datetime.now().isoformat(timespec="seconds")
+        now = datetime.now().isoformat(timespec="microseconds")
         _, actor_name = self._actor()
         with self.session() as connection:
             connection.execute(
@@ -1607,6 +1704,7 @@ class Database:
                     supplier_ref = NULL, designation = NULL,
                     conditionnement = NULL, unit_packaging = NULL,
                     unit_price = NULL, vat = NULL,
+                    validated_catalog_token = '',
                     updated_at = excluded.updated_at,
                     updated_by = excluded.updated_by
                 """,
@@ -1657,6 +1755,31 @@ class Database:
         except sqlite3.OperationalError as exc:
             self._fts_verified = False
             log_failure(logger, "fts_article_retrait_echec", exc)
+
+    def validate_catalog_lines(self, lines, *, connection=None) -> None:
+        """Refuse un article retiré, non vérifié ou un ancien colisage devenu caduc."""
+        if connection is None:
+            with self.connect() as owned:
+                self.validate_catalog_lines(lines, connection=owned)
+            return
+        for line in lines:
+            if not line.get("product_id"):
+                continue
+            row = connection.execute(
+                f"SELECT {PRODUCT_SELECT} FROM products p LEFT JOIN product_overrides po ON po.product_id=p.id WHERE p.id=?",
+                (line["product_id"],),
+            ).fetchone()
+            if row is None:
+                continue
+            product = self._effective_product(row)
+            if not product["active"]:
+                raise ValueError(f"L'article {product['supplier_ref']} n'est plus actif. Retirez-le de la préparation.")
+            if product["catalog_review_required"]:
+                raise ValueError(f"Vérifiez d'abord les informations de {product['supplier_ref']} dans Catalogue > Modifier l'article.")
+            if product["catalog_review_token"]:
+                quantities = [money(product[key]) for key in ("conditionnement", "qml") if product.get(key)]
+                if money(line.get("units_per_carton")) not in quantities:
+                    raise ValueError(f"Le conditionnement de {product['supplier_ref']} a changé. Retirez puis ajoutez de nouveau cette ligne.")
 
     def _record_order_audit(
         self,
@@ -1786,6 +1909,7 @@ class Database:
 
         with self.session() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            self.validate_catalog_lines(lines, connection=connection)
             if not is_new:
                 existing = connection.execute(
                     "SELECT * FROM orders WHERE id = ?", (order_id,)
@@ -3346,7 +3470,8 @@ class Database:
                     """
                     SELECT p.code_cahpp, po.supplier_ref, po.designation,
                            po.conditionnement, po.unit_packaging,
-                           po.unit_price, po.vat, po.updated_at, po.updated_by
+                           po.unit_price, po.vat, po.updated_at, po.updated_by,
+                           po.validated_catalog_token
                     FROM product_overrides po
                     JOIN products p ON p.id = po.product_id
                     WHERE p.source = 'CAHPP'
@@ -3636,8 +3761,8 @@ class Database:
                     """
                     INSERT INTO product_overrides(
                         product_id, supplier_ref, designation, conditionnement,
-                        unit_packaging, unit_price, vat, updated_at, updated_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        unit_packaging, unit_price, vat, updated_at, updated_by, validated_catalog_token
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(product_id) DO UPDATE SET
                         supplier_ref = excluded.supplier_ref,
                         designation = excluded.designation,
@@ -3646,7 +3771,8 @@ class Database:
                         unit_price = excluded.unit_price,
                         vat = excluded.vat,
                         updated_at = excluded.updated_at,
-                        updated_by = excluded.updated_by
+                        updated_by = excluded.updated_by,
+                        validated_catalog_token = excluded.validated_catalog_token
                     """,
                     (
                         product_id,
@@ -3658,6 +3784,7 @@ class Database:
                         record.get("vat"),
                         record.get("updated_at") or "",
                         record.get("updated_by") or "",
+                        record.get("validated_catalog_token") or "",
                     ),
                 )
                 affected_products.add(product_id)
@@ -4332,6 +4459,8 @@ class Database:
             self._fts_verified = False
             self._fts_status_cache = {}
             self._fts_retry_after = 0
+            self._search_stats_prepared = False
+            self._search_stats_retry_after = 0
             return True
 
     def backup(self, destination: Path | str) -> Path:
@@ -4437,6 +4566,9 @@ class Database:
                         "SELECT COUNT(*) FROM imports"
                     ).fetchone()[0]
                 ),
+                "catalog_reviews": int(connection.execute(
+                    "SELECT COUNT(*) FROM products p LEFT JOIN product_overrides po ON po.product_id=p.id WHERE p.active=1 AND " + CATALOG_REVIEW_SQL
+                ).fetchone()[0]),
             }
             anomalies = {
                 "orders_without_shared_uid": int(
@@ -4476,7 +4608,10 @@ class Database:
             "fts_available": self.fts_available,
             "search_index": search_index,
             "last_search_repair": dict(self.last_search_repair),
+            "search_plan_preparation": dict(self.search_plan_preparation),
+            "catalog_search_plan": self.catalog_search_plan(),
             "quick_check": quick_check,
             "counts": counts,
+            "catalog_effective_period": self.get_settings().get("catalog_effective_period", ""),
             "anomalies": anomalies,
         }

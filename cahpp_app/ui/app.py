@@ -450,6 +450,9 @@ class App(ttk.Frame):
     def _offer_shared_catalog(self) -> None:
         if not self.collaboration:
             return
+        page: ImportPage = self.pages["import"]  # type: ignore[assignment]
+        if page.import_running:
+            return
         manifest = self.collaboration.pending_catalog()
         if not manifest:
             return
@@ -467,7 +470,6 @@ class App(ttk.Frame):
             parent=self.root,
         ):
             return
-        page: ImportPage = self.pages["import"]  # type: ignore[assignment]
         self.show_page("import")
         page.start_shared_import(manifest)
 

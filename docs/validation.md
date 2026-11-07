@@ -29,11 +29,14 @@ Les pannes réseau sont simulées : elles ne remplacent pas un essai sur le
 partage SMB réel. Les tests graphiques couvrent les neuf pages, une recherche,
 les fiches fournisseur/article et un parcours brouillon, PDF puis reprise avant
 envoi, avec fermeture et réouverture. Ils ne couvrent pas encore tous les
-dialogues ni tous les parcours utilisateur.
+dialogues ni tous les parcours utilisateur. L'import mensuel couvre aussi
+l'annulation de l'aperçu, une panne de sauvegarde, la vérification d'un article
+et son passage en commande.
 La construction PyInstaller n'est pas un test du lancement de l'EXE installé.
 
-La version 1.5.1 reste en préparation tant que ses contrôles Windows, son
-installation et sa mise à jour sur un poste de test n'ont pas été validés.
+L'essai utilisateur de la 1.6.0 compilée sous Windows est consigné ci-dessous.
+Les cases de validation restent une checklist à reprendre pour chaque
+déploiement, notamment pour le partage SMB réel.
 
 ## Validation manuelle avant déploiement
 
@@ -56,6 +59,16 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
 
 - [ ] Importer un catalogue puis une mise à jour ; vérifier ajouts, retraits,
       variations de prix et conservation des anciennes lignes de commande.
+- [ ] Importer un fichier **Evo TARIFS** : aperçu, mois, sauvegarde préalable,
+      conservation des références absentes et application de `ARTICLEACTIF`.
+- [ ] Annuler l'aperçu et simuler une sauvegarde impossible : aucune modification.
+- [ ] Tester le refus d'un mois manquant et d'un mois antérieur, la confirmation
+      d'une révision et la réimportation identique sans nouvel import.
+- [ ] Filtrer les articles à vérifier, confirmer un colisage puis commander ;
+      tester le blocage d'un article non validé et la nouvelle vérification après
+      une évolution qui change à nouveau le conditionnement.
+- [ ] Reprendre un brouillon préparé avant un changement de conditionnement :
+      actualiser sa ligne avant l'enregistrement ou la génération du PDF.
 - [ ] Saisir rapidement une recherche, changer de filtre et afficher davantage
       de résultats : seule la dernière recherche est affichée et l'interface répond.
 - [ ] Dans **Paramètres → Collaboration → Diagnostic**, cliquer sur **Reconstruire
@@ -63,6 +76,10 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
       et la recherche avec classement ; refaire une recherche connue du catalogue.
 - [ ] Sur le poste rencontrant l'erreur, exporter le rapport après la tentative,
       même si elle échoue ; vérifier que les commandes et corrections sont conservées.
+- [ ] Sur le poste lent, essayer les recherches qui dépassaient le délai,
+      puis une recherche sans résultat. Exporter le diagnostic après l'essai :
+      statistiques du planificateur **OK**, plan FTS avant lecture des produits.
+      Il n'est pas nécessaire de reconstruire un index déjà sain pour ce test.
 - [ ] Tester le tri dans les deux sens et sa conservation après recherche.
 - [ ] Ajouter un favori, modifier sa quantité habituelle, corriger un article,
       rétablir ses valeurs CAHPP ; créer, modifier puis archiver un article local.
@@ -114,6 +131,11 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
       d'espace commun ; lecture, écriture et renommage atomique indiqués OK.
 - [ ] Le second poste reçoit le catalogue publié et les données d'équipe :
       fournisseurs, favoris, quantités, corrections, articles et paramètres communs.
+- [ ] Avec les deux postes en 1.6.0, appliquer deux mois sur le premier puis
+      recevoir directement le dernier catalogue sur le second resté hors ligne.
+      Refaire sur une base vide ; contrôler retraits, quantités et vérifications.
+- [ ] Couper le partage pendant la publication ; relancer le même fichier après
+      reconnexion : pas de double application et catalogue distant complet.
 - [ ] Vérifier le délai automatique après redémarrage et la préservation des
       fiches établissement/fournisseur contenant des saisies non enregistrées.
 - [ ] Deux commandes différentes sont modifiables en parallèle ; un même
@@ -126,7 +148,7 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
 
 ### Diagnostic final et résultat
 
-- [ ] Intégrité, recherche plein texte et cohérence de l'index : OK ; schéma 14.
+- [ ] Intégrité, recherche plein texte et cohérence de l'index : OK ; schéma 15.
 - [ ] En collaboration : identité et empreinte du catalogue cohérentes,
       synchronisation à jour et absence de verrou expiré hors test volontaire.
 - [ ] Exporter le diagnostic ; vérifier les événements récents et l'absence de
@@ -135,9 +157,81 @@ locales et un même dossier partagé pour les scénarios collaboratifs.
       postes avant de modifier les données de test.
 - [ ] Consigner la version, la date, les postes testés et le résultat du déploiement.
 
+## Validation de la 1.6.0
+
+Le 7 novembre 2026, sous Linux avec Python 3.12, les 66 tests automatisés passent,
+y compris les quatre scénarios avec interface Tk, ainsi que Ruff et le contrôle
+des versions. Les tests couvrent notamment la chronologie des mois, le rollback,
+les réimports concurrents, les corrections et commandes conservées, les
+vérifications de colisage et la reprise après échec de publication.
+
+Le fichier de novembre fourni, contenant 2 758 références distinctes, a été
+appliqué à une copie d'une base fictive de 158 488 articles : ces articles
+absents du fichier restent actifs et les 378 références explicitement inactives
+du fichier sont respectées. L'import programmatique, hors sauvegarde préalable,
+a pris environ 4,2 secondes dans cet environnement.
+
+Les codes de cette base fictive étant distincts, le catalogue reconstitué compte
+161 246 lignes. Sa publication a pris environ 42 secondes et son import sur
+une seconde base vide environ 77 secondes. Les comptes actifs/inactifs, jetons de
+contrôle et entrées FTS concordent ; l'intégrité SQLite et FTS5 est valide.
+Le nombre d'ajouts et d'articles à vérifier sur les postes réels dépend de leur
+base existante. Ces mesures ne prédisent pas les délais du partage SMB ou des PC.
+
+### Essai utilisateur sous Windows
+
+Le 7 novembre 2026, l'utilisateur confirme son essai de la 1.6.0 compilée sous
+Windows 11 : nouvelles références, changements de prix et de référence, arrêts
+de commercialisation vérifiés sans erreur apparente. Le diagnostic fourni
+confirme le schéma 15, deux imports, le mois 2026-11 et 165 articles à vérifier.
+L'intégrité SQLite est valide ; les 158 865 articles sont indexés sans entrée
+manquante, orpheline ou texte différent. La reconstruction après import réussit
+en 1 595 ms. Le plan témoin part de FTS5 et lit les produits par clé primaire ;
+les recherches journalisées prennent généralement 2 à 4 ms, avec une recherche
+isolée à 774 ms après l'import. Le journal présenté ne contient aucune erreur.
+
+La collaboration est désactivée dans ce diagnostic. L'essai sur le partage SMB
+réel et sur le poste de la collègue reste à effectuer ; les scénarios automatisés
+de publication et de réception sur deux bases temporaires passent.
+
+### Enchaînement sur les deux fichiers réels d'octobre et novembre
+
+Le catalogue complet d'octobre fourni contient 158 484 références et une
+colonne réservée `ARTICLEACTIF` vide. Le lecteur conserve le comportement
+historique de ce catalogue complet ; les fichiers mensuels exigent toujours
+un statut explicite. Un test de régression couvre cette différence.
+
+L'application des 2 758 lignes de novembre retrouve 2 384 références existantes
+et en ajoute 374, dont 79 actives et 295 déjà inactives. Elle retire 83 références
+existantes et signale 165 articles actifs dont le conditionnement est à vérifier.
+Les articles absents du fichier mensuel sont identiques champ par champ ; le
+favori et la commande témoins sont conservés, ainsi que les identifiants et
+conditionnements des références retrouvées. Les tarifs et statuts correspondent
+au fichier mensuel, avec conservation du dernier tarif des retraits sans prix.
+
+Le catalogue reconstitué compte 158 858 références, dont 158 480 actives. Sa
+réception sur une seconde base vide reproduit exactement les statuts, quantités,
+tarifs et contrôles en attente. Les vérifications SQLite et FTS5 réussissent.
+Ces essais utilisent des bases temporaires, sans modification des fichiers Excel
+sources ni des installations des utilisateurs.
+
+## Mesure de préparation de la 1.5.2
+
+Sur un catalogue fictif de 158 488 articles, sous Linux avec SQLite 3.49.1 et
+des statistiques périmées, l'ancienne requête a pris environ 6,9 s pour 33
+résultats et 15,6 s sans résultat. Après actualisation des statistiques et
+correction de la jointure, ces recherches ont pris respectivement environ
+1,4 ms et 0,5 ms ; une recherche très large retournant 101 lignes a pris
+environ 108 ms. L'actualisation des statistiques a pris environ 31 ms.
+
+Ces mesures sur données fictives reproduisent un mécanisme de lenteur ; elles
+ne garantissent pas les mêmes temps sur les postes utilisateurs. Le diagnostic
+fourni confirme un dépassement de délai avec un index sain, sans prouver à lui
+seul que les statistiques sont la cause sur ce poste. L'essai Windows reste requis.
+
 ## Suite proposée
 
-1. Étendre les scénarios graphiques à l'import et aux réceptions partielles.
+1. Étendre les scénarios graphiques aux réceptions partielles.
 2. Séparer progressivement les domaines de persistance sans modifier le schéma.
 3. Auditer les montants, leur stockage et leurs arrondis dans un chantier dédié.
 

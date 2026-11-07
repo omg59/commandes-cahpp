@@ -1,6 +1,66 @@
 # Historique des versions
 
-## 1.5.1 — en préparation
+## 1.6.0 — 7 novembre 2026
+
+- prise en charge du nouveau fichier CAHPP **Evo TARIFS** : détection des en-têtes
+  anciens et nouveaux, tolérance aux variantes d'accents, espaces et casse,
+  lecture en flux et prise en charge de colonnes supplémentaires ;
+- compatibilité avec les catalogues complets historiques dont la colonne
+  réservée `ARTICLEACTIF` est vide ; statut explicite toujours exigé dans les
+  fichiers mensuels et les instantanés partagés ;
+- distinction explicite entre catalogue complet et évolutions mensuelles :
+  les articles absents d'un fichier mensuel restent conservés et actifs ;
+  les retraits et réactivations suivent `ARTICLEACTIF` ;
+- aperçu avant import, contrôle d'une base complète initiale, de l'ordre des
+  mois et des révisions, refus des doublons, données invalides et fichiers
+  modifiés en cours de lecture ; réimport identique sans doublon ;
+- sauvegarde complète automatique avant chaque nouvel import depuis l'interface,
+  transaction unique et retour à l'état précédent en cas d'échec, y compris
+  pendant la reconstruction de l'index ;
+- conservation des quantités connues lorsque le fichier ne fournit plus
+  `Conditionnement` et `Qml`, sans déduction à partir des désignations ;
+- filtre **Articles à vérifier uniquement**, contrôle des nouvelles références,
+  conditionnements modifiés, TVA manquantes et types d'évolution
+  inconnus ; confirmation explicite avant commande, liée à l'évolution courante ;
+- protection des brouillons dont le conditionnement a changé ; conservation des
+  commandes historiques, notes, favoris et corrections manuelles ; conservation
+  des coordonnées et de l'identité historique lors d'un changement de nom fournisseur ;
+- partage d'un catalogue complet reconstitué après chaque évolution : un nouveau
+  poste ou un poste resté hors ligne peut rattraper directement le dernier état ;
+  archivage du fichier mensuel source avec vérification d'intégrité ;
+- contrôle des publications concurrentes et reprise après coupure sans réappliquer
+  l'import ; synchronisation des confirmations de vérification entre postes ;
+- import séparé en modules de format, application transactionnelle et export
+  partagé, avec tests de régression et parcours Tk complet ;
+- diagnostic enrichi avec le mois courant et les articles à vérifier ;
+- migration additive vers le schéma SQLite 15 et intégration des correctifs de
+  recherche de la 1.5.2. Tous les postes doivent passer en 1.6.0 avant le partage
+  des nouveaux catalogues ;
+- compilation et essai utilisateur sous Windows 11 confirmés : nouvelles
+  références, variations de prix, remplacements et arrêts de commercialisation ;
+  diagnostic sans anomalie, index intègre et mois de novembre appliqué.
+
+## 1.5.2 — correctifs intégrés à la 1.6.0
+
+- correction d'un parcours SQL coûteux sur les grands catalogues : consultation
+  des correspondances FTS5 avant la lecture des fiches produits ;
+- actualisation ciblée des statistiques du planificateur au premier contrôle
+  ou à la première recherche, puis après import ou reconstruction ; prévention
+  des parcours complets dus à des statistiques issues d'un ancien petit catalogue ;
+- contrôle en arrière-plan, sans analyse répétée à chaque frappe ; attente
+  d'écriture limitée pour cette actualisation et nouvelle tentative différée
+  en cas d'indisponibilité, sans déclarer l'index corrompu ;
+- diagnostic enrichi avec l'état des statistiques et le plan d'une recherche
+  témoin, sans conserver la recherche saisie ;
+- conservation de la limite de temps, des filtres, de la priorité des favoris,
+  des corrections d'articles et de la pagination ;
+- tests de régression sur un grand catalogue avec statistiques périmées,
+  y compris recherche sans résultat et budget de travail SQLite ;
+- scénario de lenteur reproduit avec SQLite 3.49.1 sur 158 488 articles fictifs ;
+- conservation du schéma SQLite 14 ; compilation et essai Windows nécessaires
+  avant diffusion. La correction sur le poste concerné reste à confirmer.
+
+## 1.5.1
 
 - ajout de **Reconstruire l'index** dans **Paramètres → Collaboration → Diagnostic**,
   avec exécution en arrière-plan et protection contre les lancements multiples ;
@@ -20,7 +80,7 @@
 - conservation du schéma SQLite 14 ; compilation et installation Windows
   à valider sur un poste de test avant diffusion.
 
-## 1.5.0 — en préparation
+## 1.5.0
 
 - reprise depuis l'historique des commandes générées ou avec e-mail préparé,
   tant qu'elles ne sont ni envoyées ni suivies ; conservation du numéro,

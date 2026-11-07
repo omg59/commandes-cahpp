@@ -102,6 +102,8 @@ def generate_order_pdf(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     order, lines = database.get_order(order_id)
+    if order["status"] == "Brouillon":
+        database.validate_catalog_lines([dict(line) for line in lines])
     settings = database.get_settings()
     pdf_title = settings.get("pdf_title", "").strip() or "BON DE COMMANDE"
     footer_text = settings.get("pdf_footer_text", "").strip()

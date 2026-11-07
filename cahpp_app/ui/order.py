@@ -580,6 +580,13 @@ class OrderPage(BasePage):
         product = self.database.get_product(product_id)
         if product is None:
             return
+        if not product["active"] or product["catalog_review_required"]:
+            messagebox.showwarning(
+                "Article à vérifier",
+                "Cet article est inactif ou ses informations doivent être vérifiées. "
+                "Ouvrez Catalogue > Modifier l'article avant de le commander.", parent=self,
+            )
+            return
         if product["unit_price"] is None:
             price = simpledialog.askfloat(
                 "Prix manquant",
@@ -909,7 +916,12 @@ class OrderPage(BasePage):
                 self.app.publish_order(order_id)
                 self.app.refresh_pages()
                 return False
-            generate_order_pdf(self.database, order_id, output)
+            try:
+                generate_order_pdf(self.database, order_id, output)
+            except ValueError as exc:
+                messagebox.showwarning("Brouillon enregistré, PDF non généré", str(exc), parent=self)
+                self.app.publish_order(order_id)
+                return False
             open_path(output.parent)
         self.app.publish_order(order_id)
         self.reset_order(confirm=False)

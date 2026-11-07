@@ -98,6 +98,8 @@ def build_diagnostic_report(
                 f"Réceptions enregistrées : {counts.get('receipts', 0)}",
                 f"Notes internes : {counts.get('internal_comments', 0)}",
                 f"Imports CAHPP : {counts.get('imports', 0)}",
+                f"Dernier mois de catalogue confirmé : {local.get('catalog_effective_period') or 'base complète de période non précisée'}",
+                f"Articles actifs à vérifier : {counts.get('catalog_reviews', 0)}",
                 "Anomalies : "
                 + (
                     "aucune"
@@ -138,6 +140,27 @@ def build_diagnostic_report(
                 )
         else:
             lines.append("Aucune reconstruction depuis ce lancement.")
+
+    preparation = dict(local.get("search_plan_preparation") or {})
+    lines.extend(["", "PERFORMANCES DE RECHERCHE", "------------------------"])
+    if preparation:
+        lines.extend(
+            [
+                f"Statistiques du planificateur : {_yes_no(preparation.get('success'))}",
+                f"Actualisation : {preparation.get('checked_at', '')}",
+                f"Durée d'actualisation : {preparation.get('elapsed_ms', 0)} ms",
+            ]
+        )
+        if not preparation.get("success"):
+            lines.append(
+                f"Erreur : {preparation.get('error_type', '')} / {preparation.get('sqlite_code', '')}"
+            )
+    else:
+        lines.append(
+            "Statistiques non recalculées depuis ce lancement (prévu à la première recherche)."
+        )
+    lines.append("Plan de recherche témoin (sans saisie utilisateur) :")
+    lines.extend(f"  {step}" for step in local.get("catalog_search_plan", []))
 
     lines.extend(["", "COLLABORATION", "-------------"])
     if collaboration is None:

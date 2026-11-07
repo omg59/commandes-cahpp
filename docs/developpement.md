@@ -58,10 +58,67 @@ pour les recherches. Une erreur annule le savepoint. Le diagnostic ne lance
 aucune réparation automatique : le bouton explicite la déclenche dans un worker.
 La dernière tentative est conservée dans l'objet `Database` pendant la session.
 
+La 1.5.2 actualise `ANALYZE products` et `ANALYZE product_overrides` une fois
+par session/catalogue, dans le worker de recherche ou de diagnostic. Des
+statistiques datant d'une petite base peuvent inciter SQLite à boucler sur
+tous les produits et réexécuter MATCH pour chacun. La jointure FTS → produits
+utilise aussi `CROSS JOIN` pour fixer cet ordre. Les statistiques exactes restent
+nécessaires pour obtenir une lecture par clé primaire dans la table produits.
+Les tests mesurent un budget d'instructions SQLite plutôt qu'un délai matériel.
+
 `numbers.py` centralise conversion et affichage décimal. Les données existantes
-restent compatibles : pas de migration du schéma ni du stockage monétaire.
+restent compatibles ; le stockage monétaire n'est pas modifié.
 `database.py` conserve la persistance ; son découpage par domaine et l'audit
 complet des montants feront l'objet de travaux distincts.
+
+## Contrat d'import CAHPP
+
+`catalog_importer.py` conserve les imports publics existants. Le paquet
+`catalog_import/` sépare les responsabilités : `formats.py` décrit les alias,
+les types d'import et les validations ; `engine.py` prépare une table temporaire
+sur disque puis applique une transaction ; `snapshots.py` exporte l'état CAHPP
+complet pour le partage. Les lignes du classeur ne sont jamais toutes chargées
+dans une liste Python. Les champs texte des instantanés restent littéraux même
+lorsqu'ils ressemblent à une formule Excel.
+
+`inspect_file(path)` ne modifie aucune donnée métier et retourne un
+`ImportPreview`. `import_file(path, options=ImportOptions(...), preview=...)`
+recontrôle l'empreinte et la politique sous `BEGIN IMMEDIATE`. Les confirmations
+de base initiale, révision mensuelle et remplacement sont explicites. Sans
+options, un appel programmatique refuse toute opération nécessitant confirmation.
+Une erreur de lecture, de fusion ou de reconstruction FTS annule la transaction.
+Les identifiants produits, corrections et anciennes commandes sont conservés.
+
+Les colonnes sont normalisées par alias explicites, sans correspondance floue.
+Un fichier ambigu, une colonne requise absente, un code dupliqué ou un statut
+inconnu sont refusés avant fusion. Des colonnes supplémentaires sont tolérées.
+Pour étendre le format, ajouter les alias et un test de contrat ; ne pas inventer
+les quantités depuis le texte ni traiter un fichier partiel comme une base complète.
+Les types d'évolution inconnus sont importés avec vérification obligatoire.
+Les anciens catalogues complets peuvent contenir une colonne réservée
+`ARTICLEACTIF` entièrement vide : la présence d'une référence conserve alors
+le sens historique « actif ». Cette exception ne concerne ni les deltas ni les
+instantanés, pour lesquels un statut absent reste une erreur.
+
+Le schéma 15 ajoute les métadonnées d'import, jetons de contrôle et validations
+associées. Le jeton lie une confirmation à une évolution précise et voyage dans
+les instantanés ; la validation voyage dans les corrections d'équipe. La
+validation des lignes est aussi effectuée dans la transaction d'enregistrement
+des commandes et avant génération d'un PDF de brouillon.
+
+Le format partagé 2 utilise un instantané `commandes-cahpp-catalogue-v1`, une
+feuille `CAHPP_META` et la version minimale 1.6.0. La colonne `CODE_CAHPP` fait
+refuser l'instantané aux anciens lecteurs qui exigent littéralement `CodeCahpp`.
+Après import mensuel, publier uniquement un état complet cohérent avec le dernier
+import local. Le manifeste stocke l'empreinte de l'instantané et celle du fichier
+source, le mois courant et les comptages. Le fichier source mensuel est archivé.
+Le verrou partagé couvre l'import et la publication ; la publication vérifie
+également que le catalogue distant est toujours celui sur lequel reposait le delta.
+
+L'interface gère l'aperçu, les confirmations et la sauvegarde complète préalable
+dans son worker, avec les dialogues Tk dans le thread principal. Le moteur
+programmatique reste transactionnel mais ne crée pas de ZIP automatiquement.
+Ne pas utiliser les noms d'attributs réservés par Tk, notamment `_options`.
 
 ## Utiliser GitHub Desktop
 

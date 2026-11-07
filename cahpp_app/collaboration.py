@@ -6,7 +6,9 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -119,12 +121,14 @@ class ResourceLock:
         resource: str,
         path: Path,
         token: str,
+        ttl_seconds: int = LOCK_TTL_SECONDS,
     ):
         self.manager = manager
         self.resource = resource
         self.path = path
         self.token = token
         self.released = False
+        self.ttl_seconds = ttl_seconds
 
     def refresh(self) -> None:
         if self.released:
@@ -135,7 +139,7 @@ class ResourceLock:
             raise ResourceLockedError(self.resource, "", "")
         payload["heartbeat_at"] = _now()
         payload["expires_at"] = (
-            datetime.now() + timedelta(seconds=LOCK_TTL_SECONDS)
+            datetime.now() + timedelta(seconds=self.ttl_seconds)
         ).isoformat(timespec="seconds")
         _atomic_json(self.path, payload)
 
@@ -169,9 +173,7 @@ class CollaborationManager:
         self.user_id = user_id.strip()
         self.user_name = user_name.strip() or "Utilisateur"
         self.root = (
-            Path(root).expanduser().resolve()
-            if str(root or "").strip()
-            else None
+            Path(root).expanduser().resolve() if str(root or "").strip() else None
         )
         self.workspace_id = ""
         self._active_locks: dict[str, ResourceLock] = {}
@@ -280,10 +282,7 @@ class CollaborationManager:
         if active and not active.released:
             return active
         lock_path = (
-            self._required_root()
-            / "verrous"
-            / kind
-            / f"{_safe_component(key)}.lock"
+            self._required_root() / "verrous" / kind / f"{_safe_component(key)}.lock"
         )
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         token = str(uuid.uuid4())
@@ -306,7 +305,7 @@ class CollaborationManager:
                 )
                 with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                     json.dump(payload, stream, ensure_ascii=False, indent=2)
-                handle = ResourceLock(self, resource, lock_path, token)
+                handle = ResourceLock(self, resource, lock_path, token, ttl_seconds)
                 self._active_locks[resource] = handle
                 return handle
             except FileExistsError:
@@ -361,10 +360,7 @@ class CollaborationManager:
                 else ""
             )
             try:
-                expired = (
-                    not expires_at
-                    or datetime.fromisoformat(expires_at) < now
-                )
+                expired = not expires_at or datetime.fromisoformat(expires_at) < now
             except ValueError:
                 expired = True
             if not expired:
@@ -428,8 +424,7 @@ class CollaborationManager:
                 else:
                     result[key] = (
                         local_record
-                        if _record_key(local_record)
-                        > _record_key(remote_record)
+                        if _record_key(local_record) > _record_key(remote_record)
                         else remote_record
                     )
             merged[collection] = result
@@ -572,9 +567,7 @@ class CollaborationManager:
         payload["attachments"] = attachments
         return payload
 
-    def _cache_order_files(
-        self, payload: dict[str, object]
-    ) -> dict[str, object]:
+    def _cache_order_files(self, payload: dict[str, object]) -> dict[str, object]:
         from . import local_services
         from .local_services import portable_path, safe_filename
 
@@ -628,7 +621,9 @@ class CollaborationManager:
         order = dict(payload.get("order") or {})
         shared_uid = str(order.get("shared_uid") or "")
         if not shared_uid:
-            raise CollaborationError("La commande ne possède pas d'identifiant partagé.")
+            raise CollaborationError(
+                "La commande ne possède pas d'identifiant partagé."
+            )
         resource = f"commande:{shared_uid}"
         own_lock = resource not in self._active_locks
         handle = (
@@ -650,11 +645,9 @@ class CollaborationManager:
                         "Une version plus récente de cette commande existe "
                         "sur le partage."
                     )
-                if (
-                    remote_revision == local_revision
-                    and str(remote_order.get("updated_at") or "")
-                    > str(order.get("updated_at") or "")
-                ):
+                if remote_revision == local_revision and str(
+                    remote_order.get("updated_at") or ""
+                ) > str(order.get("updated_at") or ""):
                     raise SyncConflictError(
                         "Cette commande a été modifiée sur un autre poste."
                     )
@@ -678,9 +671,7 @@ class CollaborationManager:
             cached = self._cache_order_files(payload)
             cached_order = dict(cached.get("order") or {})
             cached_attachments = {
-                str(item.get("display_name") or ""): str(
-                    item.get("stored_path") or ""
-                )
+                str(item.get("display_name") or ""): str(item.get("stored_path") or "")
                 for item in list(cached.get("attachments") or [])
             }
             self.database.update_order_shared_paths(
@@ -719,30 +710,68 @@ class CollaborationManager:
             "conflicts": conflicts,
         }
 
-    def publish_catalog(self, source: Path, result) -> dict[str, object]:
+    def publish_catalog(self, source: Path, result, *, lock=None) -> dict[str, object]:
         if not self.enabled:
             return {}
         source = Path(source)
         if not source.is_file():
             raise FileNotFoundError(source)
         file_hash = _sha256(source)
-        with self.acquire_lock("systeme", "catalogue", ttl_seconds=600):
+        if getattr(result, "file_hash", "") and result.file_hash != file_hash:
+            raise CollaborationError(
+                "Le fichier a changé depuis son import. Relancez l'import avant de le publier."
+            )
+        if getattr(result, "file_hash", ""):
+            with self.database.connect() as connection:
+                latest = connection.execute(
+                    "SELECT file_hash FROM imports ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+            if latest is None or latest[0] != result.file_hash:
+                raise CollaborationError(
+                    "Ce fichier ne correspond plus au dernier import local. Publiez le catalogue le plus récent."
+                )
+        if lock is not None and (
+            lock.manager is not self
+            or lock.released
+            or lock.resource != "systeme:catalogue"
+        ):
+            raise CollaborationError(
+                "Le verrou de publication du catalogue n'est plus valide."
+            )
+        with (
+            nullcontext(lock)
+            if lock
+            else self.acquire_lock("systeme", "catalogue", ttl_seconds=600)
+        ) as handle:
+            handle.refresh()
             current_path = self.catalogs_dir / "catalogue-actuel.json"
             current = _read_json(current_path, {})
-            if isinstance(current, dict) and current.get("sha256") == file_hash:
+            if isinstance(current, dict) and (
+                current.get("sha256") == file_hash
+                or current.get("source_sha256") == file_hash
+            ):
                 self.database.save_settings(
                     {
-                        "collaboration_catalog_hash": file_hash,
-                        "collaboration_catalog_version": current.get(
-                            "version", ""
-                        ),
+                        "collaboration_catalog_hash": current.get("sha256", ""),
+                        "collaboration_catalog_version": current.get("version", ""),
                     }
                 )
                 return current
+            if (
+                getattr(result, "mode", "full") == "delta"
+                and current
+                and current.get("sha256")
+                != getattr(result, "previous_catalog_hash", "")
+            ):
+                raise CollaborationError(
+                    "Un autre poste a publié un catalogue plus récent. Appliquez-le avant de publier vos évolutions."
+                )
             version = (
                 datetime.now().strftime("%Y-%m-%d_%H%M%S")
                 + "-"
                 + file_hash[:10]
+                + "-"
+                + uuid.uuid4().hex[:8]
             )
             versions = self.catalogs_dir / "versions"
             versions.mkdir(parents=True, exist_ok=True)
@@ -751,19 +780,51 @@ class CollaborationManager:
             incoming.mkdir()
             catalog_path = incoming / "catalogue.xlsx"
             try:
-                shutil.copy2(source, catalog_path)
-                if _sha256(catalog_path) != file_hash:
+                snapshot = getattr(result, "mode", "full") in {"delta", "snapshot"}
+                published_rows = int(getattr(result, "row_count", 0))
+                if snapshot:
+                    from .catalog_import.snapshots import export_snapshot
+
+                    with tempfile.TemporaryDirectory(
+                        prefix="cahpp-catalogue-"
+                    ) as temporary:
+                        local_snapshot = Path(temporary) / "catalogue.xlsx"
+                        published_rows = export_snapshot(
+                            self.database, local_snapshot, result
+                        )
+                        snapshot_hash = _sha256(local_snapshot)
+                        shutil.copy2(local_snapshot, catalog_path)
+                else:
+                    shutil.copy2(source, catalog_path)
+                published_hash = _sha256(catalog_path)
+                if published_hash != (snapshot_hash if snapshot else file_hash):
                     raise CollaborationError(
                         "La copie du catalogue partagé n'est pas intègre."
                     )
+                source_archive = ""
+                if getattr(result, "mode", "full") == "delta":
+                    source_archive = f"versions/{version}/evolutions-source.xlsx"
+                    source_copy = incoming / "evolutions-source.xlsx"
+                    shutil.copy2(source, source_copy)
+                    if _sha256(source_copy) != file_hash:
+                        raise CollaborationError(
+                            "Le fichier d'évolutions a changé pendant sa publication."
+                        )
                 manifest = {
-                    "format": 1,
+                    "format": 2 if snapshot else 1,
                     "version": version,
-                    "sha256": file_hash,
+                    "sha256": published_hash,
+                    "source_sha256": file_hash,
+                    "min_app_version": "1.6.0" if snapshot else "1.0.0",
+                    "import_mode": getattr(result, "mode", "full"),
+                    "period": getattr(result, "period", ""),
+                    "review_count": int(getattr(result, "review_count", 0)),
                     "source_name": source.name,
+                    "source_relative_path": source_archive,
                     "published_at": _now(),
                     "published_by": self.user_name,
-                    "row_count": int(getattr(result, "row_count", 0)),
+                    "row_count": published_rows,
+                    "source_row_count": int(getattr(result, "row_count", 0)),
                     "added_count": int(getattr(result, "added_count", 0)),
                     "updated_count": int(getattr(result, "updated_count", 0)),
                     "missing_count": int(getattr(result, "missing_count", 0)),
@@ -774,6 +835,7 @@ class CollaborationManager:
                     shutil.rmtree(incoming)
                 else:
                     os.replace(incoming, destination)
+                handle.refresh()
                 _atomic_json(current_path, manifest)
             except Exception:
                 if incoming.exists():
@@ -781,7 +843,7 @@ class CollaborationManager:
                 raise
             self.database.save_settings(
                 {
-                    "collaboration_catalog_hash": file_hash,
+                    "collaboration_catalog_hash": published_hash,
                     "collaboration_catalog_version": version,
                 }
             )
@@ -790,15 +852,11 @@ class CollaborationManager:
     def pending_catalog(self) -> dict[str, object] | None:
         if not self.enabled:
             return None
-        current = _read_json(
-            self.catalogs_dir / "catalogue-actuel.json", None
-        )
+        current = _read_json(self.catalogs_dir / "catalogue-actuel.json", None)
         if not isinstance(current, dict):
             return None
         settings = self.database.get_settings()
-        if current.get("sha256") == settings.get(
-            "collaboration_catalog_hash", ""
-        ):
+        if current.get("sha256") == settings.get("collaboration_catalog_hash", ""):
             return None
         return current
 
@@ -844,6 +902,17 @@ class CollaborationManager:
         }
 
     def catalog_source(self, manifest: Mapping[str, object]) -> Path:
+        from . import __version__
+
+        required = self._stable_version(str(manifest.get("min_app_version") or "1.0.0"))
+        if (
+            int(manifest.get("format") or 1) > 2
+            or required is None
+            or required > self._stable_version(__version__)
+        ):
+            raise CollaborationError(
+                "Ce catalogue partagé nécessite une version plus récente de l'application. Mettez tous les postes à jour."
+            )
         relative = str(manifest.get("relative_path") or "")
         path = (self.catalogs_dir / relative).resolve()
         path.relative_to(self.catalogs_dir.resolve())
@@ -851,20 +920,14 @@ class CollaborationManager:
             raise CollaborationError("Le catalogue partagé est introuvable.")
         expected = str(manifest.get("sha256") or "")
         if not expected or _sha256(path) != expected:
-            raise CollaborationError(
-                "Le catalogue partagé est incomplet ou endommagé."
-            )
+            raise CollaborationError("Le catalogue partagé est incomplet ou endommagé.")
         return path
 
     def mark_catalog_applied(self, manifest: Mapping[str, object]) -> None:
         self.database.save_settings(
             {
-                "collaboration_catalog_hash": str(
-                    manifest.get("sha256") or ""
-                ),
-                "collaboration_catalog_version": str(
-                    manifest.get("version") or ""
-                ),
+                "collaboration_catalog_hash": str(manifest.get("sha256") or ""),
+                "collaboration_catalog_version": str(manifest.get("version") or ""),
             }
         )
 
@@ -890,9 +953,7 @@ class CollaborationManager:
         tested = self.test_path(root)
         manifest = _read_json(root / "espace-collaboratif.json", {})
         team_state = _read_json(root / "equipe" / "etat.json", {})
-        catalog = _read_json(
-            root / "catalogues" / "catalogue-actuel.json", {}
-        )
+        catalog = _read_json(root / "catalogues" / "catalogue-actuel.json", {})
         now = datetime.now()
         active_locks = 0
         expired_locks = 0
@@ -904,10 +965,7 @@ class CollaborationManager:
                 continue
             expires_at = str(payload.get("expires_at") or "")
             try:
-                expired = (
-                    not expires_at
-                    or datetime.fromisoformat(expires_at) < now
-                )
+                expired = not expires_at or datetime.fromisoformat(expires_at) < now
             except ValueError:
                 expired = True
             if expired:
@@ -918,9 +976,7 @@ class CollaborationManager:
                 if owner:
                     lock_owners.add(owner)
 
-        shared_orders = sum(
-            1 for _ in (root / "commandes").glob("*/commande.json")
-        )
+        shared_orders = sum(1 for _ in (root / "commandes").glob("*/commande.json"))
         catalog_path = None
         catalog_integrity = None
         if isinstance(catalog, dict) and catalog.get("relative_path"):
@@ -942,8 +998,7 @@ class CollaborationManager:
             "atomic_rename": tested.atomic_rename,
             "workspace_id": manifest_workspace_id,
             "workspace_matches": bool(
-                manifest_workspace_id
-                and manifest_workspace_id == self.workspace_id
+                manifest_workspace_id and manifest_workspace_id == self.workspace_id
             ),
             "shared_orders": shared_orders,
             "team_revision": (
@@ -952,9 +1007,7 @@ class CollaborationManager:
                 else 0
             ),
             "catalog_version": (
-                str(catalog.get("version") or "")
-                if isinstance(catalog, dict)
-                else ""
+                str(catalog.get("version") or "") if isinstance(catalog, dict) else ""
             ),
             "catalog_integrity": catalog_integrity,
             "catalog_path": str(catalog_path) if catalog_path else "",

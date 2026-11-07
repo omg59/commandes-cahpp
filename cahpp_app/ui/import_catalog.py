@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import queue
 import threading
+from contextlib import nullcontext
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from ..app_logging import log_failure
-from ..catalog_importer import CatalogImporter, ImportResult
+from ..catalog_importer import CatalogImporter, ImportOptions, ImportResult
 from ..collaboration import CollaborationError
+from ..local_services import create_complete_backup
+from ..paths import BACKUP_DIR
 from .base import BasePage
 from .common import COLORS
 from .common import format_number
@@ -93,7 +96,7 @@ class ImportPage(BasePage):
         super().__init__(parent, app)
         self.header(
             "Mise à jour CAHPP",
-            "Importez le nouveau fichier Excel ; les changements sont historisés.",
+            "Catalogue complet ou évolutions mensuelles : le format est détecté et les changements sont historisés.",
         )
         box = tk.Frame(
             self,
@@ -125,7 +128,7 @@ class ImportPage(BasePage):
         self.progress.pack(fill="x")
         self.status_label = ttk.Label(
             progress_box,
-            text="Sélectionnez la base complète tarifaire.",
+            text="Sélectionnez un catalogue complet ou un fichier d'évolutions mensuelles.",
             style="Subtitle.TLabel",
         )
         self.status_label.pack(anchor="w", pady=(5, 0))
@@ -144,17 +147,18 @@ class ImportPage(BasePage):
         ).pack(side="right")
         self.tree = ttk.Treeview(
             self,
-            columns=("date", "file", "rows", "added", "updated", "missing"),
+            columns=("date", "file", "mode", "rows", "added", "updated", "missing"),
             show="headings",
             height=10,
         )
         for column, title, width in (
             ("date", "Date", 135),
             ("file", "Fichier", 320),
+            ("mode", "Type / mois", 150),
             ("rows", "Articles", 90),
             ("added", "Ajoutés", 75),
             ("updated", "Modifiés", 75),
-            ("missing", "Disparus", 75),
+            ("missing", "Retirés", 75),
         ):
             self.tree.heading(column, text=title)
             self.tree.column(
@@ -166,7 +170,13 @@ class ImportPage(BasePage):
         self.tree.pack(fill="both", expand=True)
         self.messages: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
+        self.import_running = False
         self._shared_manifest: dict[str, object] | None = None
+        self._confirmation = threading.Event()
+        self._cancelled = threading.Event()
+        self._poll_id = None
+        self._import_options = ImportOptions()
+        self._last_import_backup = ""
 
     def browse(self) -> None:
         path = filedialog.askopenfilename(
@@ -199,6 +209,13 @@ class ImportPage(BasePage):
         path: Path | None,
         shared_manifest: dict[str, object] | None,
     ) -> None:
+        if self.import_running:
+            return
+        self.import_running = True
+        self._confirmation.clear()
+        self._cancelled.clear()
+        self._import_options = ImportOptions()
+        self._last_import_backup = ""
         self.import_button.configure(state="disabled")
         self.progress["value"] = 0
         self.worker = threading.Thread(
@@ -207,7 +224,7 @@ class ImportPage(BasePage):
             daemon=True,
         )
         self.worker.start()
-        self.after(100, self._poll_messages)
+        self._poll_id = self.after(100, self._poll_messages)
 
     def _run_import(
         self,
@@ -215,63 +232,198 @@ class ImportPage(BasePage):
         shared_manifest: dict[str, object] | None,
     ) -> None:
         try:
+            manager = self.app.collaboration
             if shared_manifest is not None:
-                if not self.app.collaboration:
+                if not manager:
                     raise CollaborationError("Le mode collaboratif n'est plus actif.")
                 self.messages.put(
                     ("progress", 0, "Vérification du catalogue partagé...")
                 )
-                path = self.app.collaboration.catalog_source(shared_manifest)
+                path = manager.catalog_source(shared_manifest)
             if path is None:
                 raise FileNotFoundError("Catalogue introuvable")
             importer = CatalogImporter(self.database)
-            result = importer.import_file(
-                path,
-                progress=lambda current, total, message: self.messages.put(
-                    ("progress", current, message)
-                ),
+            self.messages.put(
+                ("progress", 2, "Analyse du format et contrôle du fichier…")
             )
-            publication = None
-            if shared_manifest is not None and self.app.collaboration:
-                self.app.collaboration.mark_catalog_applied(shared_manifest)
-                publication = shared_manifest
-            elif self.app.collaboration:
-                self.messages.put(
-                    ("progress", 99, "Publication sur le dossier partagé...")
+            preview = importer.inspect_file(path)
+            if not preview.already_imported and (
+                shared_manifest is None or preview.confirmations
+            ):
+                self.messages.put(("confirm", preview))
+                self._confirmation.wait()
+            if self._cancelled.is_set() or self.app._closing:
+                self.messages.put(("cancelled",))
+                return
+
+            def progress(current, total, message):
+                if self._cancelled.is_set() or self.app._closing:
+                    raise ValueError(
+                        "Import annulé à la fermeture ; transaction non validée."
+                    )
+                self.messages.put(("progress", current, message))
+
+            context = (
+                manager.acquire_lock("systeme", "catalogue", ttl_seconds=600)
+                if manager and shared_manifest is None
+                else nullcontext()
+            )
+            with context as handle:
+                if handle:
+                    handle.refresh()
+                if (
+                    manager
+                    and shared_manifest is None
+                    and preview.mode == "delta"
+                    and manager.pending_catalog()
+                ):
+                    raise CollaborationError(
+                        "Un catalogue partagé plus récent est disponible. Appliquez-le avant d'importer les évolutions mensuelles."
+                    )
+                if not preview.already_imported:
+                    self.messages.put(
+                        ("progress", 4, "Sauvegarde automatique avant import…")
+                    )
+                    self._backup_before_import()
+                if self._cancelled.is_set() or self.app._closing:
+                    self.messages.put(("cancelled",))
+                    return
+                if handle:
+                    handle.refresh()
+                result = importer.import_file(
+                    path,
+                    progress=progress,
+                    options=self._import_options,
+                    preview=preview,
                 )
-                publication = self.app.collaboration.publish_catalog(path, result)
-            self.messages.put(("done", result, publication))
+                publication, publication_error = None, ""
+                try:
+                    if shared_manifest is not None and manager:
+                        manager.mark_catalog_applied(shared_manifest)
+                        publication = shared_manifest
+                    elif manager:
+                        self.messages.put(
+                            (
+                                "progress",
+                                99,
+                                "Publication du catalogue complet sur le partage…",
+                            )
+                        )
+                        publication = manager.publish_catalog(path, result, lock=handle)
+                except (OSError, CollaborationError, ValueError) as exc:
+                    log_failure(logger, "publication_catalogue_echec", exc)
+                    publication_error = str(exc)
+            self.messages.put(("done", result, publication, publication_error))
         except Exception as exc:
             log_failure(logger, "import_catalogue_echec", exc)
             self.messages.put(("error", str(exc)))
 
+    def _backup_before_import(self) -> None:
+        destination = BACKUP_DIR / (
+            "avant-import-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".zip"
+        )
+        temporary = destination.with_name("." + destination.name)
+        try:
+            create_complete_backup(self.database, temporary)
+            temporary.replace(destination)
+        except Exception:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                log_failure(logger, "sauvegarde_import_nettoyage_echec", cleanup_error)
+            raise
+        self._last_import_backup = str(destination)
+        self.database.save_settings(
+            {
+                "last_backup_at": datetime.now().isoformat(timespec="seconds"),
+                "last_backup_path": str(destination),
+            }
+        )
+
     def _poll_messages(self) -> None:
+        self._poll_id = None
         try:
             while True:
                 message = self.messages.get_nowait()
                 if message[0] == "progress":
                     self.progress["value"] = message[1]
                     self.status_label.configure(text=message[2])
+                elif message[0] == "confirm":
+                    preview = message[1]
+                    label = {
+                        "full": "Catalogue complet",
+                        "delta": "Évolutions mensuelles",
+                        "snapshot": "Catalogue partagé complet",
+                    }[preview.mode]
+                    details = f"Format détecté : {label}\n{preview.row_count:,} lignes".replace(
+                        ",", " "
+                    )
+                    if preview.period:
+                        details += f"\nMois : {preview.period}"
+                    if preview.warnings:
+                        details += "\n\n" + "\n\n".join(preview.warnings)
+                    approved = messagebox.askyesno(
+                        "Vérifier l'import CAHPP",
+                        details
+                        + "\n\nUne sauvegarde complète sera créée avant l'import.\nAppliquer cet import ?",
+                        icon="warning" if preview.confirmations else "question",
+                        parent=self,
+                    )
+                    if approved:
+                        self._import_options = ImportOptions(
+                            confirm_baseline="baseline" in preview.confirmations,
+                            allow_revision="revision" in preview.confirmations,
+                            confirm_full_replacement="replacement"
+                            in preview.confirmations,
+                            confirm_snapshot_replacement="snapshot_replacement"
+                            in preview.confirmations,
+                        )
+                    else:
+                        self._cancelled.set()
+                    self._confirmation.set()
+                elif message[0] == "cancelled":
+                    self.import_running = False
+                    self.import_button.configure(state="normal")
+                    self.status_label.configure(
+                        text="Import annulé. Le catalogue n'a pas été modifié."
+                    )
+                    return
                 elif message[0] == "done":
-                    self._import_done(message[1], message[2])
+                    try:
+                        self._import_done(message[1], message[2], message[3])
+                    finally:
+                        self.import_running = False
                     return
                 elif message[0] == "error":
                     self.import_button.configure(state="normal")
                     self.status_label.configure(text="Échec de l'import.")
                     messagebox.showerror("Import CAHPP", message[1], parent=self)
+                    self.import_running = False
                     return
         except queue.Empty:
             pass
-        if self.worker and self.worker.is_alive():
-            self.after(100, self._poll_messages)
+        if self.import_running and not self.app._closing:
+            self._poll_id = self.after(100, self._poll_messages)
 
     def _import_done(
         self,
         result: ImportResult,
         publication: dict[str, object] | None = None,
+        publication_error: str = "",
     ) -> None:
         self.import_button.configure(state="normal")
         self.progress["value"] = 100
+        if publication_error:
+            self.status_label.configure(
+                text="Catalogue local mis à jour ; publication à réessayer."
+            )
+            messagebox.showwarning(
+                "Publication du catalogue incomplète",
+                "Le catalogue de ce poste est mis à jour, mais la diffusion sur le partage n'a pas été terminée. "
+                "Relancez l'import du même fichier pour réessayer sans appliquer ses changements deux fois.\n\n"
+                + publication_error,
+                parent=self,
+            )
         if result.already_imported:
             self.status_label.configure(text="Ce fichier avait déjà été importé.")
             messagebox.showinfo(
@@ -292,13 +444,23 @@ class ImportPage(BasePage):
                 f"{result.row_count:,} articles lus\n"
                 f"{result.added_count:,} ajoutés\n"
                 f"{result.updated_count:,} modifiés\n"
-                f"{result.missing_count:,} absents du nouveau fichier\n"
+                f"{result.deactivated_count:,} retirés du catalogue actif\n"
+                f"{result.review_count:,} articles à vérifier dans Catalogue\n"
                 f"{len(ordered_changes):,} article(s) déjà commandé(s) modifié(s)"
             ).replace(",", " ")
+            if self._last_import_backup:
+                details += (
+                    "\n\nSauvegarde avant import : "
+                    + Path(self._last_import_backup).name
+                )
             messagebox.showinfo("Import CAHPP terminé", details, parent=self)
             if ordered_changes:
                 dialog = PriceChangesDialog(self, ordered_changes)
                 self.wait_window(dialog)
+        if publication_error:
+            self.status_label.configure(
+                text="Catalogue local mis à jour ; publication à réessayer."
+            )
         self.app.refresh_pages()
         self.refresh()
         if self.app.collaboration:
@@ -338,10 +500,21 @@ class ImportPage(BasePage):
                 values=(
                     imported,
                     item["filename"],
+                    {"full": "Complet", "delta": "Mensuel", "snapshot": "Partagé"}.get(
+                        item["mode"], item["mode"]
+                    )
+                    + (" " + item["period"] if item["period"] else ""),
                     format_number(item["row_count"]),
                     format_number(item["added_count"]),
                     format_number(item["updated_count"]),
-                    format_number(item["missing_count"]),
+                    format_number(item["deactivated_count"] or item["missing_count"]),
                 ),
             )
         self._valid = True
+
+    def shutdown(self) -> None:
+        self._cancelled.set()
+        self._confirmation.set()
+        if self._poll_id:
+            self.after_cancel(self._poll_id)
+            self._poll_id = None

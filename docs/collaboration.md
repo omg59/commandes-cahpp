@@ -43,6 +43,36 @@ Lorsqu'un nouveau tarif arrive :
 Les favoris, conditionnements corrigés et articles hors catalogue n'attendent
 pas un nouvel import : ils sont synchronisés dans les données d'équipe.
 
+### Évolutions mensuelles depuis la 1.6.0
+
+Mettre **tous les postes en 1.6.0 ou supérieure** avant le premier import
+d'évolutions mensuelles. Le nouveau catalogue partagé est volontairement refusé
+par les anciens importeurs pour éviter de réactiver les références retirées.
+
+Le poste qui importe un fichier mensuel conserve les articles absents, applique
+les statuts explicites et publie un **catalogue complet reconstitué**. L'autre
+poste peut ainsi recevoir directement la dernière version, même s'il a manqué
+plusieurs mois ; un nouveau poste peut également partir de cet instantané.
+Le fichier mensuel original est archivé avec la version publiée. Les empreintes
+du fichier source et du catalogue reconstitué sont conservées séparément.
+
+Les informations à vérifier voyagent dans ce catalogue. Une correction et sa
+confirmation sont synchronisées par les données d'équipe ; une confirmation
+ne vaut que pour l'évolution concernée. Un nouveau changement de conditionnement
+peut donc remettre l'article en attente de vérification sur les deux postes.
+
+Appliquer d'abord tout catalogue partagé en attente avant d'importer le mois
+suivant. Le verrou de catalogue protège l'import et sa publication. Si un autre
+poste a publié entre-temps, la publication est refusée au lieu d'écraser son
+travail. Le remplacement d'évolutions locales non publiées demande confirmation.
+
+Si l'import local réussit mais que le partage est interrompu, l'interface le
+signale distinctement. Relancer l'import du **même fichier** pour réessayer la
+publication : les changements ne sont pas appliqués deux fois. Le manifeste
+courant n'est remplacé qu'après copie et vérification de l'ensemble publié.
+Chaque nouveau fichier appliqué depuis l'interface bénéficie d'une sauvegarde
+complète locale préalable, y compris lors d'une réception depuis le partage.
+
 ## Travail simultané
 
 - Deux utilisateurs peuvent travailler sur deux commandes différentes.

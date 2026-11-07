@@ -645,7 +645,11 @@ class OrdersPage(BasePage):
             output = choose_pdf_path(self, self.database, order)
             if output is None:
                 return False
-            generate_order_pdf(self.database, order_id, output)
+            try:
+                generate_order_pdf(self.database, order_id, output)
+            except ValueError as exc:
+                messagebox.showwarning("PDF non généré", str(exc), parent=self)
+                return False
             self.app.publish_order(order_id)
             self.refresh()
             open_path(output.parent)

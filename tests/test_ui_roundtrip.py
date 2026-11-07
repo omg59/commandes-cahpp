@@ -15,6 +15,9 @@ class InterfaceRoundtripTest(unittest.TestCase):
     def test_manual_index_repair_in_background(self):
         self.run_scenario("tests.gui_index_repair")
 
+    def test_monthly_import_review_and_order(self):
+        self.run_scenario("tests.gui_monthly_import")
+
     def run_scenario(self, module):
         if (
             sys.platform != "win32"
