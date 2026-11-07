@@ -16,6 +16,7 @@ sauvegardes/*
 __pycache__/
 *.py[cod]
 .venv/
+.venv-horizon/
 build/
 dist/
 dist-installer/

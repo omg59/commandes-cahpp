@@ -2,6 +2,7 @@ name: Validation Windows et Linux
 
 on:
   push:
+    branches-ignore: [feature/horizon-ui]
   pull_request:
   workflow_dispatch:
 

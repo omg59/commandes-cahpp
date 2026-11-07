@@ -1,0 +1,24 @@
+Identité visuelle
+================
+Le logo LADAPT fourni par l'utilisateur reste la propriété de LADAPT.
+Il est reproduit sans retouche. La mise à disposition du code n'accorde pas
+de droits sur ce logo.
+La palette d'interface est issue des supports fournis, sans certification de
+conformité à une charte institutionnelle complète :
+- bleu du logo : #1D4084 ;
+- bleu clair du projet associatif 2024-2030 : #58A5DB ;
+- jaune du projet associatif 2024-2030 : #FFC432.
+Les polices du PDF de référence n'ont pas été extraites ni redistribuées.
+L'interface utilise la police système ; les PDF utilisent les polices DejaVu
+déjà distribuées avec le projet, avec leur licence.
+
+Composants tiers
+===============
+L'interface utilise Qt 6 / PySide6-Essentials / Shiboken6, sous LGPL version 3
+pour cette distribution. Les bibliothèques Qt restent des fichiers dynamiques
+distincts dans _internal. Sources et documentation :
+https://code.qt.io/cgit/pyside/pyside-setup.git/
+https://download.qt.io/official_releases/QtForPython/
+https://download.qt.io/official_releases/qt/
+Les textes LGPL-3.0 et GPL-3.0 sont joints dans ce dossier.
+Les autres dépendances conservent leurs licences propres.

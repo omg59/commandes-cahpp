@@ -18,7 +18,7 @@ ROOT_DIR = portable_root()
 RESOURCE_ROOT = (
     Path(getattr(sys, "_MEIPASS"))
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
-    else ROOT_DIR
+    else Path(os.environ.get("CAHPP_RESOURCE_ROOT", ROOT_DIR)).expanduser().resolve()
 )
 RESOURCE_DIR = RESOURCE_ROOT / "ressources"
 DATA_DIR = ROOT_DIR / "data"

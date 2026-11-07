@@ -1,4 +1,21 @@
-# Commandes CAHPP
+# Commandes CAHPP Horizon
+
+**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a1.**
+Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
+
+- [Lancement, fonctions et limites d'Horizon](docs/horizon.md)
+- Windows : `horizon_windows.bat` pour lancer les sources ;
+  `horizon_windows.bat build` pour fabriquer le dossier portable.
+- [Build Windows et contrôles automatiques](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml) :
+  télécharger l'artefact **CommandesCAHPP-Horizon-Windows** d'un run réussi.
+
+Horizon crée un profil de démonstration séparé. Le bouton **Copier une base 1.6…**
+ouvre une copie de travail indépendante ; la collaboration n'est pas activée
+dans cette première alpha. Conserver la version 1.6.0 pour le travail habituel.
+
+![Accueil Horizon aux couleurs LADAPT, avec données fictives](docs/images/horizon-apercu.png)
+
+## Documentation du moteur et de la version stable
 
 Application Windows locale pour importer un catalogue tarifaire CAHPP, retrouver
 rapidement les articles, préparer des commandes fournisseurs et générer des bons

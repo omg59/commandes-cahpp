@@ -1,5 +1,21 @@
 # Historique des versions
 
+## Horizon 2.0.0a1 — branche parallèle, 7 novembre 2026
+
+- première interface Qt/PySide6 : accueil, catalogue, préparation, historique et
+  statistiques avec courbe mensuelle et barres par fournisseur ;
+- adaptation visuelle aux supports LADAPT fournis, logo conservé sans retouche,
+  thèmes clair/sombre et dialogues standard en français ;
+- profils de démonstration et copies isolées de la base, y compris journal WAL,
+  sans ouverture de la base stable comme base de travail ;
+- réutilisation de la recherche FTS5, des imports transactionnels, des garde-fous
+  de commande et du générateur PDF de la 1.6.0 ;
+- tableaux paginés, recherches annulables en arrière-plan et fermeture coordonnée
+  des workers Qt ; calculs du panier en Decimal ;
+- compilation Windows distincte et artefact portable produit par la CI Horizon ;
+- collaboration, réceptions détaillées, messagerie, pièces jointes et réglages
+  complets à porter. Alpha réservée aux essais : voir [le guide](docs/horizon.md).
+
 ## 1.6.0 — 7 novembre 2026
 
 - prise en charge du nouveau fichier CAHPP **Evo TARIFS** : détection des en-têtes
