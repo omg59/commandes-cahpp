@@ -1,9 +1,9 @@
-"""Palette issue du logo fourni et du projet associatif LADAPT 2024-2030."""
+"""Palette de couleurs de Commandes CAHPP Horizon."""
 
 from PySide6.QtGui import QColor, QFont, QPalette
 
-BLUE = "#1D4084"  # fond du logo fourni
-YELLOW = "#FFC432"  # aplats du document de référence
+BLUE = "#1D4084"  # bleu principal
+YELLOW = "#FFC432"  # couleur d'accent
 SKY = "#58A5DB"
 
 

@@ -1,7 +1,7 @@
 # Commandes CAHPP Horizon
 
-**Version bêta 2.0.0b1 — branche `feature/horizon-ui`.**
-Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
+**Version bêta 2.0.0b2 — branche `feature/horizon-ui`.**
+Application indépendante de préparation et de suivi des commandes fournisseurs.
 Après validation du PDF, une fenêtre propose l'envoi au fournisseur et sa
 confirmation sans quitter la commande. Les fiches fournisseurs sont regroupées
 dans **Paramètres → Fournisseurs**.

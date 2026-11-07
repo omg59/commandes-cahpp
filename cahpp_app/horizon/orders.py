@@ -227,10 +227,17 @@ class PreparePage(QWidget):
             self.window.add_product(p)
 
     def add(self, p, quantity=None):
-        if self.cart.lines and p["supplier_id"] != self.cart.supplier_id:
-            if not self.window.allow_discard_or_save():
+        if quantity is None:
+            quantity, accepted = QInputDialog.getDouble(
+                self,
+                "Quantité à ajouter",
+                p["designation"] + "\n\nNombre de cartons à ajouter :",
+                value=float(p["usual_cartons"] or 1),
+                minValue=0.001,
+                decimals=3,
+            )
+            if not accepted:
                 return False
-            self.reset()
         price = None
         pack = None
         if p["unit_price"] is None:
@@ -249,14 +256,18 @@ class PreparePage(QWidget):
             )
             if not ok:
                 return False
-            pack = parse_decimal(text, "Unités par carton", minimum=0)
+            pack = parse_decimal(text, "Unités par carton", minimum=0.001)
+        if self.cart.lines and p["supplier_id"] != self.cart.supplier_id:
+            # Vérifier la ligne avant de remplacer la commande en cours.
+            Cart().add(p, price=price, packaging=pack, quantity=quantity)
+            if not self.window.allow_discard_or_save():
+                return False
+            self.reset()
         self.cart.add(
             p,
             price=price,
             packaging=pack,
-            quantity=quantity
-            if quantity is not None
-            else (p["usual_cartons"] if p["favorite"] else 1) or 1,
+            quantity=quantity,
         )
         self.select_supplier(p["supplier_id"])
         self.model.reload()

@@ -10,6 +10,9 @@ from pathlib import Path
 
 
 class HorizonGuiTest(unittest.TestCase):
+    def test_quantity_dialog_and_responsive_statistics_selector(self):
+        self.run_scenario("tests.gui_horizon_quantity")
+
     def test_first_launch_creates_empty_working_profile_and_remembers_it(self):
         self.run_scenario("tests.gui_horizon_startup")
 

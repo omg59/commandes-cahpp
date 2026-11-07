@@ -1,7 +1,7 @@
-# Commandes CAHPP Horizon — 2.0.0b1
+# Commandes CAHPP Horizon — 2.0.0b2
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
-Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
+Qt/PySide6. Le développement reste sur la branche
 `feature/horizon-ui`. Le moteur conserve la version 1.6.0 et le schéma 15 :
 la version stable et son installateur restent distincts.
 
@@ -24,16 +24,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0b1-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0b1-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0b2-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0b2-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0b1-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0b1-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0b2-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0b2-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -129,6 +129,16 @@ Les listes de fournisseurs acceptent la saisie d'un nom ou d'une partie du nom.
 Il faut choisir un résultat existant ; une saisie partielle n'est pas utilisée
 comme fournisseur d'une commande.
 
+Depuis le catalogue ou **Nouvelle commande**, l'ajout d'un article demande le
+**nombre de cartons à ajouter**, avec la quantité habituelle préremplie. Les
+fractions sont acceptées jusqu'à trois décimales ; un nouvel ajout cumule la
+quantité sur la ligne existante. **Annuler** conserve la commande en cours,
+y compris si l'article choisi appartient à un autre fournisseur. Les quantités
+restent ensuite modifiables dans le panier.
+
+Dans les statistiques, le sélecteur des fournisseurs est élargi et s'adapte à
+l'espace disponible pour afficher **Tous les fournisseurs** en entier.
+
 Les dates s'affichent et se saisissent en **JJ/MM/AAAA**, par exemple
 **07/11/2026** : préparation, historique, date de livraison prévue, réceptions,
 statistiques, imports, documents, notes internes et paramètres. Les horodatages
@@ -170,8 +180,7 @@ pour les modes clair/sombre. Le choix est mémorisé dans le profil. Les actions
 de reprise de base et de diagnostic sont uniquement dans les paramètres.
 
 Le logo de l'application et les titres sont centrés dans la barre latérale.
-Le logo LADAPT fourni est affiché en bas sans retouche, avec ses proportions
-conservées. **Paramètres → À propos** indique l'auteur **Damien Macq**, la version,
+**Paramètres → À propos** indique l'auteur **Damien Macq**, la version,
 les crédits et les informations sur les données et composants tiers. Le bouton
 **Notices et licences…** permet de consulter les textes joints à l'application.
 
@@ -262,9 +271,9 @@ le lancement de l'archive portable et les empreintes des livrables. La validatio
 du poste Windows et du partage de l'établissement reste à effectuer avant un
 remplacement du logiciel utilisé au quotidien.
 
-## Identité LADAPT
+## Identité visuelle
 
 Le logo et les icônes d'application reprennent les fichiers de la version 1.6.0
-dans `assets`, sans retouche. Les bleus et le jaune proviennent des supports
-LADAPT transmis ; voir `ressources/horizon/NOTICE.txt`. Les thèmes clair/sombre
+dans `assets`, sans retouche. La palette du logiciel est bleue et jaune.
+Les thèmes clair/sombre
 et les dialogues standard en français restent disponibles.

@@ -40,8 +40,7 @@ class AboutPage(QWidget):
                 "La préparation des e-mails ouvre la messagerie choisie dans les paramètres.",
             ),
             (
-                "Identité visuelle et droits des tiers",
-                "Le logo LADAPT appartient à LADAPT et est reproduit à partir du fichier fourni pour ce projet. "
+                "Droits des tiers",
                 "Les noms, marques, logos et catalogues de tiers restent soumis aux droits de leurs titulaires.",
             ),
             (

@@ -1,16 +1,9 @@
 Identité visuelle
 ================
-Le logo LADAPT fourni par l'utilisateur reste la propriété de LADAPT.
-Il est reproduit sans retouche. La mise à disposition du code n'accorde pas
-de droits sur ce logo.
-La palette d'interface est issue des supports fournis, sans certification de
-conformité à une charte institutionnelle complète :
-- bleu du logo : #1D4084 ;
-- bleu clair du projet associatif 2024-2030 : #58A5DB ;
-- jaune du projet associatif 2024-2030 : #FFC432.
-Les polices du PDF de référence n'ont pas été extraites ni redistribuées.
-L'interface utilise la police système ; les PDF utilisent les polices DejaVu
-déjà distribuées avec le projet, avec leur licence.
+Le logo d'application est celui de Commandes CAHPP.
+La palette du logiciel associe bleu, bleu clair et jaune.
+L'interface utilise la police système. Les PDF utilisent les polices DejaVu,
+distribuées avec leur licence dans les ressources.
 
 Composants tiers
 ===============

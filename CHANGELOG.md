@@ -1,5 +1,13 @@
 # Historique des versions
 
+## Horizon 2.0.0b2 — identité indépendante et ajout au panier, 8 novembre 2026
+
+- retrait du logo institutionnel, de ses fichiers et de ses références dans
+  l'interface, les notices, la documentation et la capture du README ;
+- demande du nombre de cartons avant l'ajout d'un article, quantité habituelle
+  préremplie et cumul sur une ligne existante ; annuler conserve le panier ;
+- sélecteur fournisseur des statistiques élargi et redimensionnable.
+
 ## Horizon 2.0.0b1 — première bêta utilisateur, 7 novembre 2026
 
 - suppression du titre redondant dans Paramètres → Fournisseurs ;
@@ -13,12 +21,12 @@
 
 ## Horizon 2.0.0a9 — navigation et identité visuelle, 7 novembre 2026
 
-- logo Horizon et titres centrés dans la barre latérale ; logo LADAPT en bas ;
+- logo Horizon et titres centrés dans la barre latérale ; ancien logo en bas ;
 - un seul bouton Commandes avec les onglets Nouvelle commande, Suivi des commandes
   et À recommander ; conservation du panier et accès directs adaptés ;
 - Paramètres → À propos : auteur Damien Macq, version, crédits, informations
   sur les données et consultation des notices/licences jointes ;
-- vérification des ressources LADAPT et des notices dans les paquets compilés.
+- vérification des ressources graphiques et des notices dans les paquets compilés.
 
 ## Horizon 2.0.0a8 — dates des exports, 7 novembre 2026
 
@@ -95,7 +103,7 @@ La branche reste `feature/horizon-ui` ; version moteur et schéma inchangés.
 
 - première interface Qt/PySide6 : accueil, catalogue, préparation, historique et
   statistiques avec courbe mensuelle et barres par fournisseur ;
-- adaptation visuelle aux supports LADAPT fournis, logo conservé sans retouche,
+- adaptation visuelle aux supports graphiques fournis, logo conservé sans retouche,
   thèmes clair/sombre et dialogues standard en français ;
 - profils de démonstration et copies isolées de la base, y compris journal WAL,
   sans ouverture de la base stable comme base de travail ;

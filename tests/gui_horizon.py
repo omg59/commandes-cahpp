@@ -64,7 +64,10 @@ def main():
         assert browser.model.rowCount() == 1
         p = browser.rows[0]
         assert p["supplier_ref"] == "DEMO-001"
-        window.add_product(p)
+        with patch(
+            "cahpp_app.horizon.orders.QInputDialog.getDouble", return_value=(1.0, True)
+        ):
+            window.add_product(p)
         assert window.prepare.cart.total_ht == Decimal("4.2100")
         window.prepare.model.setData(
             window.prepare.model.index(0, window.prepare.model.QUANTITY_COLUMN),

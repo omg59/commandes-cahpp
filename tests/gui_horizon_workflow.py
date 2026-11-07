@@ -61,7 +61,6 @@ def main():
             "settings",
         }
         assert window.brand_logo.alignment() & Qt.AlignmentFlag.AlignHCenter
-        assert not window.ladapt_logo.pixmap().isNull()
         window.nav_buttons["commands"].click()
         assert window.current_page() is window.prepare
         assert [window.command_tabs.tabText(i) for i in range(3)] == [

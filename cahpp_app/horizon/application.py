@@ -169,19 +169,6 @@ class HorizonWindow(QMainWindow):
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
-        nav.addSpacing(10)
-        self.ladapt_logo = label()
-        self.ladapt_logo.setAccessibleName("Logo LADAPT")
-        self.ladapt_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ladapt_logo.setPixmap(
-            QPixmap(str(resource_root() / "ressources/horizon/ladapt.png")).scaled(
-                112,
-                112,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-        nav.addWidget(self.ladapt_logo)
         sidebar_area = QScrollArea()
         sidebar_area.setFixedWidth(212)
         sidebar_area.setWidgetResizable(True)
@@ -788,7 +775,6 @@ def run(profile, info):
             ready = (
                 window.overview.metrics[0].value.text() != "—"
                 and (resource_root() / "assets" / "app_icon.png").is_file()
-                and not window.ladapt_logo.pixmap().isNull()
                 and all(
                     (resource_root() / path).is_file()
                     for path in (

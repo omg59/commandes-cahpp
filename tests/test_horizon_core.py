@@ -66,7 +66,7 @@ class HorizonCoreTest(unittest.TestCase):
             self.assertTrue(
                 (
                     Path(os.environ["CAHPP_RESOURCE_ROOT"])
-                    / "ressources/horizon/ladapt.png"
+                    / "assets/app_icon.png"
                 ).is_file()
             )
             self.assertEqual(info["mode"], "work")

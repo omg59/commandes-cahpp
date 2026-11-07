@@ -47,7 +47,7 @@ def main():
         for product, quantity in zip(products, (2, 3)):
             window.prepare.add(product, quantity=quantity)
         window.prepare.requester.setText("Service de soins")
-        window.prepare.order_date.setText("07/11/2026")
+        window.prepare.order_date.setText("08/11/2026")
         window.navigate("prepare")
         until = time.monotonic() + 10
         while window.jobs.tasks and time.monotonic() < until:
