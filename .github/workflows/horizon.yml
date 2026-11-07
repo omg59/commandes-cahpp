@@ -90,7 +90,7 @@ jobs:
           with tempfile.TemporaryDirectory() as profile:
               subprocess.run([str(exe), '--profile', profile, '--smoke-test'], check=True, timeout=40)
               report = json.loads((Path(profile)/'startup-ok.json').read_text())
-              assert report['version'] == '2.0.0a5' and report['qt_translated'], report
+              assert report['version'] == '2.0.0a6' and report['qt_translated'], report
       - name: Mettre le dossier Windows à disposition
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -109,7 +109,7 @@ jobs:
         run: |
           import json, os, subprocess, tempfile
           from pathlib import Path
-          setup = Path('dist-installer-horizon/CommandesCAHPP-Horizon-Setup-2.0.0a5.exe').resolve()
+          setup = Path('dist-installer-horizon/CommandesCAHPP-Horizon-Setup-2.0.0a6.exe').resolve()
           with tempfile.TemporaryDirectory() as folder:
               root = Path(folder)
               target = root / 'programme'

@@ -1,5 +1,11 @@
 # Historique des versions
 
+## Horizon 2.0.0a6 — libellés de la fenêtre d’envoi, 7 novembre 2026
+
+- « Bon de commande » remplace « Bon PDF » ;
+- boutons « Ouvrir l’e-mail » et « Ouvrir le dossier des pièces jointes » ;
+- libellés conservés après l’ouverture de la messagerie.
+
 ## Horizon 2.0.0a5 — envoi simplifié, 7 novembre 2026
 
 - après validation et création du PDF, fenêtre d'envoi sans quitter la commande ;

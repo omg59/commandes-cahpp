@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a5.**
+**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a6.**
 Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
 Après validation du PDF, une fenêtre propose l'envoi au fournisseur et sa
 confirmation sans quitter la commande. Les fiches fournisseurs sont regroupées

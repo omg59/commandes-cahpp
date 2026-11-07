@@ -41,7 +41,9 @@ class OrderDispatchDialog(QDialog):
         self.recipient = label("Destinataire : " + recipient, "", True)
         body.addWidget(self.recipient)
         pdf = QHBoxLayout()
-        pdf.addWidget(label("Bon PDF : " + self.pdf_path.name, "muted", True), 1)
+        pdf.addWidget(
+            label("Bon de commande : " + self.pdf_path.name, "muted", True), 1
+        )
         self.preview_button = button("Ouvrir le PDF", self.preview)
         pdf.addWidget(self.preview_button)
         body.addLayout(pdf)
@@ -52,9 +54,7 @@ class OrderDispatchDialog(QDialog):
             True,
         )
         body.addWidget(self.status)
-        self.compose_button = button(
-            "Ouvrir l'e-mail au fournisseur", self.compose, "primary"
-        )
+        self.compose_button = button("Ouvrir l'e-mail", self.compose, "primary")
         self.compose_button.setEnabled(bool(order["supplier_email"]))
         body.addWidget(self.compose_button)
         if not order["supplier_email"]:
@@ -66,7 +66,7 @@ class OrderDispatchDialog(QDialog):
                 button("Compléter la fiche fournisseur…", self.edit_supplier)
             )
         self.files_button = button(
-            "Rouvrir le dossier des pièces jointes", self.open_files
+            "Ouvrir le dossier des pièces jointes", self.open_files
         )
         self.files_button.hide()
         body.addWidget(self.files_button)
@@ -115,7 +115,6 @@ class OrderDispatchDialog(QDialog):
                     self.order_id, "E-mail préparé"
                 )
         self.sent_button.setEnabled(True)
-        self.compose_button.setText("Rouvrir l'e-mail au fournisseur")
         self.later_button.setText("Terminer plus tard")
         self.status.setText(
             "Message ouvert dans la messagerie. Fichiers à joindre :\n"

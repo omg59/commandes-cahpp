@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0a5
+# Commandes CAHPP Horizon — 2.0.0a6
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
@@ -24,16 +24,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0a5-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0a5-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0a6-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0a6-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0a5-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0a5-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0a6-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0a6-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -117,7 +117,7 @@ comme fournisseur d'une commande.
 
 Le bouton **Valider et générer le PDF…** crée le bon puis ouvre directement la
 fenêtre **Envoyer la commande au fournisseur**. Elle affiche le destinataire,
-le numéro, le montant et le PDF. **Ouvrir l'e-mail au fournisseur** prépare le
+le numéro, le montant et le PDF. **Ouvrir l'e-mail** prépare le
 message selon les modèles enregistrés et ouvre le dossier du PDF et des autres
 documents cochés pour l'e-mail. Joindre ces fichiers puis envoyer depuis la
 messagerie : une composition web ne permet pas de joindre automatiquement des
