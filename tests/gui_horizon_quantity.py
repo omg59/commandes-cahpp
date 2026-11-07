@@ -89,10 +89,9 @@ def main():
         app.processEvents()
         selector = window.statistics.supplier
         assert selector.currentText() == "Tous les fournisseurs"
-        assert (
-            selector.lineEdit().width()
-            >= selector.fontMetrics().horizontalAdvance(selector.currentText()) + 40
-        )
+        editor = selector.lineEdit()
+        expected = editor.fontMetrics().horizontalAdvance(selector.currentText()) + 40
+        assert editor.width() >= expected, (selector.width(), editor.width(), expected)
         if len(sys.argv) > 1:
             window.grab().save(sys.argv[1])
         errors.assert_not_called()
