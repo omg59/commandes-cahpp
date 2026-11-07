@@ -8,6 +8,8 @@ on:
       - cahpp_app/horizon/**
       - main_horizon.py
       - Horizon.spec
+      - Horizon.iss
+      - build_horizon_installer.bat
       - requirements-horizon.txt
       - tests/*horizon*
       - ressources/horizon/**
@@ -64,12 +66,47 @@ jobs:
           with tempfile.TemporaryDirectory() as profile:
               subprocess.run([str(exe), '--profile', profile, '--smoke-test'], check=True, timeout=40)
               report = json.loads((Path(profile)/'startup-ok.json').read_text())
-              assert report['version'] == '2.0.0a1' and report['qt_translated'], report
+              assert report['version'] == '2.0.0a2' and report['qt_translated'], report
       - name: Mettre le dossier Windows à disposition
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: CommandesCAHPP-Horizon-Windows
           path: dist/CommandesCAHPP-Horizon-portable/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Construire l'installeur Horizon séparé
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: build_horizon_installer.bat --skip-build
+      - name: Vérifier installation, mise à jour et désinstallation isolées
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import json, os, subprocess, tempfile
+          from pathlib import Path
+          setup = Path('dist-installer-horizon/CommandesCAHPP-Horizon-Setup-2.0.0a2.exe').resolve()
+          with tempfile.TemporaryDirectory() as folder:
+              root = Path(folder)
+              target = root / 'programme'
+              profile = root / 'profils' / 'essai'
+              options = [str(setup), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=', '/DIR='+str(target)]
+              subprocess.run(options, check=True, timeout=120)
+              exe = target / 'CommandesCAHPP-Horizon.exe'
+              assert exe.is_file()
+              subprocess.run([str(exe), '--profile', str(profile), '--smoke-test'], check=True, timeout=45)
+              marker = profile / 'conservation-test.txt'
+              marker.write_text('conserver', encoding='utf-8')
+              subprocess.run(options, check=True, timeout=120)
+              assert marker.read_text(encoding='utf-8') == 'conserver'
+              subprocess.run([str(exe), '--profile', str(profile), '--smoke-test'], check=True, timeout=45)
+              subprocess.run([str(target/'unins000.exe'), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'], check=True, timeout=120)
+              assert marker.read_text(encoding='utf-8') == 'conserver'
+      - name: Mettre l'installeur Windows à disposition
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommandesCAHPP-Horizon-Installer-Windows
+          path: dist-installer-horizon/*.exe
           if-no-files-found: error
           retention-days: 30

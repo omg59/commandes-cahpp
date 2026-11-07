@@ -4,7 +4,6 @@ import platform
 import sys
 import sqlite3
 import struct
-import tkinter
 from datetime import datetime
 
 from .collaboration import CollaborationManager
@@ -32,7 +31,11 @@ def build_diagnostic_report(
     version: str,
     last_sync_result: dict[str, object] | None = None,
     last_sync_error: str = "",
+    gui_runtime: str | None = None,
 ) -> str:
+    if gui_runtime is None:
+        import tkinter
+        gui_runtime = f"Tk : {tkinter.TkVersion}"
     generated_at = datetime.now().isoformat(timespec="seconds")
     lines = [
         "COMMANDES CAHPP — RAPPORT DE DIAGNOSTIC",
@@ -43,7 +46,7 @@ def build_diagnostic_report(
         f"Python : {platform.python_version()}",
         f"Architecture du processus : {struct.calcsize('P') * 8} bits",
         f"SQLite : {sqlite3.sqlite_version}",
-        f"Tk : {tkinter.TkVersion}",
+        gui_runtime,
         f"Exécutable compilé : {'oui' if getattr(sys, 'frozen', False) else 'non'}",
         f"Utilisateur : {database.current_user_name}",
         "",

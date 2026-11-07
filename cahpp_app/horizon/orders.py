@@ -2,6 +2,7 @@
 
 from functools import partial
 from pathlib import Path
+from datetime import date
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
@@ -15,6 +16,9 @@ from PySide6.QtWidgets import (
     QSplitter,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
+    QCheckBox,
+    QAbstractItemView,
 )
 
 from ..numbers import parse_decimal
@@ -22,6 +26,15 @@ from .catalog import CatalogBrowser
 from .models import CartModel, RowsModel
 from .services import Cart, currency, number
 from .widgets import button, card, label, table
+from .forms import action, FormDialog, open_document, selected_row
+from ..local_services import (
+    resolve_portable_path,
+    safe_filename,
+    prepare_mail_order,
+    mark_order_sent,
+    delete_unsent_order,
+)
+from .tracking import OrderWorkspaceDialog
 
 
 class PreparePage(QWidget):
@@ -59,6 +72,9 @@ class PreparePage(QWidget):
             "Ajouter l'article sélectionné", self.add_selection, "primary"
         )
         self.browser.layout().addWidget(self.add_selected)
+        self.browser.layout().addWidget(
+            button("Ajouter un article hors catalogue…", self.manual_product)
+        )
         split.addWidget(self.browser)
         side, body = card()
         side.setMinimumWidth(270)
@@ -79,6 +95,10 @@ class PreparePage(QWidget):
         self.franco = label("", "muted", True)
         body.addWidget(self.vat)
         body.addWidget(self.franco)
+        self.order_date = QLineEdit(date.today().isoformat())
+        self.order_date.setAccessibleName("Date de commande AAAA-MM-JJ")
+        body.addWidget(label("Date de commande (AAAA-MM-JJ)", "muted"))
+        body.addWidget(self.order_date)
         self.requester = QLineEdit()
         self.requester.setPlaceholderText("Service / unité destinataire")
         self.requester.setAccessibleName("Service destinataire")
@@ -88,12 +108,15 @@ class PreparePage(QWidget):
         self.notes.setMaximumHeight(80)
         self.requester.textChanged.connect(self.mark_dirty)
         self.notes.textChanged.connect(self.mark_dirty)
+        self.order_date.textChanged.connect(self.mark_dirty)
         body.addWidget(self.requester)
         body.addWidget(self.notes)
         self.save_button = button(
             "Enregistrer le brouillon", self.save_draft, "primary"
         )
-        self.pdf_button = button("Générer le bon PDF", self.generate_pdf, "accent")
+        self.pdf_button = button(
+            "Générer le bon PDF…", lambda: self.generate_pdf(choose=True), "accent"
+        )
         body.addWidget(self.save_button)
         body.addWidget(self.pdf_button)
         body.addWidget(
@@ -138,6 +161,7 @@ class PreparePage(QWidget):
         self.browser.supplier_id = sid
 
     def reset(self):
+        self.window.operations.release_order()
         self.cart = Cart()
         self.model.cart = self.cart
         self.model.reload()
@@ -148,6 +172,7 @@ class PreparePage(QWidget):
         self.requester.blockSignals(False)
         self.notes.blockSignals(False)
         self.badge.setText("Brouillon · aucun envoi")
+        self.order_date.setText(date.today().isoformat())
 
     def refresh(self):
         self.reload_suppliers()
@@ -163,7 +188,7 @@ class PreparePage(QWidget):
         if p:
             self.window.add_product(p)
 
-    def add(self, p):
+    def add(self, p, quantity=None):
         if self.cart.lines and p["supplier_id"] != self.cart.supplier_id:
             if not self.window.allow_discard_or_save():
                 return False
@@ -187,7 +212,14 @@ class PreparePage(QWidget):
             if not ok:
                 return False
             pack = parse_decimal(text, "Unités par carton", minimum=0)
-        self.cart.add(p, price=price, packaging=pack)
+        self.cart.add(
+            p,
+            price=price,
+            packaging=pack,
+            quantity=quantity
+            if quantity is not None
+            else (p["usual_cartons"] if p["favorite"] else 1) or 1,
+        )
         self.select_supplier(p["supplier_id"])
         self.model.reload()
         self.browser.search()
@@ -221,8 +253,11 @@ class PreparePage(QWidget):
         self.save_button.setEnabled(bool(self.cart.lines))
         self.pdf_button.setEnabled(bool(self.cart.lines))
 
+    @action
     def save_draft(self):
         try:
+            if self.cart.dirty and not self.confirm_warnings():
+                return False
             if self.cart.order_id:
                 order, _ = self.window.database.get_order(self.cart.order_id)
                 if order["status"] != "Brouillon":
@@ -239,9 +274,13 @@ class PreparePage(QWidget):
                         != QMessageBox.StandardButton.Yes
                     ):
                         return False
-                    self.window.database.reopen_unsent_order(order["id"])
-            oid = self.cart.save(
-                self.window.database, self.notes.toPlainText(), self.requester.text()
+                    with self.window.operations.locked_order(order["id"]):
+                        self.window.database.reopen_unsent_order(order["id"])
+            oid = self.window.operations.save_cart(
+                self.cart,
+                self.notes.toPlainText(),
+                self.requester.text(),
+                date.fromisoformat(self.order_date.text()),
             )
             order, _ = self.window.database.get_order(oid)
             self.badge.setText(order["order_number"] + " · Brouillon")
@@ -252,7 +291,8 @@ class PreparePage(QWidget):
             self.window.report_error(exc)
             return False
 
-    def generate_pdf(self):
+    @action
+    def generate_pdf(self, choose=False):
         if not self.save_draft():
             return
         from ..local_services import safe_filename
@@ -260,9 +300,26 @@ class PreparePage(QWidget):
         from ..pdf_export import generate_order_pdf
 
         order, _ = self.window.database.get_order(self.cart.order_id)
-        output = EXPORT_DIR / (safe_filename(order["order_number"]) + ".pdf")
+        settings = self.window.database.get_settings()
+        directory = Path(settings.get("pdf_default_directory") or EXPORT_DIR)
+        sequence = self.window.database.daily_supplier_order_sequence(order["id"])
+        filename = (
+            safe_filename(
+                f"{order['order_date']} - {order['supplier_name']} - {sequence}"
+            )
+            + ".pdf"
+        )
+        output = directory / filename
+        if choose:
+            selected, _ = QFileDialog.getSaveFileName(
+                self, "Enregistrer le bon PDF", str(output), "PDF (*.pdf)"
+            )
+            if not selected:
+                return
+            output = Path(selected)
         try:
-            generate_order_pdf(self.window.database, order["id"], output)
+            with self.window.operations.locked_order(order["id"]):
+                generate_order_pdf(self.window.database, order["id"], output)
         except (OSError, ValueError) as exc:
             self.window.report_error(exc)
             return
@@ -272,14 +329,89 @@ class PreparePage(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(output)))
 
     def load_order(self, oid):
+        self.window.operations.hold_order(oid)
         order = self.cart.load(self.window.database, oid)
         self.select_supplier(self.cart.supplier_id)
         self.requester.setText(order["requester_service"])
         self.notes.setPlainText(order["notes"])
         self.cart.dirty = False
+        self.order_date.setText(order["order_date"])
+        self.cart.dirty = False
         self.model.reload()
         self.browser.search()
         self.badge.setText(order["order_number"] + " · Brouillon")
+
+    def confirm_warnings(self):
+        supplier = self.window.database.get_supplier(self.cart.supplier_id)
+        warnings = []
+        if any(
+            line.cartons != line.cartons.to_integral_value() for line in self.cart.lines
+        ):
+            warnings.append("Le panier contient un nombre de cartons non entier.")
+        if supplier:
+            for key, title in [
+                ("minimum_order_ht", "Minimum de commande"),
+                ("franco_ht", "Franco"),
+            ]:
+                if supplier[key] is not None and self.cart.total_ht < supplier[key]:
+                    warnings.append(
+                        f"{title} non atteint : {currency(self.cart.total_ht)} / {currency(supplier[key])}."
+                    )
+        if not self.cart.order_id and self.cart.lines:
+            similar = self.window.database.find_recent_similar_order(
+                self.cart.supplier_id, [l.as_mapping() for l in self.cart.lines]
+            )
+            if similar:
+                warnings.append(
+                    "Commande similaire récente : " + similar["order_number"]
+                )
+        return (
+            not warnings
+            or QMessageBox.question(
+                self,
+                "Vérifier la commande",
+                "\n\n".join(warnings) + "\n\nEnregistrer quand même ?",
+            )
+            == QMessageBox.StandardButton.Yes
+        )
+
+    @action
+    def manual_product(self):
+        sid = self.suppliers.currentData()
+        if not sid:
+            raise ValueError("Choisissez d'abord un fournisseur.")
+        dialog = FormDialog(self.window, "Article hors catalogue")
+        for text, key in [
+            ("Référence", "supplier_ref"),
+            ("Désignation", "designation"),
+            ("Unités par carton", "conditionnement"),
+            ("Détail du conditionnement", "unit_packaging"),
+            ("Prix unitaire HT (€)", "unit_price"),
+            ("TVA (%)", "vat"),
+        ]:
+            dialog.fields.add(text, key)
+        dialog.fields.widgets["vat"].setText("20")
+
+        @action
+        def save(d):
+            values = d.fields.values()
+            for key in ("conditionnement", "unit_price", "vat"):
+                values[key] = float(
+                    parse_decimal(
+                        values[key],
+                        key,
+                        minimum=0,
+                        maximum=100 if key == "vat" else None,
+                    )
+                )
+            with self.window.operations.write():
+                pid = self.window.database.create_manual_product(sid, **values)
+            d.accept()
+            self.window.add_product(self.window.database.get_product(pid))
+            self.window.data_changed()
+
+        dialog.actions(lambda: save(dialog))
+        dialog.exec()
 
 
 class OrdersPage(QWidget):
@@ -309,6 +441,45 @@ class OrdersPage(QWidget):
         filters.addWidget(self.filter)
         filters.addWidget(button("Rechercher", self.refresh))
         layout.addLayout(filters)
+        extra = QHBoxLayout()
+        self.status_filter = QComboBox()
+        self.status_filter.addItems(
+            [
+                "Tous les statuts",
+                "Brouillon",
+                "Générée",
+                "E-mail préparé",
+                "Envoyée",
+                "Confirmée",
+                "Livrée",
+                "Facturée",
+            ]
+        )
+        self.delivery_filter = QComboBox()
+        self.delivery_filter.addItems(
+            [
+                "Toutes les livraisons",
+                "À recevoir",
+                "En attente",
+                "Partiellement livrée",
+                "Livrée",
+            ]
+        )
+        self.archives = QCheckBox("Inclure les archives")
+        self.saved_filters = QComboBox()
+        self.saved_filters.setAccessibleName("Filtres enregistrés")
+        for widget in (self.status_filter, self.delivery_filter, self.archives):
+            extra.addWidget(widget)
+        self.status_filter.currentIndexChanged.connect(self.refresh)
+        self.delivery_filter.currentIndexChanged.connect(self.refresh)
+        self.archives.toggled.connect(self.refresh)
+        layout.addLayout(extra)
+        saved = QHBoxLayout()
+        saved.addWidget(self.saved_filters, 1)
+        saved.addWidget(button("Appliquer le filtre", self.apply_filter))
+        saved.addWidget(button("Enregistrer le filtre…", self.save_filter))
+        saved.addWidget(button("Supprimer le filtre", self.delete_filter))
+        layout.addLayout(saved)
         split = QSplitter(Qt.Orientation.Horizontal)
         self.model = RowsModel(
             [
@@ -351,22 +522,40 @@ class OrdersPage(QWidget):
             body.addWidget(b)
             b.setEnabled(False)
         body.addStretch()
-        body.addWidget(
-            label(
-                "Réceptions détaillées, pièces jointes et messagerie seront portées dans les prochaines versions Horizon.",
-                "muted",
-                True,
-            )
+        body.addWidget(button("Suivi et réceptions", self.tracking, "primary"))
+        body.addWidget(button("Documents et notes internes", lambda: self.tracking(1)))
+        self.more_actions = QComboBox()
+        self.more_actions.addItems(
+            [
+                "Préparer l'e-mail",
+                "Régénérer le PDF…",
+                "Dupliquer la commande",
+                "Recommander certains articles…",
+                "Archiver / désarchiver",
+                "Historique des actions",
+            ]
         )
+        body.addWidget(self.more_actions)
+        body.addWidget(button("Exécuter l'action", self.additional_action))
         split.addWidget(box)
         split.setSizes([770, 285])
         layout.addWidget(split, 1)
 
     def refresh(self, *_):
+        self.reload_filters()
         self.window.jobs.submit(
             "orders",
             partial(
-                self.window.service.orders, self.query.text(), self.filter.currentText()
+                self.window.service.orders,
+                self.query.text(),
+                self.filter.currentText(),
+                status=self.status_filter.currentText()
+                if self.status_filter.currentIndex()
+                else "",
+                delivery_status=self.delivery_filter.currentText()
+                if self.delivery_filter.currentIndex()
+                else "",
+                include_archived=self.archives.isChecked(),
             ),
             self.result,
         )
@@ -414,6 +603,7 @@ class OrdersPage(QWidget):
             editable and row["status"] in ("Générée", "E-mail préparé")
         )
 
+    @action
     def resume_order(self):
         if not self.selected_id or not self.window.allow_discard_or_save():
             return
@@ -428,15 +618,15 @@ class OrdersPage(QWidget):
                 != QMessageBox.StandardButton.Yes
             ):
                 return
-            self.window.database.reopen_unsent_order(self.selected_id)
+            with self.window.operations.locked_order(self.selected_id):
+                self.window.database.reopen_unsent_order(self.selected_id)
         self.window.prepare.load_order(self.selected_id)
         self.window.navigate("prepare")
 
+    @action
     def open_pdf(self):
         order, _ = self.window.database.get_order(self.selected_id)
-        path = Path(order["pdf_path"])
-        if not path.is_absolute():
-            path = self.window.profile / path
+        path = resolve_portable_path(order["pdf_path"])
         if path.is_file():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         else:
@@ -444,6 +634,7 @@ class OrdersPage(QWidget):
                 "Le PDF historique n'est pas disponible dans ce profil d'essai. Reprenez la commande pour le régénérer si elle n'a pas été envoyée."
             )
 
+    @action
     def mark_sent(self):
         if (
             QMessageBox.question(
@@ -454,9 +645,11 @@ class OrdersPage(QWidget):
             != QMessageBox.StandardButton.Yes
         ):
             return
-        self.window.database.update_order_status(self.selected_id, "Envoyée")
+        with self.window.operations.locked_order(self.selected_id):
+            mark_order_sent(self.window.database, self.selected_id)
         self.window.data_changed()
 
+    @action
     def delete_order(self):
         if (
             QMessageBox.question(
@@ -468,8 +661,159 @@ class OrdersPage(QWidget):
         ):
             return
         try:
-            self.window.database.delete_unsent_order(self.selected_id)
+            with self.window.operations.locked_order(self.selected_id):
+                delete_unsent_order(self.window.database, self.selected_id)
+            if self.window.prepare.cart.order_id == self.selected_id:
+                self.window.prepare.reset()
         except ValueError as exc:
             self.window.report_error(exc)
             return
         self.window.data_changed()
+
+    def reload_filters(self):
+        current = self.saved_filters.currentText()
+        self.saved_filters.clear()
+        self.saved_filters.addItem("Choisir un filtre enregistré", None)
+        for row in self.window.database.list_saved_order_filters():
+            self.saved_filters.addItem(row["name"], dict(row))
+        self.saved_filters.setCurrentIndex(max(0, self.saved_filters.findText(current)))
+
+    @action
+    def save_filter(self):
+        name, ok = QInputDialog.getText(self, "Enregistrer le filtre", "Nom :")
+        if ok and name.strip():
+            with self.window.operations.write():
+                self.window.database.save_order_filter(
+                    name,
+                    self.query.text(),
+                    self.status_filter.currentText()
+                    if self.status_filter.currentIndex()
+                    else "",
+                    self.delivery_filter.currentText()
+                    if self.delivery_filter.currentIndex()
+                    else "",
+                    self.archives.isChecked(),
+                )
+            self.reload_filters()
+
+    @action
+    def delete_filter(self):
+        row = self.saved_filters.currentData()
+        if row:
+            self.window.database.delete_order_filter(row["name"])
+            self.reload_filters()
+
+    def apply_filter(self):
+        row = self.saved_filters.currentData()
+        if row:
+            self.query.setText(row["query"])
+            self.status_filter.setCurrentIndex(
+                max(0, self.status_filter.findText(row["status"]))
+            )
+            self.delivery_filter.setCurrentIndex(
+                max(0, self.delivery_filter.findText(row["delivery_status"]))
+            )
+            self.archives.setChecked(bool(row["include_archived"]))
+            self.filter.setCurrentIndex(0)
+            self.refresh()
+
+    @action
+    def tracking(self, tab=0):
+        if not self.selected_id:
+            raise ValueError("Sélectionnez une commande.")
+        dialog = OrderWorkspaceDialog(self.window, self.selected_id, tab=tab)
+        dialog.exec()
+        self.refresh()
+
+    @action
+    def additional_action(self):
+        if not self.selected_id:
+            raise ValueError("Sélectionnez une commande.")
+        action_index = self.more_actions.currentIndex()
+        if action_index == 0:
+            self.prepare_email()
+        elif action_index == 1:
+            self.regenerate_pdf()
+        elif action_index in (2, 3):
+            self.duplicate(selective=action_index == 3)
+        elif action_index == 4:
+            order, _ = self.window.database.get_order(self.selected_id)
+            with self.window.operations.locked_order(self.selected_id):
+                self.window.database.set_order_archived(
+                    self.selected_id, not bool(order["archived_at"])
+                )
+            self.window.data_changed()
+        else:
+            self.tracking(3)
+
+    @action
+    def prepare_email(self):
+        with self.window.operations.locked_order(self.selected_id):
+            url, directory, files = prepare_mail_order(
+                self.window.database, self.selected_id
+            )
+            order, _ = self.window.database.get_order(self.selected_id)
+            if self.window.database.can_delete_unsent_order(order):
+                self.window.database.update_order_status(
+                    self.selected_id, "E-mail préparé"
+                )
+        self.window.data_changed()
+        QMessageBox.information(
+            self,
+            "E-mail préparé",
+            "La fenêtre de composition va s'ouvrir. Ajoutez les fichiers du dossier de préparation avant d'envoyer.\n\n"
+            + "\n".join(p.name for p in files),
+        )
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
+        QDesktopServices.openUrl(QUrl(url))
+
+    @action
+    def regenerate_pdf(self):
+        from ..paths import EXPORT_DIR
+        from ..pdf_export import generate_order_pdf
+
+        order, _ = self.window.database.get_order(self.selected_id)
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Régénérer le bon PDF",
+            str(EXPORT_DIR / (safe_filename(order["order_number"]) + ".pdf")),
+            "PDF (*.pdf)",
+        )
+        if path:
+            with self.window.operations.locked_order(self.selected_id):
+                generate_order_pdf(self.window.database, self.selected_id, Path(path))
+            self.window.data_changed()
+            open_document(path)
+
+    @action
+    def duplicate(self, selective=False):
+        if not self.window.allow_discard_or_save():
+            return
+        uids = None
+        if selective:
+            _, lines = self.window.database.get_order(self.selected_id)
+            dialog = FormDialog(self.window, "Recommander une sélection d'articles")
+            model = RowsModel(
+                [
+                    ("Article", lambda r: r["designation"], False),
+                    ("Cartons", lambda r: number(r["cartons"], 3), True),
+                ]
+            )
+            model.replace([dict(r) for r in lines])
+            view = table(model)
+            view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+            dialog.body.addWidget(view)
+            dialog.actions(dialog.accept)
+            if not dialog.exec():
+                return
+            uids = [
+                model.rows[index.row()]["line_uid"]
+                for index in view.selectionModel().selectedRows()
+            ]
+            if not uids:
+                raise ValueError("Sélectionnez au moins un article.")
+        oid = self.window.operations.duplicate(self.selected_id, uids)
+        self.window.prepare.reset()
+        self.window.prepare.load_order(oid)
+        self.window.data_changed()
+        self.window.navigate("prepare")

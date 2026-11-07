@@ -8,6 +8,8 @@ import os
 import sqlite3
 import sys
 import tempfile
+import uuid
+import shutil
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -99,14 +101,87 @@ def copy_database(source: Path, profiles: Path) -> Path:
                     "UPDATE settings SET value='0' WHERE key='collaboration_enabled'"
                 )
                 local.execute(
-                    "UPDATE settings SET value='' WHERE key IN ('collaboration_root','shared_folder','collaboration_workspace_id')"
+                    "UPDATE settings SET value='' WHERE key IN ('collaboration_root','shared_folder','shared_workspace_path','collaboration_workspace_id','collaboration_last_sync_at','collaboration_catalog_hash','collaboration_catalog_version','pdf_default_directory')"
+                )
+                local.execute(
+                    "UPDATE settings SET value=? WHERE key='user_id'",
+                    (str(uuid.uuid4()),),
+                )
+                source_root = (
+                    source.parent.parent
+                    if source.parent.name == "data"
+                    else source.parent
+                )
+                copied_files = 0
+                missing_files = 0
+
+                def copy_file(value):
+                    nonlocal copied_files, missing_files
+                    if not value:
+                        return ""
+                    # Les références partagées sont récupérées seulement si le
+                    # dossier de partage du profil source est accessible.
+                    if value.startswith("shared:"):
+                        row = origin.execute(
+                            "SELECT value FROM settings WHERE key='shared_workspace_path'"
+                        ).fetchone()
+                        if not row or not row[0]:
+                            missing_files += 1
+                            return ""
+                        base = Path(row[0]).expanduser().resolve()
+                        original = (base / value.removeprefix("shared:")).resolve()
+                        original.relative_to(base)
+                    else:
+                        original = Path(value).expanduser()
+                        if not original.is_absolute():
+                            original = source_root / original
+                    if not original.is_file():
+                        missing_files += 1
+                        return ""
+                    relative = (
+                        Path("documents")
+                        / "copie-initiale"
+                        / (uuid.uuid4().hex + original.suffix)
+                    )
+                    new_file = destination / relative
+                    new_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(original, new_file)
+                    copied_files += 1
+                    return relative.as_posix()
+
+                for oid, pdf in local.execute(
+                    "SELECT id,pdf_path FROM orders"
+                ).fetchall():
+                    local.execute(
+                        "UPDATE orders SET pdf_path=? WHERE id=?", (copy_file(pdf), oid)
+                    )
+                if "order_attachments" in tables:
+                    for aid, stored in local.execute(
+                        "SELECT id,stored_path FROM order_attachments"
+                    ).fetchall():
+                        local.execute(
+                            "UPDATE order_attachments SET stored_path=? WHERE id=?",
+                            (copy_file(stored), aid),
+                        )
+                logo = local.execute(
+                    "SELECT value FROM settings WHERE key='logo_path'"
+                ).fetchone()
+                if logo and logo[0]:
+                    local.execute(
+                        "UPDATE settings SET value=? WHERE key='logo_path'",
+                        (copy_file(logo[0]),),
+                    )
+                marker_info = profile_info(destination)
+                marker_info.update(
+                    {"copied_files": copied_files, "missing_files": missing_files}
+                )
+                (destination / MARKER).write_text(
+                    json.dumps(marker_info, indent=2), encoding="utf-8"
                 )
         finally:
             origin.close()
     except Exception as exc:
         # Supprimer seulement les fichiers de cette nouvelle copie incomplète.
-        import shutil
-
         shutil.rmtree(destination)
         if isinstance(exc, sqlite3.Error):
             raise ValueError(

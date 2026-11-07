@@ -50,6 +50,9 @@ def card(parent=None):
 def table(model):
     item = QTableView()
     item.setModel(model)
+    if getattr(model, "sortable", False):
+        item.setSortingEnabled(True)
+        item.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
     item.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
     item.setSelectionMode(QTableView.SelectionMode.SingleSelection)
     item.setShowGrid(False)

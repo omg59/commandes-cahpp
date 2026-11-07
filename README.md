@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a1.**
+**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a2.**
 Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
 
 - [Lancement, fonctions et limites d'Horizon](docs/horizon.md)
@@ -10,8 +10,12 @@ Interface Qt aux couleurs LADAPT, développée en parallèle de la version stabl
   télécharger l'artefact **CommandesCAHPP-Horizon-Windows** d'un run réussi.
 
 Horizon crée un profil de démonstration séparé. Le bouton **Copier une base 1.6…**
-ouvre une copie de travail indépendante ; la collaboration n'est pas activée
-dans cette première alpha. Conserver la version 1.6.0 pour le travail habituel.
+ouvre une copie indépendante de la base et des documents accessibles.
+Les fonctions métier de la 1.6.0 sont reprises : réglages, fournisseurs,
+réceptions, documents, e-mails, recommandations, statistiques, collaboration et
+diagnostics complets. Le partage est activé explicitement dans les paramètres
+du profil Horizon. `build_horizon_installer.bat` prépare son installateur séparé.
+La validation Windows et du partage de l'établissement précède son usage quotidien.
 
 ![Accueil Horizon aux couleurs LADAPT, avec données fictives](docs/images/horizon-apercu.png)
 

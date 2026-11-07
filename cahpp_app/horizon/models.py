@@ -12,6 +12,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 
 from .services import currency, number
+from ..numbers import parse_decimal
 
 
 class RowsModel(QAbstractTableModel):
@@ -19,10 +20,48 @@ class RowsModel(QAbstractTableModel):
         super().__init__(parent)
         self.columns = columns  # (libellé, fonction d'affichage, aligné à droite)
         self.rows = []
+        self.sortable = True
+        self.sort_column = None
+        self.sort_order = Qt.SortOrder.AscendingOrder
 
     def replace(self, rows):
         self.beginResetModel()
         self.rows = list(rows)
+        if self.sort_column is not None:
+            self._sort_rows()
+        self.endResetModel()
+
+    def _sort_rows(self):
+        column = self.sort_column
+
+        def key(row):
+            value = self.columns[column][1](row)
+            if self.columns[column][2]:
+                try:
+                    return (
+                        0,
+                        parse_decimal(
+                            str(value)
+                            .replace("€", "")
+                            .replace("%", "")
+                            .replace(" j", "")
+                        ),
+                    )
+                except ValueError:
+                    return (1, str(value).casefold())
+            return (0, str(value).casefold())
+
+        self.rows.sort(key=key, reverse=self.sort_order == Qt.SortOrder.DescendingOrder)
+
+    def sort(self, column, order=Qt.SortOrder.AscendingOrder):
+        if column < 0:
+            self.sort_column = None
+            return
+        if not self.sortable or not 0 <= column < len(self.columns):
+            return
+        self.beginResetModel()
+        self.sort_column, self.sort_order = column, order
+        self._sort_rows()
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
@@ -131,6 +170,7 @@ class CartModel(RowsModel):
             parent,
         )
         self.cart = cart
+        self.sortable = False
 
     def reload(self):
         self.replace(self.cart.lines)

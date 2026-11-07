@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
+    QPlainTextEdit,
     QVBoxLayout,
 )
 
@@ -55,6 +56,13 @@ class ProductDialog(QDialog):
             form.addRow(title, entry)
             self.fields[key] = entry
         layout.addLayout(form)
+        self.team_notes = QPlainTextEdit(self.product.get("internal_notes") or "")
+        self.team_notes.setMaximumHeight(85)
+        self.team_notes.setAccessibleName("Notes internes de l'article")
+        form.addRow("Notes internes", self.team_notes)
+        self.replacement = QLineEdit(self.product.get("replacement_code_cahpp") or "")
+        self.replacement.setAccessibleName("Code CAHPP de remplacement")
+        form.addRow("Code CAHPP de remplacement", self.replacement)
         self.confirm = QCheckBox("J'ai vérifié les informations auprès du fournisseur.")
         if self.product["catalog_review_required"]:
             layout.addWidget(
@@ -106,6 +114,11 @@ class ProductDialog(QDialog):
                     catalog_review_confirmed=self.confirm.isChecked(),
                     reviewed_catalog_token=self.product["catalog_review_token"],
                 )
+            self.database.update_product_team_details(
+                self.product["id"],
+                self.team_notes.toPlainText(),
+                self.replacement.text(),
+            )
         except ValueError as exc:
             self.error.setText(str(exc))
             self.error.show()

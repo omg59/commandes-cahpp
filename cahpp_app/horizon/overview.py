@@ -1,12 +1,22 @@
 """Accueil et statistiques construits à partir des commandes réellement envoyées."""
 
 from functools import partial
+from datetime import date
 
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QVBoxLayout,
+    QWidget,
+    QLineEdit,
+    QFileDialog,
+    QTabWidget,
+)
 
 from .models import RowsModel
 from .services import currency, number
 from .widgets import Chart, Metric, button, card, label, table
+from .forms import action
 
 
 class OverviewPage(QWidget):
@@ -62,7 +72,7 @@ class OverviewPage(QWidget):
         body.addStretch()
         body.addWidget(
             label(
-                "Horizon alpha travaille uniquement dans son profil d'essai. La collaboration n'est pas activée.",
+                "Paramètres, sauvegardes et diagnostics sont disponibles dans votre profil Horizon.",
                 "muted",
                 True,
             )
@@ -87,6 +97,23 @@ class OverviewPage(QWidget):
         )
         body.addWidget(self.table)
         layout.addWidget(recent, 1)
+        self.alerts_model = RowsModel(
+            [
+                ("Alerte", lambda r: r["alert_type"], False),
+                (
+                    "Commande / fournisseur",
+                    lambda r: r["order_number"] + "\n" + r["supplier_name"],
+                    False,
+                ),
+                ("Retard (jours)", lambda r: r["overdue_days"], True),
+            ]
+        )
+        alerts = table(self.alerts_model)
+        alerts.doubleClicked.connect(
+            lambda index: window.open_order(self.alerts_model.rows[index.row()]["id"])
+        )
+        layout.addWidget(label("Confirmations et livraisons à relancer", "heading"))
+        layout.addWidget(alerts)
 
     def open_review(self):
         self.window.catalog.browser.filter.setCurrentIndex(2)
@@ -102,6 +129,7 @@ class OverviewPage(QWidget):
         if not data:
             return
         dash = data["dashboard"]
+        self.alerts_model.replace([dict(r) for r in dash.get("alerts", [])])
         current = data["statistics"]["values"][-1]
         details = [
             (data["drafts"], "Commandes non envoyées"),
@@ -150,6 +178,19 @@ class StatisticsPage(QWidget):
         filters.addWidget(self.supplier)
         filters.addStretch()
         layout.addLayout(filters)
+        dates = QHBoxLayout()
+        self.from_date = QLineEdit()
+        self.to_date = QLineEdit()
+        self.from_date.setPlaceholderText("Du AAAA-MM-JJ (facultatif)")
+        self.to_date.setPlaceholderText("Au AAAA-MM-JJ (facultatif)")
+        self.from_date.setAccessibleName("Début des statistiques")
+        self.to_date.setAccessibleName("Fin des statistiques")
+        dates.addWidget(self.from_date)
+        dates.addWidget(self.to_date)
+        dates.addWidget(button("Appliquer les dates", self.refresh))
+        dates.addWidget(button("Exporter en Excel…", self.export_excel))
+        layout.addLayout(dates)
+        self.dataset = None
         self.metrics = [
             Metric(t)
             for t in ("Montant engagé HT", "Commandes envoyées", "Fournisseurs")
@@ -193,6 +234,34 @@ class StatisticsPage(QWidget):
         )
         body.addWidget(table(self.model))
         layout.addWidget(box, 1)
+        tabs = QTabWidget()
+        self.products_model = RowsModel(
+            [
+                (
+                    "Article / fournisseur",
+                    lambda r: r["designation"] + "\n" + r["supplier_name"],
+                    False,
+                ),
+                ("Cartons", lambda r: number(r["cartons"], 3), True),
+                ("Unités", lambda r: number(r["total_units"], 3), True),
+                ("Total HT", lambda r: currency(r["total_ht"]), True),
+            ]
+        )
+        self.variances_model = RowsModel(
+            [
+                (
+                    "Article / fournisseur",
+                    lambda r: r["designation"] + "\n" + r["supplier_name"],
+                    False,
+                ),
+                ("Prix commandé", lambda r: currency(r["ordered_price"], 4), True),
+                ("Prix actuel", lambda r: currency(r["current_price"], 4), True),
+                ("Écart (%)", lambda r: number(r["difference_percent"], 2), True),
+            ]
+        )
+        tabs.addTab(table(self.products_model), "Articles commandés")
+        tabs.addTab(table(self.variances_model), "Comparaison des prix")
+        layout.addWidget(tabs)
 
     def select_supplier(self, sid):
         index = self.supplier.findData(sid)
@@ -209,13 +278,26 @@ class StatisticsPage(QWidget):
         self.supplier.setCurrentIndex(max(0, self.supplier.findData(current)))
         self.supplier.blockSignals(False)
 
+    @action
     def refresh(self, *_):
+        first = (
+            date.fromisoformat(self.from_date.text().strip())
+            if self.from_date.text().strip()
+            else None
+        )
+        last = (
+            date.fromisoformat(self.to_date.text().strip())
+            if self.to_date.text().strip()
+            else None
+        )
         self.window.jobs.submit(
             "statistics",
             partial(
                 self.window.service.statistics,
                 self.period.currentData(),
                 self.supplier.currentData(),
+                date_from=first,
+                date_to=last,
             ),
             self.result,
         )
@@ -226,6 +308,9 @@ class StatisticsPage(QWidget):
             return
         if not data:
             return
+        self.dataset = data
+        self.products_model.replace(data["detail"]["products"])
+        self.variances_model.replace(data["detail"]["price_variances"])
         totals = data["totals"]
         for metric, value, caption in zip(
             self.metrics,
@@ -245,3 +330,34 @@ class StatisticsPage(QWidget):
             [r["id"] for r in rows[:6]],
         )
         self.model.replace(rows)
+
+    @action
+    def export_excel(self):
+        if not self.dataset:
+            raise ValueError("Attendez le chargement des statistiques.")
+        from ..statistics_export import export_statistics_workbook
+
+        data = self.dataset
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exporter les statistiques affichées",
+            f"statistiques-{data['date_from']}-{data['date_to']}.xlsx",
+            "Classeur Excel (*.xlsx)",
+        )
+        if not path:
+            return
+
+        def work(*, cancel, progress):
+            return export_statistics_workbook(
+                data["detail"], data["date_from"], data["date_to"], path
+            )
+
+        self.window.jobs.submit(
+            "statistics-export",
+            work,
+            lambda result, error: (
+                self.window.report_error(error)
+                if error
+                else self.window.notify("Statistiques exportées : " + str(result))
+            ),
+        )

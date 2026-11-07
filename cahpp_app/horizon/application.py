@@ -50,6 +50,10 @@ from .overview import OverviewPage, StatisticsPage
 from .services import HorizonService, seed_demo
 from .theme import apply_theme
 from .widgets import button, label
+from .operations import Operations, months_before
+from .settings import SettingsPage, DiagnosticDialog
+from .suppliers import SuppliersPage, SuggestionsPage
+from .forms import action
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,10 @@ class HorizonWindow(QMainWindow):
         self.profile = Path(profile)
         self.info = info
         self.service = HorizonService(database)
+        self.operations = Operations(database)
+        self.sync_running = False
+        self.shared_manifest = None
+        self.catalog_prompted = ""
         self.jobs = Jobs(self)
         self.jobs.progress.connect(self.work_progress)
         self.import_busy = False
@@ -136,9 +144,13 @@ class HorizonWindow(QMainWindow):
         for key, title in [
             ("overview", "Vue d'ensemble"),
             ("catalog", "Catalogue"),
+            ("suggestions", "À recommander"),
             ("prepare", "Préparation"),
             ("orders", "Commandes"),
             ("statistics", "Statistiques"),
+            ("suppliers", "Fournisseurs"),
+            ("imports", "Mise à jour CAHPP"),
+            ("settings", "Paramètres"),
         ]:
             b = button(title, partial(self.navigate, key), "nav")
             b.setCheckable(True)
@@ -147,11 +159,17 @@ class HorizonWindow(QMainWindow):
             nav.addWidget(b)
         nav.addStretch()
         nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 1 · 2.0.0a1", "brandSub"))
+        nav.addWidget(label("Alpha 2 · " + VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
-        shell.addWidget(sidebar)
+        sidebar_area = QScrollArea()
+        sidebar_area.setFixedWidth(212)
+        sidebar_area.setWidgetResizable(True)
+        sidebar_area.setFrameShape(QFrame.Shape.NoFrame)
+        sidebar_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sidebar_area.setWidget(sidebar)
+        shell.addWidget(sidebar_area)
         content = QVBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
         content.setSpacing(0)
@@ -168,6 +186,7 @@ class HorizonWindow(QMainWindow):
         bar.addWidget(button("Copier une base 1.6…", self.choose_database))
         self.theme_button = button("Changer le thème", self.toggle_theme)
         bar.addWidget(self.theme_button)
+        bar.addWidget(button("Diagnostic", self.open_diagnostics))
         content.addWidget(top)
         self.stack = QStackedWidget()
         content.addWidget(self.stack, 1)
@@ -176,12 +195,22 @@ class HorizonWindow(QMainWindow):
         self.orders = OrdersPage(self)
         self.statistics = StatisticsPage(self)
         self.overview = OverviewPage(self)
+        self.suppliers = SuppliersPage(self)
+        self.preferences = SettingsPage(self)
+        self.suggestions = SuggestionsPage(self)
+        from .imports import ImportsPage
+
+        self.imports = ImportsPage(self)
         self.pages = {
             "overview": self.overview,
             "catalog": self.catalog,
             "prepare": self.prepare,
             "orders": self.orders,
             "statistics": self.statistics,
+            "suppliers": self.suppliers,
+            "settings": self.preferences,
+            "suggestions": self.suggestions,
+            "imports": self.imports,
         }
         self.containers = {}
         for key, page in self.pages.items():
@@ -200,12 +229,31 @@ class HorizonWindow(QMainWindow):
         self.progress.setTextVisible(False)
         self.statusBar().addPermanentWidget(self.progress)
         mode = "Démonstration" if info["mode"] == "demo" else "Copie de travail"
-        self.profile_label = label(
-            mode + " · profil isolé · collaboration non activée", "muted"
-        )
+        self.profile_label = label(mode + " · profil Horizon", "muted")
         self.statusBar().addPermanentWidget(self.profile_label)
         self.statistics.reload_suppliers()
         self.navigate("overview")
+        self.sync_timer = QTimer(self)
+        self.sync_timer.timeout.connect(self.sync_collaboration)
+        self.heartbeat_timer = QTimer(self)
+        self.heartbeat_timer.setInterval(30000)
+        self.heartbeat_timer.timeout.connect(self.heartbeat)
+        self.heartbeat_timer.start()
+        self.configure_sync_timer()
+        QTimer.singleShot(250, self.sync_collaboration)
+        if self.operations.last_sync_error:
+            QTimer.singleShot(
+                300,
+                lambda: self.notify(
+                    "Partage indisponible : la consultation et les diagnostics restent accessibles."
+                ),
+            )
+        if info.get("missing_files"):
+            QTimer.singleShot(500, lambda: self.notify(f"Copie terminée : {info.get('missing_files')} document(s) source indisponible(s)."))
+        QTimer.singleShot(1200, self.background_maintenance)
+        geometry = self.settings.value("geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
 
     def navigate(self, key):
         if self.closing:
@@ -242,6 +290,7 @@ class HorizonWindow(QMainWindow):
         for key, page in self.pages.items():
             if self.containers[key] is current:
                 page.refresh()
+        self.sync_collaboration()
 
     def new_order(self):
         if self.allow_discard_or_save():
@@ -266,20 +315,22 @@ class HorizonWindow(QMainWindow):
             return self.prepare.save_draft()
         return True
 
-    def add_product(self, p):
+    @action
+    def add_product(self, p, quantity=None):
         if self.import_busy:
             self.notify("Attendez la fin de l’import avant d’ajouter un article.")
             return
         p = self.database.get_product(p["id"])
         if p["catalog_review_required"]:
-            dialog = ProductDialog(self.database, p["id"], self)
-            if not dialog.exec():
-                return
+            with self.operations.locked_product(p["id"]):
+                dialog = ProductDialog(self.database, p["id"], self)
+                if not dialog.exec():
+                    return
             p = self.database.get_product(p["id"])
         try:
-            if self.prepare.add(p):
+            if self.prepare.add(p, quantity=quantity):
                 self.navigate("prepare")
-                self.notify("Un carton ajouté à la préparation.")
+                self.notify("Article ajouté à la préparation.")
         except ValueError as exc:
             self.report_error(exc)
 
@@ -305,7 +356,7 @@ class HorizonWindow(QMainWindow):
             QMessageBox.question(
                 self,
                 "Créer un profil d'essai",
-                "Horizon va créer une copie indépendante de cette base et l'ouvrir dans une nouvelle fenêtre. Les documents historiques ne sont pas recopiés. Continuer ?",
+                "Horizon va créer une copie indépendante de la base et des documents accessibles, puis l'ouvrir dans une nouvelle fenêtre. La source reste inchangée. Continuer ?",
             )
             != QMessageBox.StandardButton.Yes
         ):
@@ -331,6 +382,14 @@ class HorizonWindow(QMainWindow):
         )
         if not path:
             return
+        self.shared_manifest = None
+        self.start_catalog(path)
+
+    def start_catalog(self, path, shared_manifest=None):
+        if self.import_busy or self.sync_running:
+            self.notify("Attendez la fin de l'opération en cours.")
+            return
+        self.shared_manifest = shared_manifest
         self.import_busy = True
         self.progress.setRange(0, 0)
         self.progress.show()
@@ -373,7 +432,13 @@ class HorizonWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.jobs.submit(
             "catalog-import",
-            partial(apply_catalog, self.database, path, preview, options),
+            partial(
+                self.operations.import_catalog,
+                path,
+                preview,
+                options,
+                shared_manifest=self.shared_manifest,
+            ),
             self.catalog_applied,
         )
 
@@ -416,6 +481,21 @@ class HorizonWindow(QMainWindow):
         if not self.allow_discard_or_save():
             event.ignore()
             return
+        for page in (self.preferences, self.suppliers):
+            if page.has_unsaved_changes():
+                answer = QMessageBox.question(
+                    self,
+                    "Saisie non enregistrée",
+                    "Enregistrer les modifications avant de fermer ?",
+                    QMessageBox.StandardButton.Save
+                    | QMessageBox.StandardButton.Discard
+                    | QMessageBox.StandardButton.Cancel,
+                )
+                if answer == QMessageBox.StandardButton.Cancel or (
+                    answer == QMessageBox.StandardButton.Save and not page.save()
+                ):
+                    event.ignore()
+                    return
         if (
             self.import_busy
             and QMessageBox.question(
@@ -428,6 +508,8 @@ class HorizonWindow(QMainWindow):
             event.ignore()
             return
         self.closing = True
+        self.sync_timer.stop()
+        self.heartbeat_timer.stop()
         self.jobs.close()
         self.catalog.browser.timer.stop()
         self.prepare.browser.timer.stop()
@@ -440,7 +522,151 @@ class HorizonWindow(QMainWindow):
             QTimer.singleShot(50, self.finish_close)
             return
         self.close_ready = True
+        self.operations.close()
         self.close()
+        path = getattr(self, "pending_installer_path", None)
+        if path:
+            QProcess.startDetached(path, [])
+
+    def configure_sync_timer(self):
+        settings = self.database.get_settings()
+        interval = max(15, min(600, int(settings.get("sync_interval_seconds", "60"))))
+        self.sync_timer.start(interval * 1000)
+
+    def dirty_forms(self):
+        return any(
+            page.has_unsaved_changes() for page in (self.preferences, self.suppliers)
+        )
+
+    def sync_collaboration(self, force=False):
+        if (
+            self.closing
+            or not self.operations.manager
+            or self.sync_running
+            or self.import_busy
+        ):
+            return
+        if (
+            self.dirty_forms()
+            and self.database.get_settings().get("pause_sync_while_editing", "1") != "0"
+        ):
+            self.profile_label.setText(
+                "Synchronisation en pause · saisie non enregistrée"
+            )
+            return
+        self.sync_running = True
+        self.profile_label.setText("Synchronisation…")
+
+        def done(result, error):
+            self.sync_running = False
+            if error:
+                self.profile_label.setText("Partage indisponible · voir le diagnostic")
+                if force:
+                    self.report_error(error)
+                return
+            conflicts = (result.get("orders") or {}).get("conflicts", 0)
+            self.profile_label.setText(
+                f"Synchronisé · {datetime.now():%H:%M}"
+                + (f" · {conflicts} conflit(s) à examiner" if conflicts else "")
+            )
+            self.statistics.reload_suppliers()
+            current = self.stack.currentWidget()
+            for key, page in self.pages.items():
+                if self.containers[key] is current:
+                    page.refresh()
+            if result.get("catalog_pending"):
+                self.imports.refresh()
+            self.check_shared_updates()
+
+        self.jobs.submit("collaboration", self.operations.sync, done)
+
+    def check_shared_updates(self):
+        settings = self.database.get_settings()
+
+        def work(*, cancel, progress):
+            return self.operations.pending_installer(
+                VERSION, settings.get("horizon_dismissed_installer_version", "")
+            )
+
+        def done(installer, error):
+            if error or not installer or self.closing:
+                return
+            answer = QMessageBox.question(
+                self,
+                "Mise à jour Horizon disponible",
+                "La version "
+                + installer["version"]
+                + " est disponible dans le partage. Fermer Horizon et lancer son installation ?",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                if self.allow_discard_or_save():
+                    self.pending_installer_path = installer["path"]
+                    self.close()
+                    if not self.closing:
+                        self.pending_installer_path = None
+            else:
+                self.database.save_settings(
+                    {"horizon_dismissed_installer_version": installer["version"]}
+                )
+
+        self.jobs.submit("shared-installer", work, done)
+
+    def heartbeat(self):
+        if not self.operations.manager or self.closing:
+            return
+
+        def work(*, cancel, progress):
+            with self.operations.guard:
+                if self.operations.manager:
+                    self.operations.manager.refresh_active_locks()
+
+        self.jobs.submit(
+            "heartbeat",
+            work,
+            lambda result, error: self.notify(str(error)) if error else None,
+        )
+
+    def open_diagnostics(self):
+        dialog = DiagnosticDialog(self)
+        dialog.exec()
+
+    def background_maintenance(self):
+        if self.closing or self.import_busy or self.sync_running:
+            return
+        from datetime import date, timedelta
+
+        settings = self.database.get_settings()
+        now = datetime.now()
+
+        def due(key, days):
+            try:
+                return (
+                    datetime.fromisoformat(settings.get(key, ""))
+                    + timedelta(days=int(days))
+                    < now
+                )
+            except ValueError:
+                return True
+
+        if due("last_backup_at", settings.get("backup_reminder_days", "14")):
+            self.notify(
+                "Une sauvegarde complète est recommandée : Paramètres → Maintenance."
+            )
+        if due("last_integrity_check_at", settings.get("integrity_check_days", "7")):
+            self.preferences.integrity()
+        if settings.get("automatic_archive_enabled") == "1":
+            before = months_before(
+                date.today(), int(settings.get("archive_after_months", "24"))
+            )
+            self.preferences.maintenance(
+                "automatic-archive",
+                partial(self.database.archive_old_orders, before),
+                lambda result: (
+                    self.notify(f"{len(result)} commande(s) archivée(s).")
+                    if result
+                    else None
+                ),
+            )
 
 
 def create_application(argv=None):
@@ -471,7 +697,6 @@ def run(profile, info):
         settings.get("user_id") or "horizon-test",
         settings.get("user_name") or "Utilisateur Horizon",
     )
-    database.save_settings({"collaboration_enabled": "0"})
     if info["mode"] == "demo":
         seed_demo(database)
     window = HorizonWindow(database, profile, info)

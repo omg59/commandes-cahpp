@@ -10,12 +10,15 @@ from PySide6.QtWidgets import (
     QSplitter,
     QVBoxLayout,
     QWidget,
+    QMessageBox,
 )
 
 from .dialogs import ProductDialog
 from .models import ProductsModel
 from .services import currency, number
 from .widgets import button, card, label, table
+from .forms import action, FormDialog
+from ..numbers import parse_decimal
 
 
 class CatalogBrowser(QWidget):
@@ -144,7 +147,7 @@ class CatalogBrowser(QWidget):
         index = next(
             (
                 i
-                for i, r in enumerate(self.rows)
+                for i, r in enumerate(self.model.rows)
                 if previous and r["id"] == previous["id"]
             ),
             0,
@@ -161,8 +164,8 @@ class CatalogBrowser(QWidget):
     def selected_product(self):
         indexes = self.table.selectionModel().selectedRows()
         return (
-            self.rows[indexes[0].row()]
-            if indexes and indexes[0].row() < len(self.rows)
+            self.model.rows[indexes[0].row()]
+            if indexes and indexes[0].row() < len(self.model.rows)
             else None
         )
 
@@ -171,7 +174,7 @@ class CatalogBrowser(QWidget):
 
     def _double_click(self, index):
         if index.isValid():
-            self.add_requested.emit(self.rows[index.row()])
+            self.add_requested.emit(self.model.rows[index.row()])
 
 
 class CatalogPage(QWidget):
@@ -222,6 +225,16 @@ class CatalogPage(QWidget):
         body.addWidget(self.edit)
         body.addWidget(self.favorite)
         body.addWidget(self.add)
+        self.more_actions = QComboBox()
+        self.more_actions.addItems(
+            [
+                "Quantité habituelle / nom court…",
+                "Rétablir les valeurs CAHPP",
+                "Archiver un article hors catalogue",
+            ]
+        )
+        body.addWidget(self.more_actions)
+        body.addWidget(button("Exécuter l'action", self.additional_action))
         body.addStretch()
         body.addWidget(
             label(
@@ -270,6 +283,7 @@ class CatalogPage(QWidget):
             "Retirer des favoris" if p["favorite"] else "Ajouter aux favoris"
         )
 
+    @action
     def edit_product(self):
         if self.window.import_busy:
             self.window.notify(
@@ -277,16 +291,82 @@ class CatalogPage(QWidget):
             )
             return
         if self.current:
-            dialog = ProductDialog(self.window.database, self.current["id"], self)
-            if dialog.exec():
-                self.window.data_changed()
+            with self.window.operations.locked_product(self.current["id"]):
+                dialog = ProductDialog(self.window.database, self.current["id"], self)
+                if dialog.exec():
+                    self.window.data_changed()
 
+    @action
     def toggle_favorite(self):
         if self.current:
-            self.window.database.set_favorite(
-                self.current["id"], not self.current["favorite"]
+            with self.window.operations.locked_product(self.current["id"]):
+                self.window.database.set_favorite(
+                    self.current["id"], not self.current["favorite"]
+                )
+            self.window.data_changed()
+
+    @action
+    def additional_action(self):
+        if not self.current:
+            raise ValueError("Sélectionnez un article.")
+        if self.more_actions.currentIndex() == 0:
+            self.edit_favorite()
+        elif self.more_actions.currentIndex() == 1:
+            if self.current["source"] == "LOCAL":
+                raise ValueError("Cet article ne provient pas du catalogue CAHPP.")
+            if (
+                QMessageBox.question(
+                    self,
+                    "Rétablir le catalogue",
+                    "Supprimer les corrections et reprendre les valeurs CAHPP ?",
+                )
+                == QMessageBox.StandardButton.Yes
+            ):
+                with self.window.operations.locked_product(self.current["id"]):
+                    self.window.database.reset_product_override(self.current["id"])
+                self.window.data_changed()
+        else:
+            if self.current["source"] != "LOCAL":
+                raise ValueError(
+                    "Seuls les articles hors catalogue peuvent être archivés manuellement."
+                )
+            if (
+                QMessageBox.question(
+                    self,
+                    "Archiver l'article",
+                    "Archiver cet article hors catalogue ? Les anciennes commandes sont conservées.",
+                )
+                == QMessageBox.StandardButton.Yes
+            ):
+                with self.window.operations.locked_product(self.current["id"]):
+                    self.window.database.archive_manual_product(self.current["id"])
+                self.window.data_changed()
+
+    def edit_favorite(self):
+        pid = self.current["id"]
+        dialog = FormDialog(self.window, "Favori et quantité habituelle")
+        dialog.fields.add("Nom court", "short_name").setText(self.current["short_name"])
+        dialog.fields.add("Cartons habituels", "usual_cartons").setText(
+            number(self.current["usual_cartons"], 3)
+        )
+
+        @action
+        def save(d):
+            values = d.fields.values()
+            quantity = parse_decimal(
+                values["usual_cartons"], "Cartons habituels", minimum=0
             )
-            self.refresh()
+            if quantity <= 0:
+                raise ValueError("La quantité habituelle doit être supérieure à zéro.")
+            with self.window.operations.locked_product(pid):
+                self.window.database.set_favorite(
+                    pid, True, float(quantity), values["short_name"]
+                )
+            d.accept()
+            self.window.data_changed()
+
+        dialog.actions(lambda: save(dialog))
+        dialog.exec()
 
     def add_product(self):
         if self.current:

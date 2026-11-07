@@ -43,7 +43,7 @@ def main():
     window = HorizonWindow(database, profile, info)
     window.resize(1366, 900)
     window.show()
-    with patch("cahpp_app.horizon.application.QMessageBox.warning") as warning:
+    with patch("cahpp_app.horizon.application.QMessageBox.warning") as warning, patch("cahpp_app.horizon.orders.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
         wait(app, lambda: not window.jobs.tasks)
         assert window.overview.metrics[3].value.text() == "2"
         for key in window.pages:

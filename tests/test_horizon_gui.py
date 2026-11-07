@@ -11,6 +11,12 @@ from pathlib import Path
 
 class HorizonGuiTest(unittest.TestCase):
     def test_catalog_cart_review_pdf_and_reopening(self):
+        self.run_scenario("tests.gui_horizon")
+
+    def test_complete_workflow_and_debugging(self):
+        self.run_scenario("tests.gui_horizon_workflow")
+
+    def run_scenario(self, module):
         if importlib.util.find_spec("PySide6") is None:
             if os.environ.get("CAHPP_REQUIRE_HORIZON_GUI") == "1":
                 self.fail("PySide6 est requis pour valider Horizon.")
@@ -23,7 +29,7 @@ class HorizonGuiTest(unittest.TestCase):
                 CAHPP_HORIZON_GUI_TEST="1",
             )
             run = subprocess.run(
-                [sys.executable, "-m", "tests.gui_horizon"],
+                [sys.executable, "-m", module],
                 cwd=Path(__file__).resolve().parents[1],
                 env=env,
                 capture_output=True,

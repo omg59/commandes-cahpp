@@ -64,7 +64,7 @@ def apply_theme(app, dark=False):
         QPushButton#primary:disabled {{ background:{tint}; color:{muted}; border-color:{border}; }}
         QPushButton#accent {{ background:{YELLOW}; color:#17305B; border-color:{YELLOW}; }}
         QPushButton#accent:hover {{ background:#FFD45F; }}
-        QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox,QTextEdit {{ background:{panel}; border:1px solid {border}; border-radius:7px; padding:8px; min-height:20px; selection-background-color:{BLUE}; selection-color:white; }}
+        QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox,QTextEdit,QPlainTextEdit {{ background:{panel}; border:1px solid {border}; border-radius:7px; padding:8px; min-height:20px; selection-background-color:{BLUE}; selection-color:white; }}
         QLineEdit:focus,QComboBox:focus,QTextEdit:focus {{ border:2px solid {SKY}; }}
         QComboBox QAbstractItemView {{ background:{panel}; color:{text}; selection-background-color:{tint}; selection-color:{text}; }}
         QCheckBox {{ spacing:8px; padding:5px 0; }}
@@ -83,6 +83,9 @@ def apply_theme(app, dark=False):
         QStatusBar {{ background:{panel}; border-top:1px solid {border}; color:{muted}; }}
         QToolTip {{ background:{panel}; color:{text}; border:1px solid {border}; padding:7px; }}
         QDialog {{ background:{bg}; }}
+        QTabWidget::pane {{ background:{panel}; border:1px solid {border}; border-radius:7px; }}
+        QTabBar::tab {{ background:{tint}; color:{text}; padding:10px 14px; border:1px solid {border}; }}
+        QTabBar::tab:selected {{ background:{panel}; border-bottom:3px solid {YELLOW}; }}
     """)
     app.setProperty("horizonColors", colors)
     app.setProperty("horizonDark", dark)

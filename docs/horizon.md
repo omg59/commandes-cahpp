@@ -1,105 +1,131 @@
-# Commandes CAHPP Horizon — 2.0.0a1
+# Commandes CAHPP Horizon — 2.0.0a2
 
-Horizon est la première interface Qt de Commandes CAHPP. La branche
-`feature/horizon-ui` développe cette version en parallèle de la 1.6.0.
-Cette alpha sert aux essais locaux ; elle n'est pas destinée à remplacer la
-version utilisée en production sur les deux postes.
+Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
+Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
+`feature/horizon-ui`. Le moteur conserve la version 1.6.0 et le schéma 15 :
+la version stable et son installateur restent distincts.
 
-## Démarrer
+## Démarrer et installer
 
-Sous Windows, double-cliquer sur **`horizon_windows.bat`** pour lancer les sources.
-Python 3.12 64 bits et Internet sont nécessaires à la première installation des
-dépendances. La commande **`horizon_windows.bat build`** exécute les contrôles et
-fabrique `dist/CommandesCAHPP-Horizon-portable/CommandesCAHPP-Horizon.exe`.
-Conserver le dossier `_internal` à côté de l'EXE. Le dossier compilé s'utilise
-ensuite sans Python. Il ne faut pas remplacer l'EXE de la version 1.6.0.
+Sous Windows, `horizon_windows.bat` lance les sources avec Python 3.12.
+`horizon_windows.bat build` valide puis construit le dossier portable
+`dist/CommandesCAHPP-Horizon-portable`. Conserver `_internal` avec l'EXE.
+`build_horizon_installer.bat` construit en plus un installateur avec Inno Setup 6
+ou 7, sans droits administrateur, dans `dist-installer-horizon`.
 
-Sous Linux, créer et activer un environnement virtuel, installer
-`python -m pip install -r requirements-horizon.txt`, puis lancer
-`python main_horizon.py`. Qt utilise le système graphique local.
+L'installation Horizon utilise un identifiant et un dossier programme distincts
+de la 1.6.0. Les mises à jour remplacent le programme ; les profils et documents
+sont conservés. La CI fournit le dossier portable Windows après validation.
 
-## Profils et données
+Sous Linux, installer `requirements-horizon.txt` dans un environnement Python,
+puis lancer `python main_horizon.py`.
 
-Le premier lancement crée une démonstration avec huit articles et des commandes
-fictives. Le profil est stocké dans `%LOCALAPPDATA%/CommandesCAHPP-Horizon`
-sous Windows, ou `$XDG_DATA_HOME/CommandesCAHPP-Horizon` sous Linux
-(`~/.local/share/CommandesCAHPP-Horizon` par défaut).
+## Profils et reprise des données
 
-Le bouton **Copier une base 1.6…** permet de sélectionner
-`commandes_cahpp.sqlite3` de l'installation habituelle. Une copie cohérente est
-effectuée en lecture seule, puis ouverte dans une nouvelle fenêtre avec son
-propre profil. Elle inclut les données validées du journal WAL. La source n'est
-jamais ouverte par Horizon comme base de travail. Chaque copie reçoit un
-nouveau dossier ; la démonstration et les copies précédentes sont conservées.
+Le premier lancement crée une démonstration fictive dans
+`%LOCALAPPDATA%/CommandesCAHPP-Horizon/demonstration` sous Windows, ou
+`$XDG_DATA_HOME/CommandesCAHPP-Horizon/demonstration` sous Linux
+(`~/.local/share` par défaut).
 
-Les documents historiques ne sont pas recopiés avec la base. Leurs chemins sont
-conservés, mais ils ne sont pas forcément disponibles dans le profil. Les
-nouveaux PDF, exports, sauvegardes et journaux sont écrits dans le profil Horizon.
-La suppression d'une commande dans Horizon ne supprime pas les PDF exportés.
+**Copier une base 1.6…** crée un nouveau profil autonome. La base source est
+ouverte en lecture seule et copiée avec son journal WAL ; elle n'est jamais
+utilisée comme base de travail. Les PDF, pièces jointes et le logo accessibles
+sont copiés et leurs liens réécrits dans le nouveau profil. Les documents absents
+restent signalés comme indisponibles. Le marqueur du profil conserve le nombre
+de fichiers copiés ou absents.
 
-Pour réouvrir une copie depuis les sources :
-`python main_horizon.py --profile "chemin/du/profil"`.
-Pour créer une copie depuis la ligne de commande :
-`python main_horizon.py --copy-database "chemin/commandes_cahpp.sqlite3"`.
-Un dossier existant sans marqueur Horizon est refusé comme profil de travail.
-`CAHPP_HORIZON_ROOT` permet de choisir un autre dossier de profils d'essai.
+La copie reçoit un nouvel identifiant utilisateur. Le partage et le dossier PDF
+de la source sont désactivés/effacés dans cette copie. L'activation ultérieure
+dans **Paramètres → Collaboration** est un choix explicite ; elle est ensuite
+conservée entre les lancements. Les anciens profils alpha 1 restent reconnus.
 
-## Fonctions déjà disponibles
+Pour rouvrir une copie : `python main_horizon.py --profile "chemin/du/profil"`.
+Pour créer une copie : `python main_horizon.py --copy-database "chemin/base.sqlite3"`.
+`CAHPP_HORIZON_ROOT` change le dossier des profils d'essai. Un dossier existant
+sans marqueur Horizon est refusé.
 
-- Accueil : préparations non envoyées, livraisons en attente, montant HT envoyé
-  ce mois et articles à vérifier, avec accès aux commandes récentes.
-- Catalogue : recherche FTS5 en arrière-plan, sélection fournisseur, favoris,
-  références inactives, fiche latérale et contrôle des conditionnements.
-  Seules 100 lignes sont chargées initialement ; affichage progressif jusqu'à
-  1 000 résultats avant de demander une recherche plus précise.
-- Import : catalogues complets et évolutions mensuelles, aperçu et confirmations,
-  sauvegarde préalable et transaction du moteur 1.6.0.
-- Préparation : un fournisseur par commande, quantités modifiables dans le panier,
-  totaux décimaux, franco, notes, service destinataire, brouillon et bon PDF.
-- Historique : recherche, reprise des commandes non envoyées, suppression
-  autorisée par le moteur et marquage de l'envoi effectué hors de l'application.
-- Statistiques : courbe mensuelle, barres par fournisseur sélectionnables,
-  périodes de 3/6/12 mois et détail des montants et délais. Les brouillons sont
-  exclus ; seuls les bons dont l'envoi est enregistré sont comptabilisés.
-- Thèmes clair/sombre et textes français, y compris les dialogues standard Qt.
+## Fonctions de la 1.6.0 dans Horizon
 
-## Ce qui reste à porter
+| Domaine | Fonctions disponibles |
+| --- | --- |
+| Accueil | Brouillons, dépenses envoyées, livraisons, contrôles catalogue, confirmations manquantes et retards configurables. |
+| Catalogue | Recherche asynchrone FTS5, fournisseurs, favoris, inactifs, pagination, tri, corrections et validation des conditionnements. |
+| Articles | Quantités habituelles, nom court, notes internes, remplacement, création/modification/archivage des articles hors catalogue et retour aux valeurs CAHPP. |
+| Préparation | Un fournisseur par commande, date, service, notes, panier décimal, quantités éditables, minimum/franco/cartons fractionnés et détection de commande similaire. |
+| PDF | Identité de l'établissement, logo, titre, pied de page, numéros de page, dossier par défaut, choix du fichier et régénération historique. |
+| Historique | Recherche complète, statuts/livraisons, filtres enregistrés, archives, reprise avec le même numéro, suppression avant envoi, duplication complète ou sélective. |
+| Suivi | Confirmation fournisseur, date prévue, réceptions partielles en unités, reliquats, annulation des réceptions, livraison et facturation. |
+| Documents | Plusieurs fichiers typés par commande, ouverture, propriétés, inclusion dans la préparation d'e-mail, retrait et copie locale. |
+| Notes et audit | Notes internes partagées et historique daté des actions avec leur auteur. |
+| E-mail | Modèles paramétrables, dossier de préparation PDF/pièces jointes et ouverture de la composition sans envoi automatique. |
+| Recommandations | Rythme historique des commandes envoyées et préparation d'une sélection d'articles d'un fournisseur. |
+| Statistiques | Périodes et dates libres, fournisseur, graphiques, achats par article, comparaison des prix, délais et export Excel de la sélection affichée. |
+| Import CAHPP | Catalogue complet, évolution mensuelle et instantané partagé ; aperçu, confirmations, chronologie, sauvegarde préalable, transaction et suivi des changements. |
+| Fournisseurs | Numéro client, contact, e-mail, téléphone, adresse, site, franco, minimum et notes ; protection des saisies non enregistrées. |
+| Collaboration | Synchronisation manuelle/périodique, données d'équipe, commandes/documents, catalogue partagé, numérotation et verrous. |
+| Maintenance | Sauvegarde ZIP complète, rappels, contrôle d'intégrité périodique, archivage manuel/automatique et mises à jour Horizon depuis le partage. |
+| Diagnostic | SQLite, index FTS, plan de recherche, reconstruction, partage, synchronisation, verrous, journaux et export texte. |
 
-La collaboration et les verrous partagés, les réceptions détaillées, les pièces
-jointes, la préparation des messages, les recommandations et les réglages métier
-complets restent dans la version stable. La collaboration est désactivée dans
-tous les profils de cette alpha ; aucun catalogue ni aucune commande Horizon
-n'est publié sur le dossier partagé.
+Les statistiques excluent les brouillons. Les anciennes lignes de commande
+conservent leurs prix et conditionnements. Le marquage « envoyée » confirme
+un envoi effectué par l'utilisateur ; préparer un e-mail ne l'envoie jamais.
 
-## Architecture et validation
+## Collaboration
 
-`main_horizon.py` configure les chemins avant de charger le moteur. Le paquet
-`cahpp_app/horizon` sépare profils, services, travaux asynchrones, modèles de
-tableaux et écrans. Les services réutilisent `Database`, `CatalogImporter` et
-`generate_order_pdf`. Le schéma reste 15, sans migration spécifique à Horizon.
-`CAHPP_RESOURCE_ROOT` sépare les ressources livrées des données du profil.
+La base reste locale ; seul le dossier choisi est partagé. La synchronisation
+et le format de fichiers sont ceux de la 1.6.0. Une préparation existante conserve
+son verrou jusqu'à sa fermeture ; un verrou perdu interdit l'enregistrement.
+Les écritures sont refusées si une synchronisation/maintenance est en cours.
+Un partage inaccessible laisse la consultation et le diagnostic disponibles ;
+les modifications qui nécessitent un verrou sont bloquées.
 
-Les calculs du panier utilisent `Decimal` et les mêmes arrondis intermédiaires
-que `Database.save_order`. L'enregistrement et la génération PDF appliquent les
-garde-fous sur les références inactives et les contrôles de catalogue en attente.
-Les workers ne détiennent aucun widget ; les résultats sont transmis au thread
-Qt par signaux en connexion différée. Une recherche remplacée est annulée et
-son résultat ignoré. La fermeture attend la fin des travaux annulés.
+La pause pendant les saisies non enregistrées est configurable. Les formulaires
+modifiés ne sont jamais remplacés par un rafraîchissement. Les changements de
+fournisseur détectent aussi une révision locale plus récente.
 
-Les tests couvrent l'isolation des profils, la copie avec WAL, le panier,
-l'exclusion des brouillons dans les graphiques et le parcours Qt catalogue,
-vérification, brouillon, PDF et réouverture. La CI Horizon vérifie les deux
-systèmes et produit un dossier Windows téléchargeable dans les artefacts du run.
+**Mise à jour CAHPP** permet d'appliquer le nouveau catalogue partagé. Un import
+local est sauvegardé avant application et publié sous verrou de catalogue.
+L'instantané reçu est contrôlé, installé puis marqué appliqué sans republier
+un nouveau catalogue.
 
-Un essai Qt sur un catalogue fictif de 158 488 articles a vérifié les limites
-de 100 puis 200 lignes, les recherches successives et la réactivité du thread
-graphique. Sur l'environnement Linux d'essai, la recherche d'une référence a
-pris environ 450 ms, avec un intervalle maximal de 31 ms entre deux passages
-du minuteur graphique. Ces mesures ne préjugent pas des temps sur chaque PC.
+Horizon ne propose que les installateurs
+`CommandesCAHPP-Horizon-Setup-X.Y.Z[aN|bN|rcN].exe` déposés dans
+`mises-a-jour`. Les installateurs de la version stable sont ignorés.
+
+## Diagnostics et débogage
+
+Le bouton **Diagnostic** est accessible dans la barre supérieure et les paramètres.
+
+- **Actualiser** exécute les contrôles en arrière-plan : intégrité SQLite,
+  schéma, FTS5, cohérence des entrées, recherche avec classement, statistiques et
+  plan du moteur, accès au partage, catalogue, synchronisation et verrous.
+- **Reconstruire l'index** est une action explicite : seule la table dérivée
+  FTS est reconstruite, vérifiée puis validée. Le rapport conserve la dernière
+  tentative, sa durée et les informations d'erreur.
+- **Copier** et **Exporter** donnent le rapport texte ; les journaux restent
+  accessibles par **Ouvrir les journaux**.
+- Le rapport identifie Horizon, Qt/PySide6, le profil et la dernière synchronisation,
+  sans exporter les tarifs, recherches saisies, notes ou lignes de commande.
+
+## Validation
+
+Les tests conservent la suite du moteur 1.6.0. Les tests Horizon couvrent les
+profils, WAL, copies de documents, montants, catalogue, PDF et réouverture ; le
+parcours Qt complet visite les réglages, fournisseur, réceptions, pièces jointes,
+notes, duplication, export Excel, sauvegarde et diagnostic/réparation.
+
+Des essais avec deux bases et un partage réel contrôlent les conflits de verrou,
+la numérotation, la perte de réservation, les réceptions synchronisées, la
+facturation et la publication/application d'un catalogue. Les tests hors réseau
+vérifient l'accès au diagnostic et le refus des écritures non protégées.
+
+La CI exécute les contrôles sous Linux et Windows, construit le dossier Windows
+et démarre l'EXE pour vérifier les ressources françaises. La validation manuelle
+du poste Windows et du partage de l'établissement reste à effectuer avant un
+remplacement du logiciel utilisé au quotidien.
 
 ## Identité LADAPT
 
-Le logo fourni est conservé sans retouche. Les bleus et le jaune sont repris des
-supports transmis ; voir `ressources/horizon/NOTICE.txt`. Les polices du projet
-associatif ne sont pas embarquées. Cette première adaptation visuelle pourra
-être affinée avec la charte officielle et les retours d'usage.
+Le logo fourni est conservé sans retouche. Les bleus et le jaune proviennent des
+supports transmis ; voir `ressources/horizon/NOTICE.txt`. Les thèmes clair/sombre
+et les dialogues standard en français restent disponibles.

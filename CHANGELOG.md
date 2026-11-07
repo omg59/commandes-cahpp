@@ -1,5 +1,22 @@
 # Historique des versions
 
+## Horizon 2.0.0a2 — fonctions de la 1.6.0, 7 novembre 2026
+
+- paramètres établissement, PDF, e-mails, collaboration et maintenance ;
+- fiches fournisseurs complètes, favoris avancés, notes/remplacements et articles locaux ;
+- dates de commande, contrôles minimum/franco/cartons et commandes similaires ;
+- filtres d'historique mémorisés, archives, duplication complète/sélective et e-mails ;
+- confirmations, échéances, réceptions partielles en unités, reliquats et facturation ;
+- documents typés, pièces jointes d'e-mail, notes internes et audit des actions ;
+- recommandations, statistiques détaillées, dates libres et export Excel ;
+- collaboration persistante, verrous, numérotation et catalogues partagés ;
+- diagnostic Qt complet, copie/export du rapport, journaux et reconstruction FTS en arrière-plan ;
+- copie autonome des documents et du logo lors de la reprise d'une base ;
+- installateur Horizon distinct et détection de ses mises à jour sur le partage ;
+- tests métier à deux postes et parcours graphique complet incluant le débogage.
+
+La branche reste `feature/horizon-ui` ; version moteur et schéma inchangés.
+
 ## Horizon 2.0.0a1 — branche parallèle, 7 novembre 2026
 
 - première interface Qt/PySide6 : accueil, catalogue, préparation, historique et

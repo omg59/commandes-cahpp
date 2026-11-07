@@ -210,11 +210,23 @@ class HorizonService:
             "orders": [dict(r) for r in self.database.list_orders(limit=6)],
         }
 
-    def statistics(self, months=6, supplier_id=None, *, cancel, progress):
-        today = date.today()
+    def statistics(
+        self,
+        months=6,
+        supplier_id=None,
+        *,
+        date_from=None,
+        date_to=None,
+        cancel,
+        progress,
+    ):
+        today = date_to or date.today()
         serial = today.year * 12 + today.month - 1
         first_serial = serial - months + 1
-        first = date(first_serial // 12, first_serial % 12 + 1, 1)
+        first = date_from or date(first_serial // 12, first_serial % 12 + 1, 1)
+        if first > today:
+            raise ValueError("La date de début doit précéder la date de fin.")
+        first_serial = first.year * 12 + first.month - 1
         params = [first.isoformat(), today.isoformat()]
         clause = "deleted_at='' AND sent_at<>'' AND order_date BETWEEN ? AND ?"
         if supplier_id:
@@ -261,18 +273,56 @@ class HorizonService:
         for n in range(first_serial, serial + 1):
             labels.append(names[n % 12])
             values.append(monthly.get(f"{n // 12:04d}-{n % 12 + 1:02d}", 0))
+        detail = self.statistics_detail(first, today, supplier_id)
         return {
             "totals": totals,
             "labels": labels,
             "values": values,
             "suppliers": suppliers,
+            "detail": detail,
+            "date_from": first,
+            "date_to": today,
         }
 
-    def orders(self, query="", group="Toutes", *, cancel, progress):
+    def statistics_detail(self, first, last, supplier_id=None):
+        detail = self.database.statistics(first, last)
+        detail = {
+            key: dict(value) if key == "summary" else [dict(r) for r in value]
+            for key, value in detail.items()
+        }
+        if supplier_id:
+            supplier = self.database.get_supplier(supplier_id)
+            name = supplier["name"] if supplier else ""
+            for key in ("suppliers", "products", "price_variances"):
+                detail[key] = [r for r in detail[key] if r["supplier_name"] == name]
+            suppliers = detail["suppliers"]
+            detail["summary"] = {
+                "order_count": sum(r["order_count"] for r in suppliers),
+                "supplier_count": len(suppliers),
+                "total_ht": sum(r["total_ht"] for r in suppliers),
+                "total_ttc": sum(r["total_ttc"] for r in suppliers),
+            }
+        return detail
+
+    def orders(
+        self,
+        query="",
+        group="Toutes",
+        *,
+        status="",
+        delivery_status="",
+        include_archived=False,
+        cancel,
+        progress,
+    ):
         rows = [
             dict(r)
             for r in self.database.list_orders(
-                query=query, include_archived=False, limit=500
+                query=query,
+                status=status,
+                delivery_status=delivery_status,
+                include_archived=include_archived,
+                limit=500,
             )
         ]
         if group == "À préparer / envoyer":
