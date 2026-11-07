@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -137,6 +138,38 @@ def archive_portable(appdir: Path, destination: Path, *, version=VERSION):
         archive.add(appdir, arcname=f"{APP_NAME}-{version}-{ARCH}")
 
 
+def verify_graphics_dependencies(bundle: Path):
+    plugin = bundle / "_internal/PySide6/Qt/plugins/platforms/libqxcb.so"
+    if not plugin.is_file():
+        raise ValueError("Le plugin graphique X11 de Qt est absent du dossier compilé.")
+    environment = dict(os.environ)
+    environment["LD_LIBRARY_PATH"] = (
+        str(bundle / "_internal") + os.pathsep + environment.get("LD_LIBRARY_PATH", "")
+    )
+    result = subprocess.run(
+        ["ldd", str(plugin)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    missing = sorted(
+        set(re.findall(r"(\S+)\s+=>\s+not found", result.stdout + result.stderr))
+    )
+    if result.returncode or missing:
+        raise ValueError(
+            "Dépendances graphiques Linux manquantes : "
+            + (", ".join(missing) or result.stderr.strip())
+        )
+    for library in ("libxcb-cursor.so.0", "libxcb-shape.so.0"):
+        if not (bundle / "_internal" / library).is_file():
+            raise ValueError(
+                "Bibliothèque Qt/X11 non embarquée : "
+                + library
+                + ". Installez ses dépendances sur le système de compilation et reconstruisez."
+            )
+
+
 def build(*, output: Path, cache: Path, skip_tests=False, reuse_bundle=False):
     if sys.platform != "linux" or platform.machine().lower() not in {"x86_64", "amd64"}:
         raise ValueError("Ce constructeur prend en charge Linux x86_64 uniquement.")
@@ -159,9 +192,9 @@ def build(*, output: Path, cache: Path, skip_tests=False, reuse_bundle=False):
             ],
             cwd=ROOT,
         )
-    appdir = create_appdir(
-        ROOT / "dist" / (APP_NAME + "-portable"), ROOT / "build/Horizon.AppDir"
-    )
+    bundle = ROOT / "dist" / (APP_NAME + "-portable")
+    verify_graphics_dependencies(bundle)
+    appdir = create_appdir(bundle, ROOT / "build/Horizon.AppDir")
     portable = output / f"{APP_NAME}-{VERSION}-{ARCH}.tar.gz"
     archive_portable(appdir, portable)
     tool = download_pinned(APPIMAGETOOL, cache)

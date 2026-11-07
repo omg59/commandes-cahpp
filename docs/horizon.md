@@ -65,6 +65,13 @@ utiliser de préférence le build CI Ubuntu 22.04. Les versions des outils
 AppImage et du runtime sont figées et leurs empreintes vérifiées ; le constructeur
 les extrait pour fonctionner même sans FUSE.
 
+Le constructeur vérifie aussi les dépendances du plugin graphique X11 et la
+présence des bibliothèques de curseur et de forme XCB dans le paquet. Sous
+Ubuntu, les paquets de compilation comprennent notamment `libxcb-cursor0` et
+`libxcb-shape0` ; sous Arch/CachyOS, les bibliothèques correspondantes sont
+fournies par `xcb-util-cursor` et `libxcb`. Une dépendance absente arrête le build
+avant la fabrication d'un AppImage incomplet.
+
 Pour le développement, le lancement direct reste possible après installation de
 `requirements-horizon.txt`, avec `python main_horizon.py`.
 

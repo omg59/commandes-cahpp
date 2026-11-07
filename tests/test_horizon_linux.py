@@ -1,6 +1,7 @@
 """Contrats du paquet Linux et de l'ouverture indépendante des profils."""
 
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -15,6 +16,7 @@ from tools.build_horizon_linux import (
     archive_portable,
     digest,
     download_pinned,
+    verify_graphics_dependencies,
 )
 
 
@@ -66,6 +68,17 @@ class LinuxPackagingTest(unittest.TestCase):
             )
         network.assert_not_called()
         self.assertEqual(result, cached)
+
+    def test_missing_x11_library_stops_packaging_with_library_name(self):
+        plugin = self.root / "_internal/PySide6/Qt/plugins/platforms/libqxcb.so"
+        plugin.parent.mkdir(parents=True)
+        plugin.touch()
+        with patch("tools.build_horizon_linux.subprocess.run") as ldd:
+            ldd.return_value = subprocess.CompletedProcess(
+                [], 0, "libxcb-shape.so.0 => not found\n", ""
+            )
+            with self.assertRaisesRegex(ValueError, r"libxcb-shape\.so\.0"):
+                verify_graphics_dependencies(self.root)
 
     def test_new_appimage_profile_relaunches_outer_file_not_old_mount(self):
         image = self.root / "Horizon.AppImage"

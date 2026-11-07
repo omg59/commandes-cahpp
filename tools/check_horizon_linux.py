@@ -40,6 +40,7 @@ def verify(output: Path, platform="offscreen"):
         env = dict(
             os.environ,
             QT_QPA_PLATFORM=platform,
+            QT_DEBUG_PLUGINS="1",
             APPIMAGE_EXTRACT_AND_RUN="1",
             PYTHONHOME="/python-non-installe",
             PYTHONPATH="/aucun-module-externe",
