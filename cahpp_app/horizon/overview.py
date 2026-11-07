@@ -1,7 +1,6 @@
 """Accueil et statistiques construits à partir des commandes réellement envoyées."""
 
 from functools import partial
-from datetime import date
 
 from PySide6.QtWidgets import (
     QComboBox,
@@ -17,6 +16,7 @@ from .models import RowsModel
 from .services import currency, number
 from .widgets import Chart, Metric, button, card, label, table, SupplierCombo
 from .forms import action
+from .dates import parse_date, format_date
 
 
 class OverviewPage(QWidget):
@@ -182,8 +182,8 @@ class StatisticsPage(QWidget):
         dates = QHBoxLayout()
         self.from_date = QLineEdit()
         self.to_date = QLineEdit()
-        self.from_date.setPlaceholderText("Du AAAA-MM-JJ (facultatif)")
-        self.to_date.setPlaceholderText("Au AAAA-MM-JJ (facultatif)")
+        self.from_date.setPlaceholderText("Du JJ/MM/AAAA (facultatif)")
+        self.to_date.setPlaceholderText("Au JJ/MM/AAAA (facultatif)")
         self.from_date.setAccessibleName("Début des statistiques")
         self.to_date.setAccessibleName("Fin des statistiques")
         dates.addWidget(self.from_date)
@@ -282,15 +282,19 @@ class StatisticsPage(QWidget):
     @action
     def refresh(self, *_):
         first = (
-            date.fromisoformat(self.from_date.text().strip())
+            parse_date(self.from_date.text().strip())
             if self.from_date.text().strip()
             else None
         )
         last = (
-            date.fromisoformat(self.to_date.text().strip())
+            parse_date(self.to_date.text().strip())
             if self.to_date.text().strip()
             else None
         )
+        if first:
+            self.from_date.setText(format_date(first))
+        if last:
+            self.to_date.setText(format_date(last))
         self.window.jobs.submit(
             "statistics",
             partial(
@@ -342,7 +346,7 @@ class StatisticsPage(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Exporter les statistiques affichées",
-            f"statistiques-{data['date_from']}-{data['date_to']}.xlsx",
+            f"statistiques-{data['date_from']:%d-%m-%Y}-{data['date_to']:%d-%m-%Y}.xlsx",
             "Classeur Excel (*.xlsx)",
         )
         if not path:

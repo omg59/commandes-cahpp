@@ -86,6 +86,7 @@ def main():
                 assert "commandes@example.org" in dialog.recipient.text()
                 assert dialog.pdf_path.is_file()
                 assert not dialog.sent_button.isEnabled()
+                assert dialog.compose_button.text() == "Envoyer l'e-mail au fournisseur"
                 if len(sys.argv) > 1:
                     dialog.grab().save(sys.argv[1])
                 dialog.later_button.click()
@@ -109,6 +110,7 @@ def main():
         warnings.assert_called_once()
         warnings.reset_mock()
         assert not dialog.sent_button.isEnabled()
+        assert dialog.compose_button.text() == "Envoyer l'e-mail au fournisseur"
         assert db.get_order(oid)[0]["status"] == "Générée"
         dialog.reject()
 
@@ -121,6 +123,10 @@ def main():
             try:
                 assert isinstance(dialog, OrderDispatchDialog)
                 dialog.compose_button.click()
+                assert (
+                    dialog.compose_button.text()
+                    == "Envoyer à nouveau l'e-mail au fournisseur"
+                )
                 assert dialog.sent_button.isEnabled()
                 assert dialog.directory.is_dir()
                 assert (dialog.directory / attachment.name).is_file()
@@ -172,6 +178,9 @@ def main():
         dialog.show()
         # Le message est déjà préparé : inutile de le rouvrir pour confirmer.
         assert dialog.sent_button.isEnabled()
+        assert (
+            dialog.compose_button.text() == "Envoyer à nouveau l'e-mail au fournisseur"
+        )
         assert not db.get_order(oid)[0]["sent_at"]
         folder = prepared[0]
         dialog.sent_button.click()

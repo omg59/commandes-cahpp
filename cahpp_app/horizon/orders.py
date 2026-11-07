@@ -25,7 +25,8 @@ from PySide6.QtWidgets import (
 from ..numbers import parse_decimal
 from ..database import money
 from .catalog import CatalogBrowser
-from .models import CartModel, RowsModel
+from .models import CartModel, RowsModel, date_column
+from .dates import format_date, parse_date
 from .services import Cart, currency, number
 from .widgets import button, card, label, table, SupplierCombo
 from .forms import action, FormDialog, open_document, selected_row
@@ -104,9 +105,10 @@ class PreparePage(QWidget):
         self.franco = label("", "muted", True)
         body.addWidget(self.vat)
         body.addWidget(self.franco)
-        self.order_date = QLineEdit(date.today().isoformat())
-        self.order_date.setAccessibleName("Date de commande AAAA-MM-JJ")
-        body.addWidget(label("Date de commande (AAAA-MM-JJ)", "muted"))
+        self.order_date = QLineEdit(format_date(date.today()))
+        self.order_date.setAccessibleName("Date de commande JJ/MM/AAAA")
+        self.order_date.setPlaceholderText("JJ/MM/AAAA")
+        body.addWidget(label("Date de commande (JJ/MM/AAAA)", "muted"))
         body.addWidget(self.order_date)
         self.requester = QLineEdit()
         self.requester.setPlaceholderText("Service / unité destinataire")
@@ -206,7 +208,7 @@ class PreparePage(QWidget):
         self.requester.blockSignals(False)
         self.notes.blockSignals(False)
         self.badge.setText("Brouillon · aucun envoi")
-        self.order_date.setText(date.today().isoformat())
+        self.order_date.setText(format_date(date.today()))
 
     def refresh(self):
         self.reload_suppliers()
@@ -330,9 +332,12 @@ class PreparePage(QWidget):
                 self.cart,
                 self.notes.toPlainText(),
                 self.requester.text(),
-                date.fromisoformat(self.order_date.text()),
+                parse_date(self.order_date.text()),
             )
             order, _ = self.window.database.get_order(oid)
+            self.order_date.blockSignals(True)
+            self.order_date.setText(format_date(order["order_date"]))
+            self.order_date.blockSignals(False)
             self.badge.setText(order["order_number"] + " · Brouillon")
             self.window.notify("Brouillon enregistré : " + order["order_number"])
             self.window.data_changed()
@@ -355,7 +360,7 @@ class PreparePage(QWidget):
         sequence = self.window.database.daily_supplier_order_sequence(order["id"])
         filename = (
             safe_filename(
-                f"{order['order_date']} - {order['supplier_name']} - {sequence}"
+                f"{parse_date(order['order_date']):%d-%m-%Y} - {order['supplier_name']} - {sequence}"
             )
             + ".pdf"
         )
@@ -394,7 +399,7 @@ class PreparePage(QWidget):
         self.requester.setText(order["requester_service"])
         self.notes.setPlainText(order["notes"])
         self.cart.dirty = False
-        self.order_date.setText(order["order_date"])
+        self.order_date.setText(format_date(order["order_date"]))
         self.cart.dirty = False
         self.model.reload()
         self.browser.search()
@@ -549,7 +554,7 @@ class OrdersPage(QWidget):
                     lambda r: r["order_number"] + "\n" + r["supplier_name"],
                     False,
                 ),
-                ("Date", lambda r: r["order_date"], False),
+                date_column("Date", "order_date"),
                 (
                     "État",
                     lambda r: (
@@ -649,9 +654,9 @@ class OrdersPage(QWidget):
             return
         self.heading.setText(row["order_number"])
         self.details.setText(
-            f"{row['supplier_name']}\n\n{row['status']}\n{row['delivery_status']}\n\nTotal HT : {currency(row['total_ht'])}\nTotal TTC : {currency(row['total_ttc'])}\n\nPréparée le {row['order_date']}\n"
+            f"{row['supplier_name']}\n\n{row['status']}\n{row['delivery_status']}\n\nTotal HT : {currency(row['total_ht'])}\nTotal TTC : {currency(row['total_ttc'])}\n\nPréparée le {format_date(row['order_date'])}\n"
             + (
-                "Envoyée le " + row["sent_at"][:10]
+                "Envoyée le " + format_date(row["sent_at"])
                 if row["sent_at"]
                 else "Envoi non enregistré"
             )

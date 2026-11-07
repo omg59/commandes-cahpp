@@ -33,6 +33,7 @@ from . import VERSION
 from .forms import Fields, action
 from .operations import months_before
 from .widgets import button, label
+from .dates import format_datetime
 
 
 class DiagnosticDialog(QDialog):
@@ -363,9 +364,9 @@ class SettingsPage(QWidget):
         self.status.setText(
             ("Collaboration active" if op.manager else "Mode local")
             + " · Dernière synchronisation : "
-            + (settings.get("collaboration_last_sync_at") or "jamais")
+            + (format_datetime(settings.get("collaboration_last_sync_at")) or "jamais")
             + "\nDernière sauvegarde : "
-            + (settings.get("last_backup_at") or "jamais")
+            + (format_datetime(settings.get("last_backup_at")) or "jamais")
             + " · Intégrité : "
             + (settings.get("last_integrity_check_result") or "à contrôler")
         )

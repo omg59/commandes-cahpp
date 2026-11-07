@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from .forms import action, selected_row
-from .models import RowsModel
+from .models import RowsModel, date_column
 from .services import currency, number
 from .widgets import button, label, table
 
@@ -36,7 +36,7 @@ class ImportsPage(QWidget):
         self.model = RowsModel(
             [
                 ("Fichier", lambda r: r["filename"], False),
-                ("Date d'import", lambda r: r["imported_at"], False),
+                date_column("Date d'import", "imported_at", include_time=True),
                 ("Lignes", lambda r: r["row_count"], True),
                 ("Ajouts", lambda r: r["added_count"], True),
                 ("Modifications", lambda r: r["updated_count"], True),

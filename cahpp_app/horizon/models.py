@@ -12,13 +12,24 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 
 from .services import currency, number
+from .dates import format_date, format_datetime, date_sort_key
 from ..numbers import parse_decimal
+
+
+def date_column(title, key, *, include_time=False):
+    formatter = format_datetime if include_time else format_date
+    return (
+        title,
+        lambda row: formatter(row[key]),
+        False,
+        lambda row: date_sort_key(row[key]),
+    )
 
 
 class RowsModel(QAbstractTableModel):
     def __init__(self, columns, parent=None):
         super().__init__(parent)
-        self.columns = columns  # (libellé, fonction d'affichage, aligné à droite)
+        self.columns = columns  # (libellé, affichage, aligné à droite[, clé de tri])
         self.rows = []
         self.sortable = True
         self.sort_column = None
@@ -35,6 +46,8 @@ class RowsModel(QAbstractTableModel):
         column = self.sort_column
 
         def key(row):
+            if len(self.columns[column]) > 3:
+                return self.columns[column][3](row)
             value = self.columns[column][1](row)
             if self.columns[column][2]:
                 try:

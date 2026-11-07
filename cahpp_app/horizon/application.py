@@ -55,6 +55,7 @@ from .operations import Operations, months_before
 from .settings import SettingsPage, DiagnosticDialog
 from .suppliers import SuppliersPage, SuggestionsPage
 from .forms import action
+from .dates import format_month
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ class HorizonWindow(QMainWindow):
             nav.addWidget(b)
         nav.addStretch()
         nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 6 · " + VERSION, "brandSub"))
+        nav.addWidget(label("Alpha 7 · " + VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
@@ -434,7 +435,7 @@ class HorizonWindow(QMainWindow):
             "snapshot": "Catalogue partagé complet",
         }[preview.mode]
         message = (
-            f"{title}\n{preview.row_count:,} lignes\nMois : {preview.period or 'non précisé'}\n\n".replace(
+            f"{title}\n{preview.row_count:,} lignes\nMois : {format_month(preview.period) or 'non précisé'}\n\n".replace(
                 ",", " "
             )
             + "\n\n".join(preview.warnings)

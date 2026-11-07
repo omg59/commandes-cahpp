@@ -19,6 +19,7 @@ def main():
     from cahpp_app.horizon.services import seed_demo
     from cahpp_app.horizon.services import Cart
     from cahpp_app.horizon.settings import DiagnosticDialog
+    from cahpp_app.horizon.models import RowsModel, date_column
     from cahpp_app.horizon.dispatch import OrderDispatchDialog
     from cahpp_app.horizon.tracking import OrderWorkspaceDialog, ReceiptDialog
     from cahpp_app.app_logging import configure_logging
@@ -158,8 +159,25 @@ def main():
             )
             window.theme_switch.click()
         window.prepare.requester.setText("Service d'essai")
+        window.prepare.order_date.setText("05/02/2026")
         assert window.prepare.save_draft()
         oid = window.prepare.cart.order_id
+        assert db.get_order(oid)[0]["order_date"] == "2026-02-05"
+        assert window.prepare.order_date.text() == "05/02/2026"
+        # Le tri utilise les dates réelles, pas l'ordre alphabétique des jours.
+        dated = RowsModel([date_column("Date", "date")])
+        dated.replace(
+            [{"date": "2027-01-01"}, {"date": "2026-12-31"}, {"date": "2026-01-02"}]
+        )
+        dated.sort(0)
+        assert [r["date"] for r in dated.rows] == [
+            "2026-01-02",
+            "2026-12-31",
+            "2027-01-01",
+        ]
+        assert dated.data(dated.index(0, 0)) == "02/01/2026"
+        dated.sort(0, Qt.SortOrder.DescendingOrder)
+        assert dated.data(dated.index(0, 0)) == "01/01/2027"
         # Un total exactement égal à un franco décimal ne doit pas déclencher
         # un faux avertissement dû à la représentation binaire d'un float.
         original_cart = window.prepare.cart
@@ -182,19 +200,33 @@ def main():
         order, lines = db.get_order(oid)
         assert order["requester_service"] == "Service d'essai"
         assert Path(order["pdf_path"]).is_file()
+        assert Path(order["pdf_path"]).name.startswith("05-02-2026")
         window.orders.selected_id = oid
         window.orders.mark_sent()
         wait(app, lambda: not window.jobs.tasks)
         assert db.get_order(oid)[0]["sent_at"]
+        window.open_order(oid)
+        wait(app, lambda: not window.jobs.tasks)
+        selected_row = next(
+            i for i, r in enumerate(window.orders.model.rows) if r["id"] == oid
+        )
+        assert (
+            window.orders.model.data(window.orders.model.index(selected_row, 1))
+            == "05/02/2026"
+        )
+        assert "Préparée le 05/02/2026" in window.orders.details.text()
         workspace = OrderWorkspaceDialog(window, oid)
-        workspace.expected.setText("2030-12-25")
+        workspace.expected.setText("25/12/2030")
         workspace.confirm()
+        assert db.get_order(oid)[0]["expected_delivery_date"] == "2030-12-25"
+        assert workspace.expected.text() == "25/12/2030"
         workspace.comment.setPlainText("Vérifier la deuxième livraison")
         workspace.add_comment()
         assert (
             db.list_order_comments(oid)[0]["body"] == "Vérifier la deuxième livraison"
         )
         receipt = ReceiptDialog(window, oid)
+        receipt.fields.widgets["date"].setText("09/02/2026")
         qty_index = receipt.model.index(0, 3)
         assert receipt.model.setData(qty_index, "1", Qt.ItemDataRole.EditRole)
         receipt.fields.widgets["reference"].setText("BL-QT-1")
@@ -202,6 +234,10 @@ def main():
         assert db.get_order(oid)[0]["delivery_status"] == "Partiellement livrée"
         workspace.refresh()
         assert workspace.receipts_model.rowCount() == 1
+        assert (
+            workspace.receipts_model.data(workspace.receipts_model.index(0, 1))
+            == "09/02/2026"
+        )
         fixture = profile / "bl-test.txt"
         fixture.write_text("Document de livraison fictif", encoding="utf-8")
         with patch(
@@ -234,7 +270,12 @@ def main():
             window.orders.save_filter()
         assert db.list_saved_order_filters()[0]["name"] == "Livraisons terminées"
         window.navigate("statistics")
+        window.statistics.from_date.setText("01/02/2026")
+        window.statistics.to_date.setText("28/02/2026")
+        window.statistics.refresh()
         wait(app, lambda: not window.jobs.tasks)
+        assert window.statistics.dataset["date_from"].isoformat() == "2026-02-01"
+        assert window.statistics.dataset["totals"]["orders"] == 1
         destination = profile / "stats-test.xlsx"
         with patch(
             "PySide6.QtWidgets.QFileDialog.getSaveFileName",
@@ -243,6 +284,8 @@ def main():
             window.statistics.export_excel()
         wait(app, lambda: not window.jobs.tasks)
         workbook = load_workbook(destination, read_only=True)
+        assert workbook["Synthèse"]["B2"].number_format == "dd/mm/yyyy"
+        assert workbook["Synthèse"]["B2"].is_date
         assert "Produits" in workbook.sheetnames or "Articles" in workbook.sheetnames
         workbook.close()
         backup = profile / "backup-test.zip"

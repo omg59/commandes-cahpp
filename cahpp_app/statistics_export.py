@@ -48,7 +48,9 @@ def export_statistics_workbook(
     summary = dict(result.get("summary") or {})
     summary_sheet.append(["Statistiques Commandes CAHPP"])
     summary_sheet["A1"].font = Font(bold=True, size=16, color=BLUE)
-    summary_sheet.append(["Période", date_from.isoformat(), date_to.isoformat()])
+    summary_sheet.append(["Période", date_from, date_to])
+    summary_sheet["B2"].number_format = "dd/mm/yyyy"
+    summary_sheet["C2"].number_format = "dd/mm/yyyy"
     summary_sheet.append(["Commandes envoyées", summary.get("order_count", 0)])
     summary_sheet.append(["Fournisseurs", summary.get("supplier_count", 0)])
     summary_sheet.append(["Total HT", summary.get("total_ht", 0)])
@@ -131,7 +133,7 @@ def export_statistics_workbook(
                 row["supplier_ref"],
                 row["designation"],
                 row["order_number"],
-                row["order_date"],
+                date.fromisoformat(row["order_date"]) if row["order_date"] else None,
                 row["ordered_price"],
                 row["current_price"],
                 row["difference"],
@@ -139,6 +141,7 @@ def export_statistics_workbook(
             ]
         )
     for row in price_sheet.iter_rows(min_row=2):
+        row[4].number_format = "dd/mm/yyyy"
         for cell in row[5:8]:
             cell.number_format = '#,##0.0000 [$€-fr-FR]'
         row[8].number_format = '0.0%'

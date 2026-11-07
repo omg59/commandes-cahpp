@@ -11,7 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from PIL import Image
 from pypdf import PdfReader
 
@@ -739,6 +739,16 @@ class WorkflowTest(unittest.TestCase):
             self.root / "statistiques.xlsx",
         )
         self.assertTrue(export_path.is_file())
+        workbook = load_workbook(export_path, read_only=True)
+        try:
+            self.assertEqual(workbook["Synthèse"]["B2"].value.date(), date(2026, 1, 1))
+            self.assertEqual(workbook["Synthèse"]["B2"].number_format, "dd/mm/yyyy")
+            self.assertTrue(workbook["Écarts de prix"]["E2"].is_date)
+            self.assertEqual(
+                workbook["Écarts de prix"]["E2"].number_format, "dd/mm/yyyy"
+            )
+        finally:
+            workbook.close()
         with zipfile.ZipFile(export_path) as archive:
             workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
         self.assertIn("Fournisseurs", workbook_xml)

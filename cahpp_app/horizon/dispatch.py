@@ -54,7 +54,13 @@ class OrderDispatchDialog(QDialog):
             True,
         )
         body.addWidget(self.status)
-        self.compose_button = button("Ouvrir l'e-mail", self.compose, "primary")
+        self.compose_button = button(
+            "Envoyer à nouveau l'e-mail au fournisseur"
+            if order["email_prepared_at"] or order["sent_at"]
+            else "Envoyer l'e-mail au fournisseur",
+            self.compose,
+            "primary",
+        )
         self.compose_button.setEnabled(bool(order["supplier_email"]))
         body.addWidget(self.compose_button)
         if not order["supplier_email"]:
@@ -115,6 +121,7 @@ class OrderDispatchDialog(QDialog):
                     self.order_id, "E-mail préparé"
                 )
         self.sent_button.setEnabled(True)
+        self.compose_button.setText("Envoyer à nouveau l'e-mail au fournisseur")
         self.later_button.setText("Terminer plus tard")
         self.status.setText(
             "Message ouvert dans la messagerie. Fichiers à joindre :\n"

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from ..numbers import parse_decimal
 from .forms import Fields, action, selected_row
-from .models import RowsModel
+from .models import RowsModel, date_column
 from .services import currency, number
 from .widgets import button, card, label, table
 
@@ -186,7 +186,7 @@ class SuggestionsPage(QWidget):
                     lambda r: r["designation"] + "\n" + r["supplier_name"],
                     False,
                 ),
-                ("Dernière commande", lambda r: r["last_order_date"], False),
+                date_column("Dernière commande", "last_order_date"),
                 ("Rythme (jours)", lambda r: number(r["average_interval_days"]), True),
                 ("Retard (jours)", lambda r: number(r["overdue_days"]), True),
                 ("Cartons habituels", lambda r: number(r["usual_cartons"], 3), True),

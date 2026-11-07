@@ -1,5 +1,15 @@
 # Historique des versions
 
+## Horizon 2.0.0a7 — dates françaises, 7 novembre 2026
+
+- dates affichées et saisies en JJ/MM/AAAA dans les commandes, le suivi,
+  les réceptions, les documents, les notes, les imports et les paramètres ;
+- tri chronologique conservé, heures en format 24 h et erreurs de saisie françaises ;
+- dates françaises dans les exports Excel et les noms des nouveaux PDF ;
+- « Envoyer l'e-mail au fournisseur », puis « Envoyer à nouveau l'e-mail au fournisseur »
+  après ouverture, y compris à la reprise d'un message déjà préparé ;
+- formats de stockage et de synchronisation inchangés.
+
 ## Horizon 2.0.0a6 — libellés de la fenêtre d’envoi, 7 novembre 2026
 
 - « Bon de commande » remplace « Bon PDF » ;

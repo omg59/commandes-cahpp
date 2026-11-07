@@ -24,7 +24,8 @@ from ..local_services import resolve_portable_path
 from ..paths import DOCUMENTS_DIR
 from ..numbers import parse_decimal
 from .forms import FormDialog, action, open_document, selected_row
-from .models import RowsModel
+from .models import RowsModel, date_column
+from .dates import format_date, parse_date
 from .services import number
 from .widgets import button, label, table
 
@@ -78,8 +79,8 @@ class ReceiptDialog(FormDialog):
         super().__init__(window, "Enregistrer une réception")
         self.order_id = order_id
         self.resize(900, 650)
-        self.fields.add("Date de réception (AAAA-MM-JJ)", "date").setText(
-            date.today().isoformat()
+        self.fields.add("Date de réception (JJ/MM/AAAA)", "date").setText(
+            format_date(date.today())
         )
         self.fields.add("Référence du bon de livraison", "reference")
         self.fields.add("Notes", "notes", multiline=True)
@@ -131,7 +132,7 @@ class ReceiptDialog(FormDialog):
         with self.window.operations.locked_order(self.order_id):
             self.window.database.add_receipt(
                 self.order_id,
-                date.fromisoformat(values["date"]),
+                parse_date(values["date"]),
                 quantities,
                 reference=values["reference"],
                 notes=values["notes"],
@@ -152,7 +153,7 @@ class OrderWorkspaceDialog(QDialog):
         layout.addWidget(self.heading)
         top = QHBoxLayout()
         self.expected = QLineEdit()
-        self.expected.setPlaceholderText("Date prévue AAAA-MM-JJ (vide pour effacer)")
+        self.expected.setPlaceholderText("Date prévue JJ/MM/AAAA (vide pour effacer)")
         self.expected.setAccessibleName("Date de livraison prévue")
         top.addWidget(self.expected)
         top.addWidget(button("Enregistrer la date", self.expected_date))
@@ -182,7 +183,7 @@ class OrderWorkspaceDialog(QDialog):
                     lambda r: r["reference"] or "Sans référence",
                     False,
                 ),
-                ("Date", lambda r: r["receipt_date"], False),
+                date_column("Date", "receipt_date"),
                 ("Unités reçues", lambda r: number(r["total_received"], 3), True),
                 ("Saisi par", lambda r: r["received_by"], False),
             ]
@@ -209,7 +210,7 @@ class OrderWorkspaceDialog(QDialog):
                     lambda r: "Oui" if r["include_in_email"] else "Non",
                     False,
                 ),
-                ("Ajouté le", lambda r: r["added_at"], False),
+                date_column("Ajouté le", "added_at", include_time=True),
             ]
         )
         self.documents_table = table(self.documents_model)
@@ -239,7 +240,7 @@ class OrderWorkspaceDialog(QDialog):
             [
                 ("Note interne", lambda r: r["body"], False),
                 ("Auteur", lambda r: r["author_name"], False),
-                ("Date", lambda r: r["created_at"], False),
+                date_column("Date", "created_at", include_time=True),
             ]
         )
         self.comments_table = table(self.comments_model)
@@ -259,7 +260,7 @@ class OrderWorkspaceDialog(QDialog):
             [
                 ("Action", lambda r: r["action"], False),
                 ("Auteur", lambda r: r["actor_name"], False),
-                ("Date", lambda r: r["occurred_at"], False),
+                date_column("Date", "occurred_at", include_time=True),
                 ("Détail", lambda r: r["details"], False),
             ]
         )
@@ -280,7 +281,7 @@ class OrderWorkspaceDialog(QDialog):
         self.heading.setText(
             f"{order['order_number']} · {order['supplier_name']}\n{order['status']} · {order['delivery_status']}"
         )
-        self.expected.setText(order["expected_delivery_date"])
+        self.expected.setText(format_date(order["expected_delivery_date"]))
         self.confirm_button.setText(
             "Annuler la confirmation"
             if order["confirmed_at"]
@@ -308,7 +309,7 @@ class OrderWorkspaceDialog(QDialog):
     @action
     def expected_date(self):
         value = self.expected.text().strip()
-        expected = date.fromisoformat(value) if value else None
+        expected = parse_date(value) if value else None
         self.change(
             partial(
                 self.window.database.update_expected_delivery_date,
@@ -321,7 +322,7 @@ class OrderWorkspaceDialog(QDialog):
     def confirm(self):
         order, _ = self.window.database.get_order(self.order_id)
         value = self.expected.text().strip()
-        expected = date.fromisoformat(value) if value else None
+        expected = parse_date(value) if value else None
         self.change(
             partial(
                 self.window.database.mark_order_confirmed,
