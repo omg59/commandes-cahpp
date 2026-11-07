@@ -96,7 +96,7 @@ class RowsModel(QAbstractTableModel):
 
 
 class ProductsModel(RowsModel):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, order_mode=False):
         super().__init__(
             [
                 (
@@ -132,13 +132,20 @@ class ProductsModel(RowsModel):
             ],
             parent,
         )
+        if order_mode:
+            self.columns = [
+                ("Référence", lambda p: p["supplier_ref"], False),
+                ("Désignation", lambda p: p["designation"], False),
+                *self.columns[1:],
+            ]
+        self.state_column = len(self.columns) - 1
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if (
             index.isValid()
             and index.row() < len(self.rows)
             and role == Qt.ItemDataRole.ForegroundRole
-            and index.column() == 3
+            and index.column() == self.state_column
         ):
             return (
                 QColor(
@@ -155,11 +162,13 @@ class ProductsModel(RowsModel):
 class CartModel(RowsModel):
     changed = Signal()
     validation_error = Signal(str)
+    QUANTITY_COLUMN = 2
 
     def __init__(self, cart, parent=None):
         super().__init__(
             [
-                ("Article", lambda l: l.designation, False),
+                ("Référence", lambda l: l.supplier_ref, False),
+                ("Désignation", lambda l: l.designation, False),
                 (
                     "Cartons",
                     lambda l: number(l.cartons, 3).rstrip("0").rstrip(","),
@@ -180,12 +189,16 @@ class CartModel(RowsModel):
         flags = super().flags(index)
         return (
             flags | Qt.ItemFlag.ItemIsEditable
-            if index.isValid() and index.column() == 1
+            if index.isValid() and index.column() == self.QUANTITY_COLUMN
             else flags
         )
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.EditRole and index.isValid() and index.column() == 1:
+        if (
+            role == Qt.ItemDataRole.EditRole
+            and index.isValid()
+            and index.column() == self.QUANTITY_COLUMN
+        ):
             return number(self.rows[index.row()].cartons, 3)
         if role == Qt.ItemDataRole.ToolTipRole and index.isValid():
             line = self.rows[index.row()]
@@ -195,7 +208,7 @@ class CartModel(RowsModel):
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         if (
             not index.isValid()
-            or index.column() != 1
+            or index.column() != self.QUANTITY_COLUMN
             or role != Qt.ItemDataRole.EditRole
         ):
             return False
@@ -204,6 +217,6 @@ class CartModel(RowsModel):
         except ValueError as exc:
             self.validation_error.emit(str(exc))
             return False
-        self.dataChanged.emit(index, self.index(index.row(), 2))
+        self.dataChanged.emit(index, self.index(index.row(), 3))
         self.changed.emit()
         return True

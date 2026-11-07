@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal, QSize
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -15,10 +15,103 @@ from PySide6.QtWidgets import (
     QTableView,
     QVBoxLayout,
     QWidget,
+    QAbstractButton,
+    QComboBox,
+    QCompleter,
 )
 
 from .services import currency, number
 from .theme import BLUE, YELLOW, SKY
+
+
+class SupplierCombo(QComboBox):
+    """Liste de fournisseurs avec recherche saisissable, sans création libre."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.setMinimumContentsLength(12)
+        self.lineEdit().setPlaceholderText("Tapez un nom de fournisseur…")
+        self.lineEdit().setClearButtonEnabled(True)
+        self.setToolTip(
+            "Tapez tout ou partie du nom, puis choisissez un fournisseur dans les résultats."
+        )
+        self.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        self.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.lineEdit().editingFinished.connect(self.accept_exact)
+
+    def currentData(self, role=Qt.ItemDataRole.UserRole):
+        if self.currentText().strip() != self.itemText(self.currentIndex()):
+            return None
+        return super().currentData(role)
+
+    def accept_exact(self):
+        index = self.findText(self.currentText().strip(), Qt.MatchFlag.MatchFixedString)
+        if index >= 0:
+            self.setCurrentIndex(index)
+            self.setEditText(self.itemText(index))
+            self.activated.emit(index)
+
+
+class ThemeSwitch(QAbstractButton):
+    """Interrupteur clavier/souris avec soleil et lune dessinés en vectoriel."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setFixedSize(76, 34)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName("Mode sombre")
+        self.toggled.connect(self.describe)
+        self.describe(False)
+
+    def sizeHint(self):
+        return QSize(76, 34)
+
+    def describe(self, dark):
+        self.setToolTip("Activer le mode clair" if dark else "Activer le mode sombre")
+        self.setAccessibleDescription(
+            "Mode sombre activé" if dark else "Mode clair activé"
+        )
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        dark = self.isChecked()
+        painter.setPen(
+            QPen(
+                QColor(SKY if self.hasFocus() else "#7893B5"),
+                2 if self.hasFocus() else 1,
+            )
+        )
+        painter.setBrush(QColor(BLUE if dark else "#E2EAF6"))
+        painter.drawRoundedRect(QRectF(1, 2, 74, 30), 15, 15)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawEllipse(QPointF(58 if dark else 18, 17), 12, 12)
+        painter.setPen(QPen(QColor(YELLOW if dark else BLUE), 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QPointF(18, 17), 3.5, 3.5)
+        for n in range(8):
+            angle = n * math.pi / 4
+            painter.drawLine(
+                QPointF(18 + math.cos(angle) * 6, 17 + math.sin(angle) * 6),
+                QPointF(18 + math.cos(angle) * 8, 17 + math.sin(angle) * 8),
+            )
+        moon = QPainterPath()
+        moon.addEllipse(QPointF(58, 17), 6, 6)
+        cutout = QPainterPath()
+        cutout.addEllipse(QPointF(61, 14), 5.5, 5.5)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(BLUE if dark else "#587398"))
+        painter.drawPath(moon.subtracted(cutout))
 
 
 def label(text="", name="", wrap=False):

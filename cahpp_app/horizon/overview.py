@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 
 from .models import RowsModel
 from .services import currency, number
-from .widgets import Chart, Metric, button, card, label, table
+from .widgets import Chart, Metric, button, card, label, table, SupplierCombo
 from .forms import action
 
 
@@ -169,11 +169,12 @@ class StatisticsPage(QWidget):
             ("12 derniers mois", 12),
         ]:
             self.period.addItem(text, n)
-        self.supplier = QComboBox()
+        self.supplier = SupplierCombo()
         self.supplier.setAccessibleName("Fournisseur des statistiques")
         self.supplier.addItem("Tous les fournisseurs", None)
         self.period.currentIndexChanged.connect(self.refresh)
         self.supplier.currentIndexChanged.connect(self.refresh)
+        self.supplier.activated.connect(self.refresh)
         filters.addWidget(self.period)
         filters.addWidget(self.supplier)
         filters.addStretch()

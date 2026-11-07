@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0a2
+# Commandes CAHPP Horizon — 2.0.0a3
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
@@ -27,7 +27,7 @@ Le premier lancement crée une démonstration fictive dans
 `$XDG_DATA_HOME/CommandesCAHPP-Horizon/demonstration` sous Linux
 (`~/.local/share` par défaut).
 
-**Copier une base 1.6…** crée un nouveau profil autonome. La base source est
+Dans **Paramètres → Maintenance**, **Copier une base 1.6…** crée un nouveau profil autonome. La base source est
 ouverte en lecture seule et copiée avec son journal WAL ; elle n'est jamais
 utilisée comme base de travail. Les PDF, pièces jointes et le logo accessibles
 sont copiés et leurs liens réécrits dans le nouveau profil. Les documents absents
@@ -38,6 +38,31 @@ La copie reçoit un nouvel identifiant utilisateur. Le partage et le dossier PDF
 de la source sont désactivés/effacés dans cette copie. L'activation ultérieure
 dans **Paramètres → Collaboration** est un choix explicite ; elle est ensuite
 conservée entre les lancements. Les anciens profils alpha 1 restent reconnus.
+
+La copie conserve les fiches fournisseurs (numéro client, coordonnées, franco,
+minimum, notes), favoris, réglages d'établissement, identité, modèles PDF/e-mail
+et historique. Le logo personnalisé de l'établissement est distinct du logo de
+l'application. Les documents accessibles sont dupliqués sans modifier la source.
+
+La mise à jour entre versions Horizon utilise le même installateur Horizon et
+conserve les profils. Le passage depuis la 1.6.0 est actuellement une **migration
+par copie**, avec installation des deux applications côte à côte. L'installateur
+d'essai ne remplace pas une installation 1.6.0. Une mise à niveau directe de la
+version stable devra être préparée pour la diffusion finale de la 2.0.
+
+## Commande et confort d'utilisation
+
+**Nouvelle commande** présente les articles avec deux colonnes séparées,
+**Référence** et **Désignation**, sans répéter le fournisseur sélectionné.
+Le panneau **Ma commande**, élargi et redimensionnable, conserve également ces
+deux colonnes ; les quantités restent éditables dans la colonne **Cartons**.
+Les listes de fournisseurs acceptent la saisie d'un nom ou d'une partie du nom.
+Il faut choisir un résultat existant ; une saisie partielle n'est pas utilisée
+comme fournisseur d'une commande.
+
+La barre supérieure contient la recherche rapide et l'interrupteur soleil/lune
+pour les modes clair/sombre. Le choix est mémorisé dans le profil. Les actions
+de reprise de base et de diagnostic sont uniquement dans les paramètres.
 
 Pour rouvrir une copie : `python main_horizon.py --profile "chemin/du/profil"`.
 Pour créer une copie : `python main_horizon.py --copy-database "chemin/base.sqlite3"`.
@@ -94,7 +119,7 @@ Horizon ne propose que les installateurs
 
 ## Diagnostics et débogage
 
-Le bouton **Diagnostic** est accessible dans la barre supérieure et les paramètres.
+Le bouton **Diagnostics et débogage** est accessible uniquement dans **Paramètres**.
 
 - **Actualiser** exécute les contrôles en arrière-plan : intégrité SQLite,
   schéma, FTS5, cohérence des entrées, recherche avec classement, statistiques et
@@ -126,6 +151,7 @@ remplacement du logiciel utilisé au quotidien.
 
 ## Identité LADAPT
 
-Le logo fourni est conservé sans retouche. Les bleus et le jaune proviennent des
-supports transmis ; voir `ressources/horizon/NOTICE.txt`. Les thèmes clair/sombre
+Le logo et les icônes d'application reprennent les fichiers de la version 1.6.0
+dans `assets`, sans retouche. Les bleus et le jaune proviennent des supports
+LADAPT transmis ; voir `ressources/horizon/NOTICE.txt`. Les thèmes clair/sombre
 et les dialogues standard en français restent disponibles.

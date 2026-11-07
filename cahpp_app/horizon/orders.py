@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QCheckBox,
     QAbstractItemView,
+    QHeaderView,
 )
 
 from ..numbers import parse_decimal
@@ -26,7 +27,7 @@ from ..database import money
 from .catalog import CatalogBrowser
 from .models import CartModel, RowsModel
 from .services import Cart, currency, number
-from .widgets import button, card, label, table
+from .widgets import button, card, label, table, SupplierCombo
 from .forms import action, FormDialog, open_document, selected_row
 from ..local_services import (
     resolve_portable_path,
@@ -48,25 +49,27 @@ class PreparePage(QWidget):
         layout.setSpacing(14)
         header = QHBoxLayout()
         text = QVBoxLayout()
-        text.addWidget(label("Préparer une commande", "title"))
+        text.addWidget(label("Nouvelle commande", "title"))
         text.addWidget(
             label("Un fournisseur, un panier, des quantités explicites.", "muted")
         )
         header.addLayout(text, 1)
-        header.addWidget(button("Nouvelle préparation", window.new_order))
+        header.addWidget(button("Nouvelle commande", window.new_order))
         layout.addLayout(header)
         filters = QHBoxLayout()
-        filters.addWidget(label("Fournisseur"))
-        self.suppliers = QComboBox()
+        filters.addWidget(label("Fournisseur — rechercher par nom"))
+        self.suppliers = SupplierCombo()
         self.suppliers.setMinimumWidth(220)
         self.suppliers.setAccessibleName("Fournisseur de la commande")
         self.reload_suppliers()
-        self.suppliers.currentIndexChanged.connect(self.supplier_changed)
+        self.suppliers.activated.connect(self.supplier_changed)
+        self.suppliers.lineEdit().textEdited.connect(self.supplier_query)
         filters.addWidget(self.suppliers, 1)
         self.badge = label("Brouillon · aucun envoi", "badge")
         filters.addWidget(self.badge)
         layout.addLayout(filters)
         split = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = split
         self.browser = CatalogBrowser(window, "prepare-search", supplier_picker=False)
         self.browser.add_requested.connect(window.add_product)
         self.add_selected = button(
@@ -78,12 +81,17 @@ class PreparePage(QWidget):
         )
         split.addWidget(self.browser)
         side, body = card()
-        side.setMinimumWidth(270)
-        body.addWidget(label("Ma préparation", "heading"))
-        self.supplier_label = label("", "muted", True)
-        body.addWidget(self.supplier_label)
+        side.setMinimumWidth(440)
+        body.addWidget(label("Ma commande", "heading"))
         self.model = CartModel(self.cart, self)
         self.cart_table = table(self.model)
+        self.cart_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive
+        )
+        self.cart_table.setColumnWidth(0, 100)
+        self.cart_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
         self.cart_table.setMinimumHeight(180)
         self.cart_table.verticalHeader().setDefaultSectionSize(62)
         self.model.changed.connect(self.update_totals)
@@ -124,8 +132,9 @@ class PreparePage(QWidget):
             label("La génération du PDF n'envoie rien au fournisseur.", "muted", True)
         )
         split.addWidget(side)
-        split.setSizes([680, 380])
+        split.setSizes([580, 520])
         split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
         layout.addWidget(split, 1)
         self.supplier_changed()
 
@@ -145,15 +154,29 @@ class PreparePage(QWidget):
 
     def supplier_changed(self, *_):
         sid = self.suppliers.currentData()
+        if sid is None:
+            self.supplier_query()
+            return
         if self.cart.lines and sid != self.cart.supplier_id:
             if not self.window.allow_discard_or_save():
                 self.select_supplier(self.cart.supplier_id)
+                self.browser.search()
                 return
             self.reset()
             self.select_supplier(sid)
         self.browser.supplier_id = sid
         self.browser.search() if sid else self.browser.model.replace([])
         self.update_totals()
+
+    def supplier_query(self, *_):
+        self.window.jobs.cancel("prepare-search")
+        self.browser.timer.stop()
+        self.browser.supplier_id = None
+        self.browser.rows = []
+        self.browser.model.replace([])
+        self.browser.status.setText(
+            "Choisissez un fournisseur dans les résultats de votre saisie."
+        )
 
     def select_supplier(self, sid):
         self.suppliers.blockSignals(True)
@@ -237,7 +260,6 @@ class PreparePage(QWidget):
         self.vat.setText(
             f"TVA : {currency(self.cart.total_vat)} · TTC : {currency(self.cart.total_ttc)}"
         )
-        self.supplier_label.setText(self.suppliers.currentText())
         supplier = self.window.database.get_supplier(
             self.cart.supplier_id or self.suppliers.currentData()
         )
@@ -257,6 +279,10 @@ class PreparePage(QWidget):
     @action
     def save_draft(self):
         try:
+            if self.suppliers.currentData() is None:
+                raise ValueError(
+                    "Choisissez un fournisseur dans la liste avant d'enregistrer la commande."
+                )
             if self.cart.dirty and not self.confirm_warnings():
                 return False
             if self.cart.order_id:

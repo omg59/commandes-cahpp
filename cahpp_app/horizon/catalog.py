@@ -11,12 +11,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QMessageBox,
+    QHeaderView,
 )
 
 from .dialogs import ProductDialog
 from .models import ProductsModel
 from .services import currency, number
-from .widgets import button, card, label, table
+from .widgets import button, card, label, table, SupplierCombo
 from .forms import action, FormDialog
 from ..numbers import parse_decimal
 
@@ -32,7 +33,7 @@ class CatalogBrowser(QWidget):
         self.supplier_id = None
         self.limit = 100
         self.setMinimumWidth(0)
-        self.model = ProductsModel(self)
+        self.model = ProductsModel(self, order_mode=not supplier_picker)
         self.rows = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -53,7 +54,7 @@ class CatalogBrowser(QWidget):
         self.filter.currentIndexChanged.connect(self.schedule)
         controls.addWidget(self.filter)
         layout.addLayout(controls)
-        self.suppliers = QComboBox()
+        self.suppliers = SupplierCombo()
         self.suppliers.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -61,12 +62,24 @@ class CatalogBrowser(QWidget):
         self.suppliers.setAccessibleName("Fournisseur du catalogue")
         if supplier_picker:
             self.reload_suppliers()
+            layout.addWidget(
+                label("Fournisseur — tapez un nom pour rechercher", "muted")
+            )
             layout.addWidget(self.suppliers)
             self.suppliers.currentIndexChanged.connect(self.schedule)
+            self.suppliers.activated.connect(self.schedule)
         self.has_supplier_picker = supplier_picker
         box, body = card()
         body.setContentsMargins(0, 0, 0, 0)
         self.table = table(self.model)
+        if not supplier_picker:
+            self.table.horizontalHeader().setSectionResizeMode(
+                0, QHeaderView.ResizeMode.Interactive
+            )
+            self.table.setColumnWidth(0, 100)
+            self.table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.Stretch
+            )
         self.table.doubleClicked.connect(self._double_click)
         self.table.selectionModel().selectionChanged.connect(self._selection)
         body.addWidget(self.table)

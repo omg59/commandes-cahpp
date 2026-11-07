@@ -1,5 +1,18 @@
 # Historique des versions
 
+## Horizon 2.0.0a3 — retours d'utilisation, 7 novembre 2026
+
+- logo de l'application et icônes Windows repris exactement de la 1.6.0 ;
+- libellés « Nouvelle commande » et « Ma commande » ;
+- panneau de commande élargi et colonnes référence/désignation séparées,
+  sans rappel du fournisseur dans les articles de la commande ;
+- recherche saisissable des fournisseurs par tout ou partie de leur nom,
+  sans réutilisation implicite d'un ancien choix pendant la saisie ;
+- diagnostic et copie de base regroupés dans les paramètres ;
+- interrupteur soleil/lune accessible au clavier, mode clair/sombre mémorisé ;
+- vérification de la reprise des réglages d'établissement, fournisseurs,
+  modèles et favoris, et documentation de la migration depuis la 1.6.0.
+
 ## Horizon 2.0.0a2 — fonctions de la 1.6.0, 7 novembre 2026
 
 - paramètres établissement, PDF, e-mails, collaboration et maintenance ;

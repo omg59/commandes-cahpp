@@ -303,6 +303,20 @@ class SettingsPage(QWidget):
                 ]:
                     row.addWidget(button(text, callback))
                 body.addLayout(row)
+                body.addWidget(
+                    label("Reprendre les données d'une version 1.6", "heading")
+                )
+                body.addWidget(
+                    label(
+                        "Copier le catalogue, les commandes, les fournisseurs et les réglages de votre établissement dans un profil Horizon indépendant.",
+                        "muted",
+                        True,
+                    )
+                )
+                self.copy_database_button = button(
+                    "Copier une base 1.6…", window.choose_database
+                )
+                body.addWidget(self.copy_database_button)
             body.addStretch()
             self.tabs.addTab(page, title)
         row = QHBoxLayout()
@@ -381,7 +395,10 @@ class SettingsPage(QWidget):
         try:
             self.window.database.save_settings(values)
             try:
-                if changed or (values["collaboration_enabled"] == "1" and self.window.operations.manager is None):
+                if changed or (
+                    values["collaboration_enabled"] == "1"
+                    and self.window.operations.manager is None
+                ):
                     self.window.operations.configure()
             except Exception:
                 self.window.database.save_settings(

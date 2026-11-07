@@ -43,7 +43,13 @@ def main():
     window = HorizonWindow(database, profile, info)
     window.resize(1366, 900)
     window.show()
-    with patch("cahpp_app.horizon.application.QMessageBox.warning") as warning, patch("cahpp_app.horizon.orders.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+    with (
+        patch("cahpp_app.horizon.application.QMessageBox.warning") as warning,
+        patch(
+            "cahpp_app.horizon.orders.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ),
+    ):
         wait(app, lambda: not window.jobs.tasks)
         assert window.overview.metrics[3].value.text() == "2"
         for key in window.pages:
@@ -60,11 +66,15 @@ def main():
         window.add_product(p)
         assert window.prepare.cart.total_ht == Decimal("4.2100")
         window.prepare.model.setData(
-            window.prepare.model.index(0, 1), "2", Qt.ItemDataRole.EditRole
+            window.prepare.model.index(0, window.prepare.model.QUANTITY_COLUMN),
+            "2",
+            Qt.ItemDataRole.EditRole,
         )
         assert window.prepare.cart.total_ht == Decimal("8.4200")
         window.prepare.model.setData(
-            window.prepare.model.index(0, 1), "NaN", Qt.ItemDataRole.EditRole
+            window.prepare.model.index(0, window.prepare.model.QUANTITY_COLUMN),
+            "NaN",
+            Qt.ItemDataRole.EditRole,
         )
         assert window.prepare.cart.total_ht == Decimal("8.4200")
         assert window.prepare.save_draft()
@@ -88,7 +98,9 @@ def main():
             and database.get_order(oid)[0]["status"] == "Brouillon"
         )
         window.prepare.model.setData(
-            window.prepare.model.index(0, 1), "3", Qt.ItemDataRole.EditRole
+            window.prepare.model.index(0, window.prepare.model.QUANTITY_COLUMN),
+            "3",
+            Qt.ItemDataRole.EditRole,
         )
         assert window.prepare.save_draft()
         with database.connect() as c:

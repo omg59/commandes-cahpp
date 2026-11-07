@@ -12,7 +12,8 @@ def main():
 
     profile, info = configure([])
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QMessageBox, QPushButton
+    from PySide6.QtWidgets import QMessageBox, QPushButton, QFrame
+    from PySide6.QtTest import QTest
     from cahpp_app.database import Database
     from cahpp_app.horizon.application import HorizonWindow, create_application
     from cahpp_app.horizon.services import seed_demo
@@ -40,6 +41,41 @@ def main():
         patch("PySide6.QtWidgets.QMessageBox.warning") as warnings,
         patch("PySide6.QtGui.QDesktopServices.openUrl", return_value=True),
     ):
+        topbar = window.findChild(QFrame, "topbar")
+        assert not topbar.findChildren(QPushButton)
+        assert window.preferences.isAncestorOf(window.preferences.copy_database_button)
+        assert window.theme_switch.isChecked() is False
+        window.theme_switch.click()
+        assert app.property("horizonDark") is True
+        assert window.settings.value("dark", type=bool) is True
+        QTest.keyClick(window.theme_switch, Qt.Key.Key_Space)
+        assert app.property("horizonDark") is False
+        # La saisie filtre aussi au milieu du nom. Tant que le fournisseur
+        # n'est pas choisi, l'ancien identifiant n'est jamais réutilisé.
+        window.navigate("prepare")
+        picker = window.prepare.suppliers
+        picker.lineEdit().clear()
+        QTest.keyClicks(picker.lineEdit(), "revia")
+        assert picker.currentData() is None
+        completer = picker.completer()
+        completer.setCompletionPrefix("revia")
+        assert completer.completionCount() == 1
+        popup = completer.popup()
+        popup.setCurrentIndex(completer.completionModel().index(0, 0))
+        QTest.keyClick(popup, Qt.Key.Key_Return)
+        wait(app, lambda: picker.currentData() is not None and not window.jobs.tasks)
+        assert "Carevia" in picker.currentText()
+        supplier_id = picker.currentData()
+        picker.setEditText(picker.currentText().upper())
+        assert picker.currentData() is None
+        picker.accept_exact()
+        assert picker.currentData() == supplier_id
+        command_columns = [c[0] for c in window.prepare.browser.model.columns]
+        assert command_columns[:2] == ["Référence", "Désignation"]
+        assert [c[0] for c in window.prepare.model.columns][:2] == [
+            "Référence",
+            "Désignation",
+        ]
         for name in window.pages:
             window.navigate(name)
             wait(app, lambda: not window.jobs.tasks)
@@ -77,6 +113,37 @@ def main():
         p = db.get_product(pid)
         window.add_product(p, quantity=3)
         wait(app, lambda: not window.jobs.tasks)
+        assert window.prepare.browser.model.columns[1][1](p) == p["designation"]
+        assert (
+            window.prepare.model.setData(
+                window.prepare.model.index(0, 0),
+                "autre référence",
+                Qt.ItemDataRole.EditRole,
+            )
+            is False
+        )
+        assert window.prepare.model.setData(
+            window.prepare.model.index(0, window.prepare.model.QUANTITY_COLUMN),
+            "4",
+            Qt.ItemDataRole.EditRole,
+        )
+        assert window.prepare.cart.lines[0].cartons == 4
+        window.prepare.model.setData(
+            window.prepare.model.index(0, window.prepare.model.QUANTITY_COLUMN),
+            "3",
+            Qt.ItemDataRole.EditRole,
+        )
+        if len(sys.argv) > 1:
+            app.processEvents()
+            window.grab().save(
+                str(Path(sys.argv[1]).with_name("horizon-a3-commande.png"))
+            )
+            window.theme_switch.click()
+            app.processEvents()
+            window.grab().save(
+                str(Path(sys.argv[1]).with_name("horizon-a3-sombre.png"))
+            )
+            window.theme_switch.click()
         window.prepare.requester.setText("Service d'essai")
         assert window.prepare.save_draft()
         oid = window.prepare.cart.order_id

@@ -39,7 +39,7 @@ from ..app_logging import configure_logging, install_exception_hooks, log_failur
 from ..catalog_importer import CatalogImporter, ImportOptions
 from ..database import Database
 from ..local_services import create_complete_backup
-from ..paths import BACKUP_DIR, DATABASE_PATH, RESOURCE_DIR, ensure_directories
+from ..paths import BACKUP_DIR, DATABASE_PATH, ensure_directories
 from . import NAME, VERSION
 from .bootstrap import resource_root
 from .catalog import CatalogPage
@@ -49,7 +49,7 @@ from .orders import OrdersPage, PreparePage
 from .overview import OverviewPage, StatisticsPage
 from .services import HorizonService, seed_demo
 from .theme import apply_theme
-from .widgets import button, label
+from .widgets import button, label, ThemeSwitch
 from .operations import Operations, months_before
 from .settings import SettingsPage, DiagnosticDialog
 from .suppliers import SuppliersPage, SuggestionsPage
@@ -110,8 +110,8 @@ class HorizonWindow(QMainWindow):
         self.setMinimumSize(900, 600)
         geometry = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1460, geometry.width() - 30), min(930, geometry.height() - 40))
-        logo = RESOURCE_DIR / "horizon" / "ladapt.png"
-        self.setWindowIcon(QIcon(str(logo)))
+        logo = resource_root() / "assets" / "app_icon.png"
+        self.setWindowIcon(QIcon(str(resource_root() / "assets" / "app_icon.ico")))
         central = QWidget()
         central.setObjectName("canvas")
         self.setCentralWidget(central)
@@ -125,6 +125,7 @@ class HorizonWindow(QMainWindow):
         nav.setContentsMargins(16, 24, 16, 18)
         nav.setSpacing(9)
         picture = label()
+        self.brand_logo = picture
         picture.setAlignment(Qt.AlignmentFlag.AlignLeft)
         picture.setPixmap(
             QPixmap(str(logo)).scaled(
@@ -145,7 +146,7 @@ class HorizonWindow(QMainWindow):
             ("overview", "Vue d'ensemble"),
             ("catalog", "Catalogue"),
             ("suggestions", "À recommander"),
-            ("prepare", "Préparation"),
+            ("prepare", "Nouvelle commande"),
             ("orders", "Commandes"),
             ("statistics", "Statistiques"),
             ("suppliers", "Fournisseurs"),
@@ -159,7 +160,7 @@ class HorizonWindow(QMainWindow):
             nav.addWidget(b)
         nav.addStretch()
         nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 2 · " + VERSION, "brandSub"))
+        nav.addWidget(label("Alpha 3 · " + VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
@@ -183,10 +184,12 @@ class HorizonWindow(QMainWindow):
         self.global_search.setAccessibleName("Recherche rapide")
         self.global_search.returnPressed.connect(self.global_find)
         bar.addWidget(self.global_search, 1)
-        bar.addWidget(button("Copier une base 1.6…", self.choose_database))
-        self.theme_button = button("Changer le thème", self.toggle_theme)
-        bar.addWidget(self.theme_button)
-        bar.addWidget(button("Diagnostic", self.open_diagnostics))
+        self.theme_switch = ThemeSwitch()
+        self.theme_switch.setChecked(
+            bool(QApplication.instance().property("horizonDark"))
+        )
+        self.theme_switch.toggled.connect(self.set_dark_theme)
+        bar.addWidget(self.theme_switch)
         content.addWidget(top)
         self.stack = QStackedWidget()
         content.addWidget(self.stack, 1)
@@ -249,7 +252,12 @@ class HorizonWindow(QMainWindow):
                 ),
             )
         if info.get("missing_files"):
-            QTimer.singleShot(500, lambda: self.notify(f"Copie terminée : {info.get('missing_files')} document(s) source indisponible(s)."))
+            QTimer.singleShot(
+                500,
+                lambda: self.notify(
+                    f"Copie terminée : {info.get('missing_files')} document(s) source indisponible(s)."
+                ),
+            )
         QTimer.singleShot(1200, self.background_maintenance)
         geometry = self.settings.value("geometry")
         if geometry:
@@ -279,7 +287,14 @@ class HorizonWindow(QMainWindow):
 
     def toggle_theme(self):
         dark = not QApplication.instance().property("horizonDark")
+        self.set_dark_theme(dark)
+
+    def set_dark_theme(self, dark):
         apply_theme(QApplication.instance(), dark)
+        self.theme_switch.blockSignals(True)
+        self.theme_switch.setChecked(dark)
+        self.theme_switch.blockSignals(False)
+        self.theme_switch.describe(dark)
         self.settings.setValue("dark", dark)
         for chart in (self.overview.chart, self.statistics.line, self.statistics.bars):
             chart.update()
@@ -302,7 +317,7 @@ class HorizonWindow(QMainWindow):
             return True
         answer = QMessageBox.question(
             self,
-            "Préparation non enregistrée",
+            "Commande non enregistrée",
             "Enregistrer le brouillon avant de poursuivre ?",
             QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Discard
@@ -710,7 +725,7 @@ def run(profile, info):
                 return
             ready = (
                 window.overview.metrics[0].value.text() != "—"
-                and (RESOURCE_DIR / "horizon" / "ladapt.png").is_file()
+                and (resource_root() / "assets" / "app_icon.png").is_file()
             )
             if ready:
                 (profile / "startup-ok.json").write_text(

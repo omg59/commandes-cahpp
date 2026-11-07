@@ -43,7 +43,7 @@ def apply_theme(app, dark=False):
         QFrame#sidebar QLabel {{ color:white; background:transparent; }}
         QLabel#brand {{ font-size:22px; font-weight:700; letter-spacing:2px; }}
         QLabel#brandSub {{ color:#C9D9EF; font-size:12px; }}
-        QPushButton#nav {{ background:transparent; color:#D7E5F7; border:0; padding:13px 16px; text-align:left; border-radius:9px; font-weight:600; }}
+        QPushButton#nav {{ background:transparent; color:#D7E5F7; border:0; padding:13px 10px; text-align:left; border-radius:9px; font-weight:600; }}
         QPushButton#nav:hover {{ background:#2A5195; }}
         QPushButton#nav:checked {{ background:{YELLOW}; color:#17305B; }}
         QFrame#topbar {{ background:{panel}; border-bottom:1px solid {border}; }}

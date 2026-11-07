@@ -6,6 +6,8 @@ import PySide6
 
 datas=collect_data_files("reportlab")
 datas += [("ressources/horizon", "ressources/horizon"),
+          ("assets/app_icon.png", "assets"),
+          ("assets/app_icon.ico", "assets"),
           ("ressources/DejaVuSans.ttf", "ressources"),
           ("ressources/DejaVuSans-Bold.ttf", "ressources"),
           ("ressources/DEJAVU-LICENSE.txt", "ressources"),
@@ -20,5 +22,5 @@ a=Analysis(["main_horizon.py"],pathex=[],binaries=[],datas=datas,
 pyz=PYZ(a.pure)
 exe=EXE(pyz,a.scripts,[],exclude_binaries=True,name="CommandesCAHPP-Horizon",
         debug=False,bootloader_ignore_signals=False,strip=False,upx=False,
-        console=False,disable_windowed_traceback=False,icon="ressources/horizon/horizon.ico")
+        console=False,disable_windowed_traceback=False,icon="assets/app_icon.ico")
 coll=COLLECT(exe,a.binaries,a.datas,strip=False,upx=False,name="CommandesCAHPP-Horizon-portable")

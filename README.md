@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a2.**
+**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a3.**
 Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
 
 - [Lancement, fonctions et limites d'Horizon](docs/horizon.md)
@@ -9,7 +9,8 @@ Interface Qt aux couleurs LADAPT, développée en parallèle de la version stabl
 - [Build Windows et contrôles automatiques](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml) :
   télécharger l'artefact **CommandesCAHPP-Horizon-Windows** d'un run réussi.
 
-Horizon crée un profil de démonstration séparé. Le bouton **Copier une base 1.6…**
+Horizon crée un profil de démonstration séparé. Dans **Paramètres → Maintenance**,
+le bouton **Copier une base 1.6…**
 ouvre une copie indépendante de la base et des documents accessibles.
 Les fonctions métier de la 1.6.0 sont reprises : réglages, fournisseurs,
 réceptions, documents, e-mails, recommandations, statistiques, collaboration et

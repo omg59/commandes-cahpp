@@ -214,8 +214,23 @@ class HorizonOperationsTest(unittest.TestCase):
                 "logo_path": str(document),
                 "shared_workspace_path": "partage-source",
                 "pdf_default_directory": str(root / "exports"),
+                "establishment_name": "Établissement repris",
+                "address_line1": "Adresse de test",
+                "finess": "000000001",
+                "email_subject_template": "Commande {order_number}",
+                "email_body_template": "Bonjour,\n{establishment_name}",
+                "pdf_footer_text": "Pied de page personnalisé",
             }
         )
+        self.db.update_supplier(
+            self.sid,
+            "CLIENT-123",
+            "commandes.test@example.org",
+            "03.27.00.00.00",
+            100.5,
+            "Note fournisseur",
+        )
+        self.db.set_favorite(self.pid, True, 3, "Nom court")
         before = hashlib.sha256(document.read_bytes()).hexdigest()
         profile = copy_database(self.db.path, self.root / "copies")
         copied = Database(profile / "data/commandes_cahpp.sqlite3")
@@ -231,6 +246,20 @@ class HorizonOperationsTest(unittest.TestCase):
         self.assertNotEqual(copied.get_settings()["user_id"], "poste-a")
         self.assertEqual(copied.get_settings()["shared_workspace_path"], "")
         self.assertEqual(copied.get_settings()["pdf_default_directory"], "")
+        for key in (
+            "establishment_name",
+            "address_line1",
+            "finess",
+            "email_subject_template",
+            "email_body_template",
+            "pdf_footer_text",
+        ):
+            self.assertEqual(copied.get_settings()[key], self.db.get_settings()[key])
+        self.assertEqual(
+            dict(copied.get_supplier(self.sid)), dict(self.db.get_supplier(self.sid))
+        )
+        self.assertEqual(copied.get_product(self.pid)["usual_cartons"], 3)
+        self.assertEqual(copied.get_product(self.pid)["short_name"], "Nom court")
         self.assertEqual(
             json.loads((profile / "horizon-profile.json").read_text())["copied_files"],
             3,
