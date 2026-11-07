@@ -8,6 +8,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -90,7 +91,7 @@ def copy_database(source: Path, profiles: Path) -> Path:
                 raise ValueError(
                     "Choisissez une base Commandes CAHPP de schéma 15 ou antérieur."
                 )
-            with sqlite3.connect(target) as local:
+            with closing(sqlite3.connect(target)) as local, local:
                 origin.backup(local)
                 if local.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                     raise ValueError("Le contrôle d'intégrité de la copie a échoué.")

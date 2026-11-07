@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -89,11 +90,31 @@ class HorizonCoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             copy_database(invalid, self.root / "copies")
         self.assertEqual(list((self.root / "copies").iterdir()), [])
-        with sqlite3.connect(self.db.path) as c:
+        with closing(sqlite3.connect(self.db.path)) as c, c:
             c.execute("PRAGMA user_version=999")
         with self.assertRaises(ValueError):
             copy_database(self.db.path, self.root / "copies")
         self.assertEqual(list((self.root / "copies").iterdir()), [])
+
+    def test_copy_releases_source_and_destination_without_garbage_collection(self):
+        original_connect = sqlite3.connect
+        opened = []
+
+        def tracked_connect(*args, **kwargs):
+            connection = original_connect(*args, **kwargs)
+            opened.append(connection)
+            self.addCleanup(connection.close)
+            return connection
+
+        with patch(
+            "cahpp_app.horizon.bootstrap.sqlite3.connect", side_effect=tracked_connect
+        ):
+            profile = copy_database(self.db.path, self.root / "copies")
+        self.assertTrue((profile / "data/commandes_cahpp.sqlite3").is_file())
+        self.assertEqual(len(opened), 2)
+        for connection in opened:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("SELECT 1")
 
     def test_demo_seed_is_idempotent_and_has_two_explicit_reviews(self):
         before = self.db.dashboard_stats()
