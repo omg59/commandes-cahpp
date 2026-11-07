@@ -34,6 +34,7 @@ from .forms import Fields, action
 from .operations import months_before
 from .widgets import button, label
 from .dates import format_datetime
+from .about import AboutPage
 
 
 class DiagnosticDialog(QDialog):
@@ -322,6 +323,8 @@ class SettingsPage(QWidget):
             self.tabs.addTab(page, title)
             if title == "Établissement":
                 self.tabs.addTab(window.suppliers, "Fournisseurs")
+        self.about = AboutPage(window)
+        self.tabs.addTab(self.about, "À propos")
         row = QHBoxLayout()
         self.save_button = button("Enregistrer les paramètres", self.save, "primary")
         row.addWidget(self.save_button)
@@ -334,7 +337,9 @@ class SettingsPage(QWidget):
 
     def tab_changed(self):
         suppliers_selected = self.tabs.currentWidget() is self.window.suppliers
-        self.save_button.setVisible(not suppliers_selected)
+        self.save_button.setVisible(
+            not suppliers_selected and self.tabs.currentWidget() is not self.about
+        )
         if suppliers_selected:
             self.window.suppliers.refresh()
 

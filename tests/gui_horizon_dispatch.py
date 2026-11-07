@@ -81,7 +81,7 @@ def main():
             dialog = QApplication.activeModalWidget()
             try:
                 assert isinstance(dialog, OrderDispatchDialog)
-                assert window.stack.currentWidget() is window.containers["prepare"]
+                assert window.current_page() is window.prepare
                 assert dialog.order_id == oid
                 assert "commandes@example.org" in dialog.recipient.text()
                 assert dialog.pdf_path.is_file()
@@ -148,7 +148,7 @@ def main():
         assert any(url.isLocalFile() for url in urls)
         assert any("commandes%40example.org" in url.toString() for url in urls)
         assert not db.get_order(oid)[0]["sent_at"]
-        assert window.stack.currentWidget() is window.containers["prepare"]
+        assert window.current_page() is window.prepare
 
         # L'absence d'e-mail indique le problème et mène à la bonne fiche,
         # maintenant située dans Paramètres → Fournisseurs.
@@ -188,7 +188,7 @@ def main():
         assert db.get_order(oid)[0]["sent_at"]
         assert not folder.exists()
         assert not window.prepare.cart.lines
-        assert window.stack.currentWidget() is window.containers["prepare"]
+        assert window.current_page() is window.prepare
         assert not dialog.isVisible()
         assert not window.prepare.send_button.isVisible()
         warnings.assert_not_called()

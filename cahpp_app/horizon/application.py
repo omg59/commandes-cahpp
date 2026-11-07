@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QScrollArea,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -122,13 +123,13 @@ class HorizonWindow(QMainWindow):
         shell.setSpacing(0)
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(196)
+        sidebar.setMinimumWidth(196)
         nav = QVBoxLayout(sidebar)
         nav.setContentsMargins(16, 24, 16, 18)
         nav.setSpacing(9)
         picture = label()
         self.brand_logo = picture
-        picture.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
         picture.setPixmap(
             QPixmap(str(logo)).scaled(
                 88,
@@ -138,8 +139,10 @@ class HorizonWindow(QMainWindow):
             )
         )
         nav.addWidget(picture)
-        nav.addWidget(label("HORIZON", "brand"))
-        nav.addWidget(label("Commandes CAHPP", "brandSub"))
+        for text, style in [("HORIZON", "brand"), ("Commandes CAHPP", "brandSub")]:
+            brand = label(text, style)
+            brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            nav.addWidget(brand)
         nav.addSpacing(20)
         self.nav_buttons = {}
         group = QButtonGroup(self)
@@ -147,9 +150,7 @@ class HorizonWindow(QMainWindow):
         for key, title in [
             ("overview", "Vue d'ensemble"),
             ("catalog", "Catalogue"),
-            ("suggestions", "À recommander"),
-            ("prepare", "Nouvelle commande"),
-            ("orders", "Commandes"),
+            ("commands", "Commandes"),
             ("statistics", "Statistiques"),
             ("imports", "Mise à jour CAHPP"),
             ("settings", "Paramètres"),
@@ -161,10 +162,23 @@ class HorizonWindow(QMainWindow):
             nav.addWidget(b)
         nav.addStretch()
         nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 8 · " + VERSION, "brandSub"))
+        nav.addWidget(label("Alpha 9 · " + VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))
+        nav.addSpacing(10)
+        self.ladapt_logo = label()
+        self.ladapt_logo.setAccessibleName("Logo LADAPT")
+        self.ladapt_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.ladapt_logo.setPixmap(
+            QPixmap(str(resource_root() / "ressources/horizon/ladapt.png")).scaled(
+                112,
+                112,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        nav.addWidget(self.ladapt_logo)
         sidebar_area = QScrollArea()
         sidebar_area.setFixedWidth(212)
         sidebar_area.setWidgetResizable(True)
@@ -216,16 +230,34 @@ class HorizonWindow(QMainWindow):
             "imports": self.imports,
         }
         self.containers = {}
+        self.command_keys = ("prepare", "orders", "suggestions")
+        self.command_tabs = QTabWidget()
+        self.command_tabs.setAccessibleName("Parcours de commande")
+        commands = QWidget()
+        commands_layout = QVBoxLayout(commands)
+        commands_layout.setContentsMargins(22, 23, 22, 22)
+        commands_layout.addWidget(self.command_tabs)
+        self.containers["commands"] = commands
+        self.stack.addWidget(commands)
         for key, page in self.pages.items():
             wrapper = QWidget()
             layout = QVBoxLayout(wrapper)
-            layout.setContentsMargins(22, 23, 22, 22)
+            layout.setContentsMargins(
+                *((14, 14, 14, 14) if key in self.command_keys else (22, 23, 22, 22))
+            )
             layout.addWidget(page)
             area = QScrollArea()
             area.setWidgetResizable(True)
             area.setWidget(wrapper)
-            self.stack.addWidget(area)
+            if key not in self.command_keys:
+                self.stack.addWidget(area)
             self.containers[key] = area
+        for key, title in zip(
+            self.command_keys,
+            ("Nouvelle commande", "Suivi des commandes", "À recommander"),
+        ):
+            self.command_tabs.addTab(self.containers[key], title)
+        self.command_tabs.currentChanged.connect(self.command_tab_changed)
         self.progress = QProgressBar()
         self.progress.hide()
         self.progress.setMaximumWidth(180)
@@ -271,9 +303,36 @@ class HorizonWindow(QMainWindow):
             self.preferences.tabs.setCurrentWidget(self.suppliers)
             self.suppliers.refresh()
             return
+        if key in self.command_keys:
+            self.command_tabs.blockSignals(True)
+            self.command_tabs.setCurrentWidget(self.containers[key])
+            self.command_tabs.blockSignals(False)
+            key = "commands"
         self.stack.setCurrentWidget(self.containers[key])
         self.nav_buttons[key].setChecked(True)
-        self.pages[key].refresh()
+        self.refresh_current_page()
+
+    def current_page(self):
+        current = self.stack.currentWidget()
+        if current is self.containers["commands"]:
+            current = self.command_tabs.currentWidget()
+        return next(
+            (
+                page
+                for key, page in self.pages.items()
+                if self.containers[key] is current
+            ),
+            None,
+        )
+
+    def refresh_current_page(self):
+        page = self.current_page()
+        if page is not None:
+            page.refresh()
+
+    def command_tab_changed(self):
+        if self.stack.currentWidget() is self.containers["commands"]:
+            self.refresh_current_page()
 
     def notify(self, text):
         self.statusBar().showMessage(text, 7000)
@@ -306,10 +365,7 @@ class HorizonWindow(QMainWindow):
 
     def data_changed(self):
         self.statistics.reload_suppliers()
-        current = self.stack.currentWidget()
-        for key, page in self.pages.items():
-            if self.containers[key] is current:
-                page.refresh()
+        self.refresh_current_page()
         self.sync_collaboration()
 
     def new_order(self):
@@ -595,10 +651,7 @@ class HorizonWindow(QMainWindow):
                 + (f" · {conflicts} conflit(s) à examiner" if conflicts else "")
             )
             self.statistics.reload_suppliers()
-            current = self.stack.currentWidget()
-            for key, page in self.pages.items():
-                if self.containers[key] is current:
-                    page.refresh()
+            self.refresh_current_page()
             if result.get("catalog_pending"):
                 self.imports.refresh()
             self.check_shared_updates()
@@ -736,6 +789,16 @@ def run(profile, info):
             ready = (
                 window.overview.metrics[0].value.text() != "—"
                 and (resource_root() / "assets" / "app_icon.png").is_file()
+                and not window.ladapt_logo.pixmap().isNull()
+                and all(
+                    (resource_root() / path).is_file()
+                    for path in (
+                        "ressources/horizon/NOTICE.txt",
+                        "ressources/horizon/LGPL-3.0.txt",
+                        "ressources/horizon/GPL-3.0.txt",
+                        "ressources/DEJAVU-LICENSE.txt",
+                    )
+                )
             )
             if ready:
                 (profile / "startup-ok.json").write_text(

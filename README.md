@@ -1,10 +1,12 @@
 # Commandes CAHPP Horizon
 
-**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a8.**
+**Branche expérimentale `feature/horizon-ui` — alpha 2.0.0a9.**
 Interface Qt aux couleurs LADAPT, développée en parallèle de la version stable.
 Après validation du PDF, une fenêtre propose l'envoi au fournisseur et sa
 confirmation sans quitter la commande. Les fiches fournisseurs sont regroupées
 dans **Paramètres → Fournisseurs**.
+Le menu **Commandes** regroupe la préparation, le suivi et les recommandations.
+L'onglet **Paramètres → À propos** présente l'auteur Damien Macq et les crédits.
 
 - [Lancement, fonctions et limites d'Horizon](docs/horizon.md)
 - Windows : `horizon_windows.bat` pour lancer les sources ;

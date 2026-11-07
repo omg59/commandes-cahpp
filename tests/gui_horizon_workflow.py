@@ -1,6 +1,7 @@
 """Parcours Qt complet : réglages, fournisseur, commande, BL, PDF et diagnostic."""
 
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,13 @@ def main():
 
     profile, info = configure([])
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QMessageBox, QPushButton, QFrame
+    from PySide6.QtWidgets import (
+        QMessageBox,
+        QPushButton,
+        QFrame,
+        QLabel,
+        QTabWidget,
+    )
     from PySide6.QtTest import QTest
     from cahpp_app.database import Database
     from cahpp_app.horizon.application import HorizonWindow, create_application
@@ -45,6 +52,23 @@ def main():
         patch.object(OrderDispatchDialog, "exec", return_value=0),
     ):
         topbar = window.findChild(QFrame, "topbar")
+        assert set(window.nav_buttons) == {
+            "overview",
+            "catalog",
+            "commands",
+            "statistics",
+            "imports",
+            "settings",
+        }
+        assert window.brand_logo.alignment() & Qt.AlignmentFlag.AlignHCenter
+        assert not window.ladapt_logo.pixmap().isNull()
+        window.nav_buttons["commands"].click()
+        assert window.current_page() is window.prepare
+        assert [window.command_tabs.tabText(i) for i in range(3)] == [
+            "Nouvelle commande",
+            "Suivi des commandes",
+            "À recommander",
+        ]
         assert not topbar.findChildren(QPushButton)
         assert window.preferences.isAncestorOf(window.preferences.copy_database_button)
         assert window.theme_switch.isChecked() is False
@@ -85,6 +109,26 @@ def main():
         window.preferences.widget("establishment_name").setText("Établissement d'essai")
         window.preferences.widget("email").setText("service.test@example.org")
         assert window.preferences.has_unsaved_changes()
+        window.navigate("settings")
+        about = window.preferences.about
+        window.preferences.tabs.setCurrentWidget(about)
+        assert not window.preferences.save_button.isVisible()
+        assert window.preferences.has_unsaved_changes()
+        assert "Auteur : Damien Macq" in [w.text() for w in about.findChildren(QLabel)]
+        notices = about.notices_dialog()
+        texts = notices.findChild(QTabWidget)
+        assert texts.count() == 4
+        assert all(
+            texts.widget(i).isReadOnly() and texts.widget(i).toPlainText()
+            for i in range(4)
+        )
+        assert "GNU LESSER GENERAL PUBLIC LICENSE" in texts.widget(1).toPlainText()
+        notices.reject()
+        if len(sys.argv) > 1:
+            app.processEvents()
+            window.grab().save(str(Path(sys.argv[1]).with_name("horizon-a9-about.png")))
+        window.preferences.tabs.setCurrentIndex(0)
+        assert window.preferences.save_button.isVisible()
         assert window.preferences.save()
         assert not window.preferences.has_unsaved_changes()
         assert db.get_settings()["email"] == "service.test@example.org"
@@ -126,6 +170,31 @@ def main():
             ).fetchone()[0]
         p = db.get_product(pid)
         window.add_product(p, quantity=3)
+        wait(app, lambda: not window.jobs.tasks)
+        cart = window.prepare.cart
+        for index, page in [
+            (1, window.orders),
+            (2, window.suggestions),
+            (0, window.prepare),
+        ]:
+            bar = window.command_tabs.tabBar()
+            QTest.mouseClick(
+                bar, Qt.MouseButton.LeftButton, pos=bar.tabRect(index).center()
+            )
+            wait(app, lambda: not window.jobs.tasks)
+            assert window.current_page() is page
+            assert (
+                window.prepare.cart is cart
+                and cart.lines[0].cartons == 3
+                and cart.dirty
+            )
+            assert window.nav_buttons["commands"].isChecked()
+        # Le bouton latéral retrouve le dernier onglet choisi.
+        window.navigate("orders")
+        window.navigate("overview")
+        window.nav_buttons["commands"].click()
+        assert window.current_page() is window.orders
+        window.navigate("prepare")
         wait(app, lambda: not window.jobs.tasks)
         assert window.prepare.browser.model.columns[1][1](p) == p["designation"]
         assert (
@@ -207,6 +276,8 @@ def main():
         assert db.get_order(oid)[0]["sent_at"]
         window.open_order(oid)
         wait(app, lambda: not window.jobs.tasks)
+        assert window.current_page() is window.orders
+        assert window.command_tabs.currentIndex() == 1
         selected_row = next(
             i for i, r in enumerate(window.orders.model.rows) if r["id"] == oid
         )
@@ -319,6 +390,22 @@ def main():
         )
         diagnostic.reject()
         workspace.reject()
+        window.prepare.reset()
+        # À recommander ouvre aussi le premier onglet après ajout d'un article.
+        window.navigate("suggestions")
+        wait(app, lambda: not window.jobs.tasks)
+        suggestions = [
+            dict(r)
+            for r in db.reorder_suggestions(date.today() + timedelta(days=365))
+            if not db.get_product(r["product_id"])["catalog_review_required"]
+        ]
+        assert suggestions
+        window.suggestions.model.replace(suggestions)
+        window.suggestions.table.selectRow(0)
+        window.suggestions.prepare()
+        assert window.current_page() is window.prepare
+        assert window.command_tabs.currentIndex() == 0
+        assert window.prepare.cart.lines
         window.prepare.reset()
         if len(sys.argv) > 1:
             window.navigate("orders")

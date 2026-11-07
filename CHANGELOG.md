@@ -1,5 +1,14 @@
 # Historique des versions
 
+## Horizon 2.0.0a9 — navigation et identité visuelle, 7 novembre 2026
+
+- logo Horizon et titres centrés dans la barre latérale ; logo LADAPT en bas ;
+- un seul bouton Commandes avec les onglets Nouvelle commande, Suivi des commandes
+  et À recommander ; conservation du panier et accès directs adaptés ;
+- Paramètres → À propos : auteur Damien Macq, version, crédits, informations
+  sur les données et consultation des notices/licences jointes ;
+- vérification des ressources LADAPT et des notices dans les paquets compilés.
+
 ## Horizon 2.0.0a8 — dates des exports, 7 novembre 2026
 
 - rétablir AAAA-MM-JJ pour les noms des PDF et des exports Excel ;

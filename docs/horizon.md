@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0a8
+# Commandes CAHPP Horizon — 2.0.0a9
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
@@ -24,16 +24,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0a8-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0a8-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0a9-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0a9-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0a8-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0a8-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0a9-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0a9-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -107,6 +107,12 @@ version stable devra être préparée pour la diffusion finale de la 2.0.
 
 ## Commande et confort d'utilisation
 
+La barre latérale regroupe les parcours dans **Commandes** :
+**Nouvelle commande**, **Suivi des commandes** et **À recommander**. Le changement
+d'onglet conserve la commande en cours et les filtres. Un retour par le bouton
+latéral retrouve le dernier onglet consulté ; les raccourcis depuis le catalogue
+et l'accueil ouvrent directement l'onglet concerné.
+
 **Nouvelle commande** présente les articles avec deux colonnes séparées,
 **Référence** et **Désignation**, sans répéter le fournisseur sélectionné.
 Le panneau **Ma commande**, élargi et redimensionnable, conserve également ces
@@ -154,6 +160,12 @@ conservés.
 La barre supérieure contient la recherche rapide et l'interrupteur soleil/lune
 pour les modes clair/sombre. Le choix est mémorisé dans le profil. Les actions
 de reprise de base et de diagnostic sont uniquement dans les paramètres.
+
+Le logo de l'application et les titres sont centrés dans la barre latérale.
+Le logo LADAPT fourni est affiché en bas sans retouche, avec ses proportions
+conservées. **Paramètres → À propos** indique l'auteur **Damien Macq**, la version,
+les crédits et les informations sur les données et composants tiers. Le bouton
+**Notices et licences…** permet de consulter les textes joints à l'application.
 
 Pour rouvrir une copie : `python main_horizon.py --profile "chemin/du/profil"`.
 Pour créer une copie : `python main_horizon.py --copy-database "chemin/base.sqlite3"`.

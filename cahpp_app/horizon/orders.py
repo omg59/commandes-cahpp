@@ -130,8 +130,10 @@ class PreparePage(QWidget):
             lambda: self.generate_pdf(choose=True),
             "accent",
         )
-        body.addWidget(self.save_button)
-        body.addWidget(self.pdf_button)
+        actions = QHBoxLayout()
+        actions.addWidget(self.save_button, 1)
+        actions.addWidget(self.pdf_button, 1)
+        body.addLayout(actions)
         self.send_button = button("Envoyer cette commande…", self.dispatch)
         self.send_button.hide()
         body.addWidget(self.send_button)
@@ -488,7 +490,7 @@ class OrdersPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
-        layout.addWidget(label("Commandes", "title"))
+        layout.addWidget(label("Suivi des commandes", "title"))
         layout.addWidget(
             label("Brouillons, bons générés et suivi des commandes envoyées.", "muted")
         )
