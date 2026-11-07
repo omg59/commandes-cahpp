@@ -13,6 +13,9 @@ Vérifier aussi `python tools/release_checks.py`. Sous Windows,
 `build_release.bat` enchaîne ces contrôles et la fabrication de l'installateur.
 
 Le test graphique s'exécute dans un processus isolé avec une base temporaire.
+Le scénario de réouverture utilise deux lancements dans des processus distincts
+partageant la même installation temporaire, comme un vrai redémarrage ; il évite
+de recréer plusieurs interpréteurs Tk dans un même processus de test.
 Sous Linux sans écran, utiliser `xvfb-run -a python -m unittest discover -s tests -v`.
 La variable `CAHPP_REQUIRE_GUI=1` interdit de passer silencieusement ce test
 en l'absence d'écran. Elle est activée dans GitHub Actions.
