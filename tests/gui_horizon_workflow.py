@@ -16,6 +16,7 @@ def main():
     from cahpp_app.database import Database
     from cahpp_app.horizon.application import HorizonWindow, create_application
     from cahpp_app.horizon.services import seed_demo
+    from cahpp_app.horizon.services import Cart
     from cahpp_app.horizon.settings import DiagnosticDialog
     from cahpp_app.horizon.tracking import OrderWorkspaceDialog, ReceiptDialog
     from cahpp_app.app_logging import configure_logging
@@ -79,6 +80,24 @@ def main():
         window.prepare.requester.setText("Service d'essai")
         assert window.prepare.save_draft()
         oid = window.prepare.cart.order_id
+        # Un total exactement égal à un franco décimal ne doit pas déclencher
+        # un faux avertissement dû à la représentation binaire d'un float.
+        original_cart = window.prepare.cart
+        threshold_cart = Cart()
+        threshold_cart.add(p, price="0.10", packaging=1, quantity=1)
+        threshold_cart.order_id = oid
+        with db.session() as c:
+            c.execute("UPDATE suppliers SET franco_ht=0.1 WHERE id=?", (sid,))
+        window.prepare.cart = threshold_cart
+        window.prepare.update_totals()
+        assert window.prepare.franco.text() == "Franco atteint"
+        with patch("PySide6.QtWidgets.QMessageBox.question") as threshold_warning:
+            assert window.prepare.confirm_warnings()
+            threshold_warning.assert_not_called()
+        window.prepare.cart = original_cart
+        with db.session() as c:
+            c.execute("UPDATE suppliers SET franco_ht=12.5 WHERE id=?", (sid,))
+        window.prepare.update_totals()
         window.prepare.generate_pdf()
         order, lines = db.get_order(oid)
         assert order["requester_service"] == "Service d'essai"

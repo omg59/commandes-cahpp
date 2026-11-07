@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..numbers import parse_decimal
+from ..database import money
 from .catalog import CatalogBrowser
 from .models import CartModel, RowsModel
 from .services import Cart, currency, number
@@ -245,8 +246,8 @@ class PreparePage(QWidget):
             "Franco non renseigné"
             if threshold is None
             else "Franco atteint"
-            if self.cart.total_ht >= threshold
-            else currency(float(threshold) - float(self.cart.total_ht))
+            if self.cart.total_ht >= money(threshold)
+            else currency(money(threshold) - self.cart.total_ht)
             + " avant le franco de "
             + currency(threshold)
         )
@@ -353,7 +354,9 @@ class PreparePage(QWidget):
                 ("minimum_order_ht", "Minimum de commande"),
                 ("franco_ht", "Franco"),
             ]:
-                if supplier[key] is not None and self.cart.total_ht < supplier[key]:
+                if supplier[key] is not None and self.cart.total_ht < money(
+                    supplier[key]
+                ):
                     warnings.append(
                         f"{title} non atteint : {currency(self.cart.total_ht)} / {currency(supplier[key])}."
                     )
