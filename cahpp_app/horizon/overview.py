@@ -346,7 +346,7 @@ class StatisticsPage(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Exporter les statistiques affichées",
-            f"statistiques-{data['date_from']:%d-%m-%Y}-{data['date_to']:%d-%m-%Y}.xlsx",
+            f"statistiques-{data['date_from']}-{data['date_to']}.xlsx",
             "Classeur Excel (*.xlsx)",
         )
         if not path:

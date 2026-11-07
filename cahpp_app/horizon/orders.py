@@ -360,7 +360,7 @@ class PreparePage(QWidget):
         sequence = self.window.database.daily_supplier_order_sequence(order["id"])
         filename = (
             safe_filename(
-                f"{parse_date(order['order_date']):%d-%m-%Y} - {order['supplier_name']} - {sequence}"
+                f"{order['order_date']} - {order['supplier_name']} - {sequence}"
             )
             + ".pdf"
         )

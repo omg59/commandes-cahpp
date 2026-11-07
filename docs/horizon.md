@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0a7
+# Commandes CAHPP Horizon — 2.0.0a8
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6 aux couleurs LADAPT. Le développement reste sur la branche
@@ -24,16 +24,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0a7-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0a7-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0a8-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0a8-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0a7-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0a7-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0a8-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0a8-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -121,8 +121,9 @@ statistiques, imports, documents, notes internes et paramètres. Les horodatages
 affichent aussi l'heure en format 24 h. Les tableaux gardent leur tri chronologique.
 Une ancienne date ISO collée dans un champ reste acceptée et est réaffichée en
 français. Le stockage SQLite et les échanges du partage restent au format ISO.
-Les nouveaux noms de PDF et d'exports utilisent **JJ-MM-AAAA** ; les fichiers
-existants ne sont pas renommés. Excel utilise de vraies dates au format français.
+Les noms de PDF et d’exports utilisent **AAAA-MM-JJ** pour faciliter le tri dans
+l’explorateur. Les dates des exports Excel utilisent aussi le format **AAAA-MM-JJ**,
+avec de vraies cellules de date. Les fichiers existants ne sont pas renommés.
 
 Le bouton **Valider et générer le PDF…** crée le bon puis ouvre directement la
 fenêtre **Envoyer la commande au fournisseur**. Elle affiche le destinataire,

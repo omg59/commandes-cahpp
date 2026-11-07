@@ -161,7 +161,7 @@ class HorizonWindow(QMainWindow):
             nav.addWidget(b)
         nav.addStretch()
         nav.addWidget(label("VERSION D'ESSAI", "brandSub"))
-        nav.addWidget(label("Alpha 7 · " + VERSION, "brandSub"))
+        nav.addWidget(label("Alpha 8 · " + VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
         nav.addWidget(label(user, "brandSub", True))

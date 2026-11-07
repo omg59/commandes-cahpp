@@ -200,7 +200,7 @@ def main():
         order, lines = db.get_order(oid)
         assert order["requester_service"] == "Service d'essai"
         assert Path(order["pdf_path"]).is_file()
-        assert Path(order["pdf_path"]).name.startswith("05-02-2026")
+        assert Path(order["pdf_path"]).name.startswith("2026-02-05")
         window.orders.selected_id = oid
         window.orders.mark_sent()
         wait(app, lambda: not window.jobs.tasks)
@@ -284,7 +284,7 @@ def main():
             window.statistics.export_excel()
         wait(app, lambda: not window.jobs.tasks)
         workbook = load_workbook(destination, read_only=True)
-        assert workbook["Synthèse"]["B2"].number_format == "dd/mm/yyyy"
+        assert workbook["Synthèse"]["B2"].number_format == "yyyy-mm-dd"
         assert workbook["Synthèse"]["B2"].is_date
         assert "Produits" in workbook.sheetnames or "Articles" in workbook.sheetnames
         workbook.close()

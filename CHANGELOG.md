@@ -1,5 +1,11 @@
 # Historique des versions
 
+## Horizon 2.0.0a8 — dates des exports, 7 novembre 2026
+
+- rétablir AAAA-MM-JJ pour les noms des PDF et des exports Excel ;
+- afficher les dates Excel en AAAA-MM-JJ tout en conservant de vraies dates ;
+- conserver JJ/MM/AAAA dans les écrans et champs de saisie du logiciel.
+
 ## Horizon 2.0.0a7 — dates françaises, 7 novembre 2026
 
 - dates affichées et saisies en JJ/MM/AAAA dans les commandes, le suivi,

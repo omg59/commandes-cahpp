@@ -742,10 +742,10 @@ class WorkflowTest(unittest.TestCase):
         workbook = load_workbook(export_path, read_only=True)
         try:
             self.assertEqual(workbook["Synthèse"]["B2"].value.date(), date(2026, 1, 1))
-            self.assertEqual(workbook["Synthèse"]["B2"].number_format, "dd/mm/yyyy")
+            self.assertEqual(workbook["Synthèse"]["B2"].number_format, "yyyy-mm-dd")
             self.assertTrue(workbook["Écarts de prix"]["E2"].is_date)
             self.assertEqual(
-                workbook["Écarts de prix"]["E2"].number_format, "dd/mm/yyyy"
+                workbook["Écarts de prix"]["E2"].number_format, "yyyy-mm-dd"
             )
         finally:
             workbook.close()
