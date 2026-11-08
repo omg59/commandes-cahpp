@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Version bêta 2.0.0b2 — branche `feature/horizon-ui`.**
+**Version bêta 2.0.0b3 — branche `feature/horizon-ui`.**
 Application indépendante de préparation et de suivi des commandes fournisseurs.
 Après validation du PDF, une fenêtre propose l'envoi au fournisseur et sa
 confirmation sans quitter la commande. Les fiches fournisseurs sont regroupées

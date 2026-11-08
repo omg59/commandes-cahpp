@@ -1,5 +1,10 @@
 # Historique des versions
 
+## Horizon 2.0.0b3 — saisie de quantité, 8 novembre 2026
+
+- fenêtre « Quantité à ajouter » élargie pour garder son titre lisible ;
+- saisie d’un nombre entier de cartons, à partir de 1, sans décimales.
+
 ## Horizon 2.0.0b2 — identité indépendante et ajout au panier, 8 novembre 2026
 
 - retrait du logo institutionnel, de ses fichiers et de ses références dans

@@ -12,7 +12,7 @@ def main():
 
     profile, info = configure([])
     from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QInputDialog
+    from PySide6.QtWidgets import QApplication, QSpinBox, QInputDialog
     from cahpp_app.database import Database
     from cahpp_app.horizon.application import HorizonWindow, create_application
     from cahpp_app.horizon.services import seed_demo
@@ -46,11 +46,16 @@ def main():
             dialog = QApplication.activeModalWidget()
             try:
                 assert isinstance(dialog, QInputDialog)
-                spin = dialog.findChild(QDoubleSpinBox)
-                assert spin.value() == 1.25
-                assert spin.minimum() > 0
-                spin.setValue(2.5)
-                assert "," in spin.text()
+                assert dialog.windowTitle() == "Quantité à ajouter"
+                assert dialog.width() >= 420, (dialog.width(), dialog.minimumWidth())
+                assert dialog.inputMode() == QInputDialog.InputMode.IntInput
+                spin = dialog.findChild(QSpinBox)
+                assert spin.value() == 1, spin.value()
+                assert spin.minimum() == 1, spin.minimum()
+                spin.setValue(2)
+                assert spin.text() == "2", spin.text()
+                if len(sys.argv) > 1:
+                    dialog.grab().save(sys.argv[1])
                 dialog.accept()
             except BaseException as exc:
                 failures.append(exc)
@@ -61,7 +66,7 @@ def main():
         window.catalog.add.click()
         assert not failures, failures
         assert window.current_page() is window.prepare
-        assert window.prepare.cart.lines[0].cartons == Decimal("3.5")
+        assert window.prepare.cart.lines[0].cartons == Decimal("3")
         cart = window.prepare.cart
 
         def cancel():
@@ -80,7 +85,7 @@ def main():
             discard.assert_not_called()
         assert not failures, failures
         assert window.prepare.cart is cart
-        assert len(cart.lines) == 1 and cart.lines[0].cartons == Decimal("3.5")
+        assert len(cart.lines) == 1 and cart.lines[0].cartons == Decimal("3")
         assert cart.supplier_id == product["supplier_id"]
         window.prepare.reset()
         window.navigate("statistics")
@@ -92,8 +97,6 @@ def main():
         editor = selector.lineEdit()
         expected = editor.fontMetrics().horizontalAdvance(selector.currentText()) + 40
         assert editor.width() >= expected, (selector.width(), editor.width(), expected)
-        if len(sys.argv) > 1:
-            window.grab().save(sys.argv[1])
         errors.assert_not_called()
         window.close()
         wait(app, lambda: not window.isVisible())

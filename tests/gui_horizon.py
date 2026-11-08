@@ -64,8 +64,9 @@ def main():
         assert browser.model.rowCount() == 1
         p = browser.rows[0]
         assert p["supplier_ref"] == "DEMO-001"
-        with patch(
-            "cahpp_app.horizon.orders.QInputDialog.getDouble", return_value=(1.0, True)
+        with (
+            patch("cahpp_app.horizon.orders.QInputDialog.exec", return_value=1),
+            patch("cahpp_app.horizon.orders.QInputDialog.intValue", return_value=1),
         ):
             window.add_product(p)
         assert window.prepare.cart.total_ht == Decimal("4.2100")

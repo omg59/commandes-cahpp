@@ -8,8 +8,10 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
@@ -228,16 +230,17 @@ class PreparePage(QWidget):
 
     def add(self, p, quantity=None):
         if quantity is None:
-            quantity, accepted = QInputDialog.getDouble(
-                self,
-                "Quantité à ajouter",
-                p["designation"] + "\n\nNombre de cartons à ajouter :",
-                value=float(p["usual_cartons"] or 1),
-                minValue=0.001,
-                decimals=3,
-            )
-            if not accepted:
+            dialog = QInputDialog(self)
+            dialog.setWindowTitle("Quantité à ajouter")
+            dialog.setLabelText(p["designation"] + "\n\nNombre de cartons à ajouter :")
+            # Qt recalcule la largeur de cette fenêtre à partir de son contenu.
+            dialog.findChild(QLabel).setMinimumWidth(400)
+            dialog.setInputMode(QInputDialog.InputMode.IntInput)
+            dialog.setIntRange(1, 2147483647)
+            dialog.setIntValue(max(1, int(p["usual_cartons"] or 1)))
+            if dialog.exec() != QDialog.DialogCode.Accepted:
                 return False
+            quantity = dialog.intValue()
         price = None
         pack = None
         if p["unit_price"] is None:
