@@ -14,10 +14,10 @@ La version stable historique reste sur `main`.
 
 ## Environnement et contrôles
 
-Utiliser Python 3.12 et un environnement virtuel :
+Utiliser Python 3.15 64 bits et un environnement virtuel :
 
 ```bash
-python -m venv .venv-horizon
+python -m venv .venv-horizon-py315
 # Activer cet environnement selon le système, puis :
 python -m pip install -r requirements-horizon.txt -r requirements-dev.txt
 python -m ruff check .

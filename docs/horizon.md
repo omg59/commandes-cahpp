@@ -1,4 +1,4 @@
-# Commandes CAHPP Horizon — 2.0.0b3
+# Commandes CAHPP Horizon — 2.0.0b5
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6. Le développement reste sur la branche
@@ -7,7 +7,8 @@ la version stable et son installateur restent distincts.
 
 ## Démarrer et installer
 
-Sous Windows, `horizon_windows.bat` lance les sources avec Python 3.12.
+Sous Windows, `horizon_windows.bat` lance les sources avec Python 3.15 64 bits.
+Il utilise `.venv-horizon-py315`, distinct des anciens environnements Python 3.12.
 `horizon_windows.bat build` valide puis construit le dossier portable
 `dist/CommandesCAHPP-Horizon-portable`. Conserver `_internal` avec l'EXE.
 `build_horizon_installer.bat` construit en plus un installateur avec Inno Setup 6
@@ -24,16 +25,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0b3-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0b3-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0b5-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0b5-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0b3-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0b3-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0b5-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0b5-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -56,7 +57,7 @@ Linux. Il ne s'agit pas d'une version ARM ni d'un paquet pour les systèmes musl
 Depuis des sources à jour, exécuter `bash build_horizon_linux.sh`. Le script crée
 un environnement de compilation, installe les dépendances Python, valide les
 tests, construit le programme et produit les deux paquets dans `dist-linux`.
-Python 3.11/3.12 avec `venv` et une connexion Internet sont nécessaires pour la
+Python 3.15 avec `venv` et une connexion Internet sont nécessaires pour la
 construction uniquement. Les paquets obtenus se lancent sans Python installé.
 
 La construction est native : sous un Linux plus récent que celui de la CI,

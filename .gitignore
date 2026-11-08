@@ -32,3 +32,5 @@ tmp/
 logs/
 .DS_Store
 Thumbs.db
+
+.venv-horizon-py315/

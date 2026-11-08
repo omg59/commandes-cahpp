@@ -2,32 +2,32 @@
 setlocal
 cd /d "%~dp0"
 
-if not exist ".venv-horizon\Scripts\python.exe" (
-  py -3.12 -m venv .venv-horizon
+if not exist ".venv-horizon-py315\Scripts\python.exe" (
+  py -3.15-64 -m venv .venv-horizon-py315
   if errorlevel 1 goto failed
 )
-".venv-horizon\Scripts\python.exe" -c "import PySide6.QtWidgets,openpyxl,reportlab,PIL" >nul 2>&1
+".venv-horizon-py315\Scripts\python.exe" -c "import PySide6.QtWidgets,openpyxl,reportlab,PIL" >nul 2>&1
 if errorlevel 1 (
-  ".venv-horizon\Scripts\python.exe" -m pip install -r requirements-horizon.txt
+  ".venv-horizon-py315\Scripts\python.exe" -m pip install -r requirements-horizon.txt
   if errorlevel 1 goto failed
 )
 if /I "%~1"=="build" goto build
 
-".venv-horizon\Scripts\python.exe" main_horizon.py
+".venv-horizon-py315\Scripts\python.exe" main_horizon.py
 if errorlevel 1 goto failed
 exit /b 0
 
 :build
-".venv-horizon\Scripts\python.exe" -m pip install -r requirements-horizon.txt -r requirements-dev.txt
+".venv-horizon-py315\Scripts\python.exe" -m pip install -r requirements-horizon.txt -r requirements-dev.txt
 if errorlevel 1 goto failed
-".venv-horizon\Scripts\python.exe" -m ruff check .
+".venv-horizon-py315\Scripts\python.exe" -m ruff check .
 if errorlevel 1 goto failed
-".venv-horizon\Scripts\python.exe" tools\release_checks.py
+".venv-horizon-py315\Scripts\python.exe" tools\release_checks.py
 if errorlevel 1 goto failed
 set "CAHPP_REQUIRE_HORIZON_GUI=1"
-".venv-horizon\Scripts\python.exe" -m unittest discover -s tests -v
+".venv-horizon-py315\Scripts\python.exe" -m unittest discover -s tests -v
 if errorlevel 1 goto failed
-".venv-horizon\Scripts\python.exe" -m PyInstaller Horizon.spec --noconfirm --clean
+".venv-horizon-py315\Scripts\python.exe" -m PyInstaller Horizon.spec --noconfirm --clean
 if errorlevel 1 goto failed
 echo.
 echo Horizon construit dans dist\CommandesCAHPP-Horizon-portable.
