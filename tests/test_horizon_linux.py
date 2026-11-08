@@ -1,6 +1,9 @@
 """Contrats du paquet Linux et de l'ouverture indépendante des profils."""
 
 import os
+import io
+import hashlib
+from urllib.error import HTTPError
 import subprocess
 import sys
 import tarfile
@@ -68,6 +71,36 @@ class LinuxPackagingTest(unittest.TestCase):
             )
         network.assert_not_called()
         self.assertEqual(result, cached)
+
+    def test_download_recovers_from_gateway_timeout_using_official_fallback(self):
+        payload = b"verified tool"
+        spec = {"name": "tool", "url": "https://example.invalid/api",
+                "fallback_url": "https://example.invalid/release",
+                "sha256": hashlib.sha256(payload).hexdigest()}
+        failure = HTTPError(spec["url"], 504, "Gateway Timeout", {}, None)
+        with patch("tools.build_horizon_linux.urlopen", side_effect=[failure, io.BytesIO(payload)]) as network, patch("tools.build_horizon_linux.time.sleep"):
+            result = download_pinned(spec, self.root)
+        self.assertEqual(result.read_bytes(), payload)
+        self.assertEqual(network.call_args_list[1].args[0].full_url, spec["fallback_url"])
+        self.assertFalse((self.root / "tool.part").exists())
+
+    def test_corrupt_download_is_never_installed_or_retried(self):
+        spec = {"name": "tool", "url": "https://example.invalid/api", "sha256": "0" * 64}
+        with patch("tools.build_horizon_linux.urlopen", return_value=io.BytesIO(b"corrupt")) as network:
+            with self.assertRaisesRegex(ValueError, "empreinte"):
+                download_pinned(spec, self.root)
+        self.assertEqual(network.call_count, 1)
+        self.assertFalse((self.root / "tool").exists())
+        self.assertFalse((self.root / "tool.part").exists())
+
+    def test_download_retries_are_bounded_and_name_the_failing_tool(self):
+        spec = {"name": "runtime", "url": "https://example.invalid/api", "sha256": "0" * 64}
+        failure = HTTPError(spec["url"], 504, "Gateway Timeout", {}, None)
+        with patch("tools.build_horizon_linux.urlopen", side_effect=failure) as network, patch("tools.build_horizon_linux.time.sleep"):
+            with self.assertRaisesRegex(OSError, "runtime.*504"):
+                download_pinned(spec, self.root)
+        self.assertEqual(network.call_count, 4)
+        self.assertFalse((self.root / "runtime.part").exists())
 
     def test_missing_x11_library_stops_packaging_with_library_name(self):
         plugin = self.root / "_internal/PySide6/Qt/plugins/platforms/libqxcb.so"

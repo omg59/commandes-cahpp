@@ -17,6 +17,9 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
+from http.client import IncompleteRead
+from urllib.error import HTTPError, URLError
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -29,11 +32,13 @@ ICON_NAME = "commandes-cahpp-horizon"
 ARCH = "x86_64"
 APPIMAGETOOL = {
     "name": "appimagetool-1.9.1-x86_64.AppImage",
+    "fallback_url": "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage",
     "url": "https://api.github.com/repos/AppImage/appimagetool/releases/assets/324406736",
     "sha256": "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0",
 }
 RUNTIME = {
     "name": "runtime-20251108-x86_64",
+    "fallback_url": "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64",
     "url": "https://api.github.com/repos/AppImage/type2-runtime/releases/assets/326011592",
     "sha256": "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d",
 }
@@ -66,22 +71,35 @@ def download_pinned(spec: dict, cache: Path) -> Path:
     if destination.is_file() and digest(destination) == spec["sha256"]:
         return destination
     temporary = destination.with_suffix(destination.suffix + ".part")
+    urls = [spec["url"]]
+    if spec.get("fallback_url"):
+        urls.append(spec["fallback_url"])
     try:
-        request = Request(
-            spec["url"],
-            headers={
+        for attempt in range(4):
+            url = urls[attempt % len(urls)]
+            print(f"Téléchargement {spec['name']} ({attempt + 1}/4) : {url}", flush=True)
+            request = Request(url, headers={
                 "User-Agent": "CommandesCAHPP-Horizon-build",
                 "Accept": "application/octet-stream",
-            },
-        )
-        with urlopen(request, timeout=60) as response, temporary.open("wb") as output:
-            shutil.copyfileobj(response, output)
-        if digest(temporary) != spec["sha256"]:
-            raise ValueError(
-                "L'empreinte de l'outil téléchargé ne correspond pas : " + spec["name"]
-            )
-        temporary.replace(destination)
-        destination.chmod(0o755)
+            })
+            try:
+                with urlopen(request, timeout=60) as response, temporary.open("wb") as output:
+                    shutil.copyfileobj(response, output)
+            except (HTTPError, URLError, TimeoutError, IncompleteRead) as exc:
+                temporary.unlink(missing_ok=True)
+                retryable = not isinstance(exc, HTTPError) or exc.code in (408, 429, 500, 502, 503, 504)
+                if not retryable or attempt == 3:
+                    raise OSError(f"Téléchargement impossible pour {spec['name']} : {exc}") from exc
+                print(f"Échec réseau pour {spec['name']} : {exc}. Nouvelle tentative…", flush=True)
+                time.sleep(2 ** attempt)
+                continue
+            if digest(temporary) != spec["sha256"]:
+                raise ValueError(
+                    "L'empreinte de l'outil téléchargé ne correspond pas : " + spec["name"]
+                )
+            temporary.replace(destination)
+            destination.chmod(0o755)
+            break
     finally:
         temporary.unlink(missing_ok=True)
     return destination

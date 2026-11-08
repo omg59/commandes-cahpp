@@ -1,5 +1,11 @@
 # Historique des versions
 
+## Construction Horizon — téléchargements AppImage, 8 novembre 2026
+
+- nouvelles tentatives sur erreurs réseau temporaires et accès officiel de secours ;
+- cache des outils entre les builds, avec contrôle SHA-256 systématique ;
+- journaux indiquant précisément le fichier et la tentative en échec.
+
 ## Branche Horizon — nettoyage du dépôt, 8 novembre 2026
 
 - retrait de l’ancienne interface Tkinter, de ses lanceurs, installateurs et tests graphiques ;
