@@ -14,7 +14,7 @@ base de catalogue et les risques liés à SQLite sur un lecteur réseau.
 
 ## Installation sur deux postes
 
-1. Copier `CommandesCAHPP-portable` dans un dossier local du premier PC.
+1. Copier `CommandesCAHPP-Horizon-portable` dans un dossier local du premier PC.
 2. Copier une seconde installation dans un dossier local du deuxième PC.
 3. Créer un dossier commun accessible en lecture et écriture, par exemple
    `S:\Commandes CAHPP` ou `\\serveur\service\Commandes CAHPP`.

@@ -34,8 +34,7 @@ def build_diagnostic_report(
     gui_runtime: str | None = None,
 ) -> str:
     if gui_runtime is None:
-        import tkinter
-        gui_runtime = f"Tk : {tkinter.TkVersion}"
+        gui_runtime = "Interface : non renseignée (diagnostic du moteur)"
     generated_at = datetime.now().isoformat(timespec="seconds")
     lines = [
         "COMMANDES CAHPP — RAPPORT DE DIAGNOSTIC",

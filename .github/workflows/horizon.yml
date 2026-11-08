@@ -4,19 +4,7 @@ on:
   push:
     branches: [feature/horizon-ui]
   pull_request:
-    paths:
-      - cahpp_app/horizon/**
-      - main_horizon.py
-      - Horizon.spec
-      - Horizon.iss
-      - build_horizon_installer.bat
-      - build_horizon_linux.sh
-      - tools/build_horizon_linux.py
-      - tools/check_horizon_linux.py
-      - requirements-horizon.txt
-      - tests/*horizon*
-      - ressources/horizon/**
-      - .github/workflows/horizon.yml
+    branches: [feature/horizon-ui]
   workflow_dispatch:
 
 permissions:
@@ -31,7 +19,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      CAHPP_REQUIRE_GUI: "1"
       CAHPP_REQUIRE_HORIZON_GUI: "1"
     steps:
       - uses: actions/checkout@v6
@@ -51,7 +38,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xauth python3-tk libegl1 libgl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-shape0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libdbus-1-3 libfontconfig1 libfreetype6 desktop-file-utils
+          sudo apt-get install -y xvfb xauth libegl1 libgl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-shape0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libdbus-1-3 libfontconfig1 libfreetype6 desktop-file-utils
       - name: Tous les tests Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a python -m unittest discover -s tests -v

@@ -11,38 +11,34 @@ from pathlib import Path
 
 
 def check_versions(root: Path) -> str:
-    tree = ast.parse((root / "cahpp_app/__init__.py").read_text(encoding="utf-8"))
+    tree = ast.parse((root / "cahpp_app/horizon/__init__.py").read_text(encoding="utf-8"))
     version = next(
         ast.literal_eval(n.value)
         for n in tree.body
         if isinstance(n, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == "__version__" for t in n.targets)
+        and any(isinstance(t, ast.Name) and t.id == "VERSION" for t in n.targets)
     )
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise ValueError("Le numéro de version doit utiliser le format X.Y.Z.")
-    installer = (root / "CommandesCAHPP.iss").read_text(encoding="utf-8")
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?", version):
+        raise ValueError("Le numéro de version doit utiliser le format X.Y.Z, éventuellement suivi de aN, bN ou rcN.")
+    installer = (root / "Horizon.iss").read_text(encoding="utf-8")
     for expected in (
         f'#define MyAppVersion "{version}"',
-        f"VersionInfoVersion={version}.0",
-        f"VersionInfoProductVersion={version}",
     ):
         if expected not in installer.splitlines():
             raise ValueError(
-                f"Version incohérente dans CommandesCAHPP.iss : {expected}"
+                f"Version incohérente dans Horizon.iss : {expected}"
             )
-    if (
-        f"CommandesCAHPP-Setup-{version}.exe"
-        not in (root / "build_installer_windows.bat").read_text()
-    ):
-        raise ValueError(
-            "Le script d'installation affiche un ancien numéro de version."
-        )
+    numeric = re.search(r"^VersionInfoVersion=(\d+\.\d+\.\d+\.\d+)$", installer, re.MULTILINE)
+    if not numeric or numeric.group(1).rsplit(".", 1)[0] != re.split(r"a|b|rc", version)[0]:
+        raise ValueError("Version numérique incohérente dans Horizon.iss")
+    if "OutputBaseFilename=CommandesCAHPP-Horizon-Setup-{#MyAppVersion}" not in installer:
+        raise ValueError("Nom de l'installateur Horizon incohérent")
     return version
 
 
 def installer_manifest(root: Path) -> dict[str, object]:
     version = check_versions(root)
-    executable = root / "dist-installer" / f"CommandesCAHPP-Setup-{version}.exe"
+    executable = root / "dist-installer-horizon" / f"CommandesCAHPP-Horizon-Setup-{version}.exe"
     if not executable.is_file():
         raise FileNotFoundError(executable)
     digest = hashlib.sha256()
@@ -65,7 +61,7 @@ def main():
     version = check_versions(root)
     if args.manifest:
         manifest = installer_manifest(root)
-        output = root / "dist-installer" / f"CommandesCAHPP-{version}-manifest.json"
+        output = root / "dist-installer-horizon" / f"CommandesCAHPP-Horizon-{version}-manifest.json"
         output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         checksum = output.with_suffix(".sha256")
         checksum.write_text(

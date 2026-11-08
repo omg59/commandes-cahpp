@@ -1,15 +1,5 @@
-Placez ici le logo de l'établissement, par exemple :
+app_icon.png et app_icon.ico sont les icônes de Commandes CAHPP Horizon.
+Ils servent à l'application, aux raccourcis et à l'installateur Windows.
 
-assets\logo.png
-
-Dans les paramètres de l'application, le chemin à indiquer est :
-
-assets/logo.png
-
-Ce chemin reste valable lorsque le dossier portable complet est déplacé ou
-copié sur un autre poste.
-
-Les fichiers app_icon.png et app_icon.ico sont l'icône officielle de
-Commandes CAHPP. Ils sont utilisés par la fenêtre, l'exécutable, les raccourcis
-et l'installeur Windows. Ils ne doivent pas être remplacés par le logo de
-l'établissement.
+Le logo personnel de l'établissement se choisit dans les paramètres Horizon.
+Les données et les logos de profil sont séparés du programme installé.

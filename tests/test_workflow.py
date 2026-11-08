@@ -35,17 +35,7 @@ from cahpp_app.local_services import (
 )
 from cahpp_app.pdf_export import generate_order_pdf
 from cahpp_app.statistics_export import export_statistics_workbook
-from cahpp_app.ui import (
-    TreeviewColumnSizer,
-    TreeviewSorter,
-    centered_window_position,
-    configured_pdf_directory,
-    filter_supplier_names,
-    fractional_carton_lines,
-    product_field_display_value,
-    supplier_field_display_value,
-    suggested_pdf_filename,
-)
+from cahpp_app.numbers import field_display_value
 
 
 def create_catalog(path: Path, rows: list[dict[str, object]]) -> None:
@@ -96,70 +86,8 @@ class WorkflowTest(unittest.TestCase):
             "PrixUnitaireCahpp": price,
         }
 
-    def test_treeview_sorter_numbers(self):
-        self.assertEqual(TreeviewSorter._number("1 234,50 €"), (0, 1234.5))
-        self.assertEqual(TreeviewSorter._number("20 %"), (0, 20.0))
-        self.assertEqual(TreeviewSorter._number("—"), (1, 0.0))
-        widths = TreeviewColumnSizer.calculate_widths(
-            480,
-            {
-                "ref": 90,
-                "designation": 260,
-                "pack": 120,
-                "price": 75,
-            },
-            "designation",
-            {
-                "ref": 72,
-                "designation": 120,
-                "pack": 90,
-                "price": 65,
-            },
-        )
-        self.assertEqual(sum(widths.values()), 480)
-        self.assertEqual(widths["designation"], 195)
-        self.assertEqual(
-            centered_window_position(
-                100,
-                80,
-                800,
-                500,
-                380,
-                230,
-                1920,
-                1080,
-            ),
-            (310, 215),
-        )
-        icon_path = Path(__file__).resolve().parents[1] / "assets" / "app_icon.ico"
-        with Image.open(icon_path) as icon:
-            self.assertIn((256, 256), icon.ico.sizes())
-            self.assertIn((32, 32), icon.ico.sizes())
-            self.assertIn((16, 16), icon.ico.sizes())
-        installer_path = Path(__file__).resolve().parents[1] / "CommandesCAHPP.iss"
-        installer = installer_path.read_text(encoding="utf-8")
-        self.assertIn(
-            'IconFilename: "{app}\\assets\\app_icon.ico"',
-            installer,
-        )
-        self.assertIn("Check: ShouldCreateDesktopShortcut", installer)
 
     def test_import_search_order_and_pdf(self):
-        self.assertEqual(
-            filter_supplier_names(
-                ["ABENA-FRANTEX", "HARTMANN", "MEDLINE"], "hart"
-            ),
-            ["HARTMANN"],
-        )
-        pdf_directory = self.root / "pdf-personnalises"
-        pdf_directory.mkdir()
-        self.database.save_settings(
-            {"pdf_default_directory": str(pdf_directory)}
-        )
-        self.assertEqual(
-            configured_pdf_directory(self.database), pdf_directory.resolve()
-        )
-
         first_path = self.root / "catalogue-1.xlsx"
         create_catalog(
             first_path,
@@ -216,16 +144,6 @@ class WorkflowTest(unittest.TestCase):
             ],
         )
         first_order, _ = self.database.get_order(order_id)
-        self.assertEqual(
-            suggested_pdf_filename(self.database, first_order),
-            f"BC-{first_order['order_date']}_Hartmann.pdf",
-        )
-        self.assertEqual(
-            fractional_carton_lines(
-                [{"designation": "Test", "cartons": 1.5}]
-            ),
-            ["Test"],
-        )
         second_order_id = self.database.save_order(
             supplier_id,
             [
@@ -242,14 +160,6 @@ class WorkflowTest(unittest.TestCase):
             ],
         )
         second_order, _ = self.database.get_order(second_order_id)
-        self.assertEqual(
-            suggested_pdf_filename(self.database, second_order),
-            f"BC-{second_order['order_date']}_2_Hartmann.pdf",
-        )
-        self.assertEqual(
-            suggested_pdf_filename(self.database, first_order),
-            f"BC-{first_order['order_date']}_Hartmann.pdf",
-        )
         pdf_path = generate_order_pdf(
             self.database, order_id, self.root / "bon-test.pdf"
         )
@@ -528,23 +438,23 @@ class WorkflowTest(unittest.TestCase):
 
     def test_supplier_contact_punctuation_is_preserved_and_repaired(self):
         self.assertEqual(
-            supplier_field_display_value("email", "commande@exemple.fr"),
+            field_display_value("email", "commande@exemple.fr", {"franco_ht"}),
             "commande@exemple.fr",
         )
         self.assertEqual(
-            supplier_field_display_value("website", "www.exemple.fr"),
+            field_display_value("website", "www.exemple.fr", {"franco_ht"}),
             "www.exemple.fr",
         )
         self.assertEqual(
-            supplier_field_display_value("franco_ht", 400.0),
+            field_display_value("franco_ht", 400.0, {"franco_ht"}),
             "400,0",
         )
         self.assertEqual(
-            product_field_display_value("supplier_ref", "REF.123"),
+            field_display_value("supplier_ref", "REF.123", {"unit_price"}),
             "REF.123",
         )
         self.assertEqual(
-            product_field_display_value("unit_price", 12.5),
+            field_display_value("unit_price", 12.5, {"unit_price"}),
             "12,5",
         )
 

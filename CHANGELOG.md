@@ -1,5 +1,11 @@
 # Historique des versions
 
+## Branche Horizon — nettoyage du dépôt, 8 novembre 2026
+
+- retrait de l’ancienne interface Tkinter, de ses lanceurs, installateurs et tests graphiques ;
+- conservation du moteur métier, des migrations 1.6 et de leurs tests ;
+- documentation et contrôles de compilation recentrés sur Horizon.
+
 ## Horizon 2.0.0b3 — saisie de quantité, 8 novembre 2026
 
 - fenêtre « Quantité à ajouter » élargie pour garder son titre lisible ;

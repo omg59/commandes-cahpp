@@ -22,7 +22,8 @@ exit /b 0
 if errorlevel 1 goto failed
 ".venv-horizon\Scripts\python.exe" -m ruff check .
 if errorlevel 1 goto failed
-set "CAHPP_REQUIRE_GUI=1"
+".venv-horizon\Scripts\python.exe" tools\release_checks.py
+if errorlevel 1 goto failed
 set "CAHPP_REQUIRE_HORIZON_GUI=1"
 ".venv-horizon\Scripts\python.exe" -m unittest discover -s tests -v
 if errorlevel 1 goto failed
