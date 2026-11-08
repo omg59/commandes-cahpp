@@ -72,7 +72,12 @@ class CatalogBrowser(QWidget):
         box, body = card()
         body.setContentsMargins(0, 0, 0, 0)
         self.table = table(self.model)
-        if not supplier_picker:
+        if supplier_picker:
+            self.table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.Interactive
+            )
+            self.table.setColumnWidth(1, 180)
+        else:
             self.table.horizontalHeader().setSectionResizeMode(
                 0, QHeaderView.ResizeMode.Interactive
             )

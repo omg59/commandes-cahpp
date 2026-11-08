@@ -1,5 +1,5 @@
 #define MyAppName "Commandes CAHPP Horizon"
-#define MyAppVersion "2.0.0b3"
+#define MyAppVersion "2.0.0b4"
 #define MyAppExeName "CommandesCAHPP-Horizon.exe"
 
 [Setup]

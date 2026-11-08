@@ -118,8 +118,6 @@ class ProductsModel(RowsModel):
                         p["designation"]
                         + "\n"
                         + p["supplier_ref"]
-                        + " · "
-                        + p["supplier_name"]
                     ),
                     False,
                 ),
@@ -151,6 +149,8 @@ class ProductsModel(RowsModel):
                 ("Désignation", lambda p: p["designation"], False),
                 *self.columns[1:],
             ]
+        else:
+            self.columns.insert(1, ("Fournisseur", lambda p: p["supplier_name"], False))
         self.state_column = len(self.columns) - 1
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
