@@ -87,7 +87,8 @@ jobs:
           import json, os, sqlite3, subprocess, tempfile
           from contextlib import closing
           from pathlib import Path
-          from cahpp_app.horizon import VERSION
+          import runpy
+          VERSION = runpy.run_path('cahpp_app/horizon/__init__.py')['VERSION']
           exe = Path('dist/CommandesCAHPP-Horizon-portable/CommandesCAHPP-Horizon.exe').resolve()
           with tempfile.TemporaryDirectory() as profile:
               env = dict(os.environ, CAHPP_HORIZON_ROOT=str(Path(profile)/'selection'))
@@ -118,7 +119,8 @@ jobs:
         run: |
           import json, os, subprocess, tempfile
           from pathlib import Path
-          from cahpp_app.horizon import VERSION
+          import runpy
+          VERSION = runpy.run_path('cahpp_app/horizon/__init__.py')['VERSION']
           setup = Path(f'dist-installer-horizon/CommandesCAHPP-Horizon-Setup-{VERSION}.exe').resolve()
           with tempfile.TemporaryDirectory() as folder:
               root = Path(folder)

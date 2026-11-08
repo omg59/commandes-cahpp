@@ -29,12 +29,12 @@ ICON_NAME = "commandes-cahpp-horizon"
 ARCH = "x86_64"
 APPIMAGETOOL = {
     "name": "appimagetool-1.9.1-x86_64.AppImage",
-    "url": "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage",
+    "url": "https://api.github.com/repos/AppImage/appimagetool/releases/assets/324406736",
     "sha256": "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0",
 }
 RUNTIME = {
     "name": "runtime-20251108-x86_64",
-    "url": "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64",
+    "url": "https://api.github.com/repos/AppImage/type2-runtime/releases/assets/326011592",
     "sha256": "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d",
 }
 
@@ -68,7 +68,11 @@ def download_pinned(spec: dict, cache: Path) -> Path:
     temporary = destination.with_suffix(destination.suffix + ".part")
     try:
         request = Request(
-            spec["url"], headers={"User-Agent": "CommandesCAHPP-Horizon-build"}
+            spec["url"],
+            headers={
+                "User-Agent": "CommandesCAHPP-Horizon-build",
+                "Accept": "application/octet-stream",
+            },
         )
         with urlopen(request, timeout=60) as response, temporary.open("wb") as output:
             shutil.copyfileobj(response, output)
