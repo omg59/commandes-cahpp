@@ -33,5 +33,3 @@ Un compte GitHub connecté est nécessaire. Les paquets incluent Python.
 [Guide utilisateur](docs/horizon.md) · [Collaboration](docs/collaboration.md) ·
 [Documentation technique](docs/developpement.md) · [Validation](docs/validation.md) ·
 [Historique des versions](CHANGELOG.md)
-
-Développé par **Damien Macq**.
