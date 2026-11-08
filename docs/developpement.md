@@ -12,6 +12,12 @@ La version stable historique reste sur `main`.
 - `Horizon.spec`, `Horizon.iss` : portable Windows et installateur.
 - `tools/build_horizon_linux.py` : portable Linux et AppImage.
 
+L'ancienne interface Tkinter et ses scripts de compilation ont été retirés de
+cette branche. Le moteur conserve les migrations des bases 1.6 et leurs tests.
+La version historique reste consultable sur la
+[branche principale](https://github.com/omg59/commandes-cahpp/tree/main) et dans
+l'historique Git.
+
 ## Environnement et contrôles
 
 Utiliser Python 3.15 64 bits et un environnement virtuel :

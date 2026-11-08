@@ -1,50 +1,37 @@
 # Commandes CAHPP Horizon
 
-**Version bêta 2.0.0b5 — branche `feature/horizon-ui`.**
-Application indépendante de préparation et de suivi des commandes fournisseurs.
-Après validation du PDF, une fenêtre propose l'envoi au fournisseur et sa
-confirmation sans quitter la commande. Les fiches fournisseurs sont regroupées
-dans **Paramètres → Fournisseurs**.
-Le menu **Commandes** regroupe la préparation, le suivi et les recommandations.
-L'onglet **Paramètres → À propos** présente l'auteur Damien Macq et les crédits.
+**Windows et Linux · Bêta 2.0.0b5**
 
-- [Lancement, fonctions et limites d'Horizon](docs/horizon.md)
-- Windows : `horizon_windows.bat` pour lancer les sources ;
-  `horizon_windows.bat build` pour fabriquer le dossier portable.
-- Linux x86_64 : **AppImage** autonome, sans installation de Python ;
-  `bash build_horizon_linux.sh` pour le construire depuis les sources.
-- [Builds Windows/Linux et contrôles automatiques](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml) :
-  ouvrir le dernier run réussi de la branche `feature/horizon-ui`, puis choisir
-  **Artifacts** → **CommandesCAHPP-Horizon-Linux-x86_64**, **CommandesCAHPP-Horizon-Windows**
-  ou **CommandesCAHPP-Horizon-Installer-Windows**. Il faut être connecté à GitHub
-  pour télécharger ces artefacts.
+Préparez vos commandes fournisseurs à partir du catalogue CAHPP, générez vos
+bons de commande PDF et suivez les livraisons. Travaillez en local ou à plusieurs
+via un dossier partagé, sans serveur dédié.
 
-Au premier lancement, choisissez **Créer une base vide**, **Importer une base
-CAHPP 1.6…** ou un profil existant. Horizon conserve ce choix et rouvre le même
-profil aux lancements suivants. **Paramètres → Changer de profil…** permet d'en
-ouvrir un autre. Les bases, réglages, commandes et documents des anciens profils
-sont conservés. Une importation crée une copie autonome et ne modifie pas la
-base source ; le partage se réactive dans les paramètres du nouveau profil.
+## Télécharger
 
-![Horizon bêta : préparation d'une commande, avec données fictives](docs/images/horizon-apercu.png)
+| Système | Formats disponibles |
+| --- | --- |
+| **Windows 64 bits** | Installateur `.exe` ou version portable |
+| **Linux x86_64** | **AppImage** ou archive portable |
 
-## Documentation
+**[Télécharger Horizon](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml)**
+— ouvrez le dernier workflow réussi, puis **Artifacts** et choisissez votre système.
+Un compte GitHub connecté est nécessaire. Les paquets incluent Python.
 
-- [Guide Horizon : installation, profils et fonctionnalités](docs/horizon.md)
-- [Mode collaboratif](docs/collaboration.md)
-- [Validation avant déploiement](docs/validation.md)
-- [Développement et compilation](docs/developpement.md)
-- [Historique des versions](CHANGELOG.md)
+[Installation et prérequis détaillés →](docs/horizon.md)
 
-## Organisation du dépôt
+## Au quotidien
 
-Cette branche contient l'application Horizon Qt/PySide6, lancée par
-`main_horizon.py`. Ses écrans sont dans `cahpp_app/horizon/`.
-Le reste de `cahpp_app/` contient le moteur métier utilisé par Horizon : base
-SQLite, imports CAHPP, recherche, synchronisation, PDF, exports et diagnostics.
-Les tests de ce moteur sont conservés, y compris ceux des migrations anciennes.
+- Catalogue CAHPP, recherche, favoris et fiches fournisseurs.
+- Préparation des commandes, PDF et e-mail prérempli.
+- Suivi des livraisons, documents, historique et statistiques.
+- Import de votre base 1.6, sauvegardes et collaboration entre postes.
 
-L'ancienne interface Tkinter et ses scripts de compilation ont été retirés de
-cette branche. La version 1.6.0 reste disponible dans l'historique Git et sur
-la [branche principale](https://github.com/omg59/commandes-cahpp/tree/main).
-L'import d'une base 1.6 reste accessible dans Horizon.
+![Aperçu de Commandes CAHPP Horizon](docs/images/horizon-apercu.png)
+
+## Pour aller plus loin
+
+[Guide utilisateur](docs/horizon.md) · [Collaboration](docs/collaboration.md) ·
+[Documentation technique](docs/developpement.md) · [Validation](docs/validation.md) ·
+[Historique des versions](CHANGELOG.md)
+
+Développé par **Damien Macq**.

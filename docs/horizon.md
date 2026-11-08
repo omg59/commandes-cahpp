@@ -7,6 +7,24 @@ la version stable et son installateur restent distincts.
 
 ## Démarrer et installer
 
+### Windows : installateur ou portable
+
+Sur la [page Actions Horizon](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
+ouvrir le dernier workflow réussi et sa section **Artifacts**. Il faut être
+connecté à GitHub pour télécharger les fichiers.
+
+- **CommandesCAHPP-Horizon-Installer-Windows** : extraire le ZIP et lancer
+  `CommandesCAHPP-Horizon-Setup-2.0.0b5.exe`, puis suivre l'installation.
+- **CommandesCAHPP-Horizon-Windows** : extraire tout le ZIP et lancer
+  `CommandesCAHPP-Horizon.exe`. Garder le dossier `_internal` à côté de l'EXE.
+
+Les paquets Windows sont destinés aux postes 64 bits et incluent Python et Qt.
+Au premier lancement, créer une base vide, importer une base 1.6 ou ouvrir un
+profil existant. Le choix du profil est mémorisé. Une importation travaille sur
+une copie et conserve la base source ; réactiver ensuite le partage si nécessaire.
+
+### Lancer ou compiler les sources Windows
+
 Sous Windows, `horizon_windows.bat` lance les sources avec Python 3.15 64 bits.
 Il utilise `.venv-horizon-py315`, distinct des anciens environnements Python 3.12.
 `horizon_windows.bat build` valide puis construit le dossier portable
