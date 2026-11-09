@@ -21,5 +21,6 @@
       "name": "CommandesCAHPP-Horizon-Installer-Windows",
       "digest": "sha256:bf0b7ef73c3a143af2e0e0bc3ab5c8989039131db8ca9be29f49e7379b2392a1"
     }
-  ]
+  ],
+  "publication_attempt": 2
 }

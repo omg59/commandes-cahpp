@@ -9,7 +9,7 @@ import zipfile
 from unittest.mock import patch
 
 from tools.publish_horizon_release import (
-    REPOSITORY, extract_member, main, validate_request, verify_uploaded,
+    REPOSITORY, extract_member, find_release, main, validate_request, verify_uploaded,
 )
 
 
@@ -25,6 +25,12 @@ class HorizonReleaseTest(unittest.TestCase):
 
     def validate(self):
         validate_request(self.request, self.run, self.artifacts, self.source)
+
+    def test_draft_release_is_found_without_a_published_tag(self):
+        draft = {'tag_name': 'v2.0.0b5', 'draft': True, 'id': 42}
+        with patch('tools.publish_horizon_release.api', return_value=[draft]) as api:
+            self.assertEqual(find_release('v2.0.0b5'), draft)
+            api.assert_called_once_with('releases?per_page=100&page=1')
 
     def test_approved_build_is_accepted(self):
         self.validate()

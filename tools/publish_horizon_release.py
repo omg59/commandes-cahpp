@@ -36,6 +36,19 @@ def api(path, optional=False):
     return json.loads(result.stdout)
 
 
+def find_release(tag):
+    # L'endpoint releases/tags ne retourne que les versions publiées.
+    page = 1
+    while True:
+        releases = api(f'releases?per_page=100&page={page}')
+        for release in releases:
+            if release['tag_name'] == tag:
+                return release
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
 def sha256(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -138,7 +151,7 @@ def main():
     ref = api(f'git/ref/tags/{tag}', optional=True)
     if ref and (ref['object']['type'] != 'commit' or ref['object']['sha'] != request['commit']):
         raise ValueError('Un tag existant désigne un autre commit')
-    release = api(f'releases/tags/{tag}', optional=True)
+    release = find_release(tag)
     if release and (release['target_commitish'] != request['commit'] or not release['draft']):
         raise ValueError('La release existe déjà : aucun remplacement automatique')
     with tempfile.TemporaryDirectory() as temp:
@@ -149,10 +162,10 @@ def main():
                '--title', request['title'], '--notes-file', notes, '--draft',
                f'--prerelease={str(request["prerelease"]).lower()}', '--latest=false')
         gh('release', 'upload', tag, *assets, '--repo', REPOSITORY, '--clobber')
-        verify_uploaded(api(f'releases/tags/{tag}'), assets)
+        verify_uploaded(find_release(tag), assets)
         gh('release', 'edit', tag, '--repo', REPOSITORY, '--draft=false',
            f'--prerelease={str(request["prerelease"]).lower()}', '--latest=false')
-        final = api(f'releases/tags/{tag}')
+        final = find_release(tag)
         if final['draft'] or final['prerelease'] != request['prerelease']:
             raise ValueError('Publication non confirmée')
         print(final['html_url'])
