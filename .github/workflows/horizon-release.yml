@@ -1,0 +1,35 @@
+name: Publier une version Horizon validée
+
+on:
+  push:
+    branches: [feature/horizon-ui]
+    paths: [.github/releases/horizon.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: horizon-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'omg59/commandes-cahpp' && github.ref == 'refs/heads/feature/horizon-ui'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Vérifier les garde-fous de publication
+        run: python -m unittest tests.test_horizon_release -v
+      - name: Publier les artefacts approuvés, sans recompilation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python tools/publish_horizon_release.py .github/releases/horizon.json

@@ -1,5 +1,13 @@
 # Historique des versions
 
+## Horizon 2.0.0b5 — première préversion publiée, 9 novembre 2026
+
+- publication des paquets Windows et Linux validés, avec sources identifiées et empreintes SHA-256 ;
+- compilation avec Python 3.15 et dépendances compatibles ;
+- nouveau logo, colonne fournisseur dédiée et améliorations du parcours de commande.
+
+Voir les [notes de version](docs/releases/2.0.0b5.md).
+
 ## Construction Horizon — téléchargements AppImage, 8 novembre 2026
 
 - nouvelles tentatives sur erreurs réseau temporaires et accès officiel de secours ;

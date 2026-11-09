@@ -52,3 +52,21 @@ Le workflow `.github/workflows/horizon.yml` valide Linux et Windows, construit
 les paquets puis vérifie leur démarrage, les profils et l'installation Windows.
 Les artefacts sont conservés 30 jours. Une release stable nécessite également
 les essais utilisateurs et réseau décrits dans [la validation](validation.md).
+
+## Publier une version validée
+
+Après validation utilisateur, renseigner `.github/releases/horizon.json` avec
+la version, le commit exact, l’identifiant du workflow réussi et les trois
+artefacts approuvés (identifiants et empreintes GitHub). Rédiger le changelog
+dans `docs/releases/<version>.md`, puis pousser la demande sur la branche Horizon.
+
+Le workflow `horizon-release.yml` vérifie le build, récupère les artefacts sans
+recompilation, prépare les fichiers et leurs SHA-256, puis publie la release
+après contrôle des pièces jointes. Le tag vise le commit réellement compilé.
+Les versions alpha, bêta et RC sont publiées comme préversions. La dernière
+version stable reste inchangée. Une release déjà publiée n’est jamais remplacée
+automatiquement ; un brouillon du même commit peut être repris après un échec.
+
+Le fichier de demande constitue le déclencheur de publication : ne le modifier
+qu’une fois la version approuvée. Les tests automatiques des garde-fous peuvent
+être lancés seuls avec `python -m unittest tests.test_horizon_release -v`.

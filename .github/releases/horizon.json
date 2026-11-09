@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0b5",
+  "tag": "v2.0.0b5",
+  "title": "Horizon 2.0.0 — bêta 5",
+  "prerelease": true,
+  "run_id": 42512779282,
+  "commit": "e0413b3b814f6bd793436447adf725a604d1ecce",
+  "artifacts": [
+    {
+      "id": 13630445875,
+      "name": "CommandesCAHPP-Horizon-Linux-x86_64",
+      "digest": "sha256:44ea4515d44fcafc3b46a1bffbd2051e825491ddb6e3be19329c1822cbb06437"
+    },
+    {
+      "id": 13630088348,
+      "name": "CommandesCAHPP-Horizon-Windows",
+      "digest": "sha256:e05b4f55d48b67571ee806d871e3d8d0dd68880c8df9451a2a3bbbd84558cfd0"
+    },
+    {
+      "id": 13629824771,
+      "name": "CommandesCAHPP-Horizon-Installer-Windows",
+      "digest": "sha256:bf0b7ef73c3a143af2e0e0bc3ab5c8989039131db8ca9be29f49e7379b2392a1"
+    }
+  ]
+}
