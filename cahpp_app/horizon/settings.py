@@ -310,17 +310,17 @@ class SettingsPage(QWidget):
                     row.addWidget(button(text, callback))
                 body.addLayout(row)
                 body.addWidget(
-                    label("Importer les données d'une version 1.6", "heading")
+                    label("Restauration et import", "heading")
                 )
                 body.addWidget(
                     label(
-                        "Copier le catalogue, les commandes, les fournisseurs et les réglages de votre établissement dans un profil Horizon indépendant.",
+                        "Pour restaurer une sauvegarde Horizon, extrayez tout le ZIP puis choisissez le fichier data/commandes_cahpp.sqlite3. Vous pouvez aussi sélectionner une base CAHPP 1.6. Les données seront copiées dans un nouveau profil.",
                         "muted",
                         True,
                     )
                 )
                 self.copy_database_button = button(
-                    "Importer une base CAHPP 1.6…", window.choose_database
+                    "Restaurer une sauvegarde ou importer une base CAHPP…", window.choose_database
                 )
                 body.addWidget(self.copy_database_button)
             body.addStretch()

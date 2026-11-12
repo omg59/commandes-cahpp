@@ -69,7 +69,7 @@ class ProfileDialog(QDialog):
         self.create_button.clicked.connect(self.create)
         body.addWidget(self.create_button)
         row = QHBoxLayout()
-        self.import_button = QPushButton("Importer une base CAHPP 1.6…")
+        self.import_button = QPushButton("Restaurer une sauvegarde ou importer une base CAHPP…")
         self.import_button.clicked.connect(self.import_database)
         row.addWidget(self.import_button)
         self.open_button = QPushButton("Ouvrir un autre dossier…")
@@ -98,7 +98,7 @@ class ProfileDialog(QDialog):
     def import_database(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Importer une base CAHPP",
+            "Restaurer ou importer une base CAHPP",
             "",
             "Bases SQLite (*.sqlite3 *.db);;Tous les fichiers (*)",
         )

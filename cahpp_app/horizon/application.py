@@ -411,7 +411,7 @@ class HorizonWindow(QMainWindow):
     def choose_database(self):
         source, _ = QFileDialog.getOpenFileName(
             self,
-            "Créer une copie de votre base CAHPP",
+            "Choisir la base de données à restaurer ou à importer",
             "",
             "Bases SQLite (*.sqlite3 *.db);;Tous les fichiers (*)",
         )
@@ -420,7 +420,7 @@ class HorizonWindow(QMainWindow):
         if (
             QMessageBox.question(
                 self,
-                "Importer une base CAHPP",
+                "Restaurer ou importer une base CAHPP",
                 "Horizon va créer une copie indépendante de la base et des documents accessibles, puis l'ouvrir dans une nouvelle fenêtre. La source reste inchangée. Continuer ?",
             )
             != QMessageBox.StandardButton.Yes
