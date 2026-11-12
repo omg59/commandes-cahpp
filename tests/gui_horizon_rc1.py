@@ -31,6 +31,21 @@ def main():
     wait(app, lambda: not window.jobs.tasks)
     window.add_product(db.get_product(pid), quantity=2)
     wait(app, lambda: not window.jobs.tasks)
+    from cahpp_app.horizon.dialogs import ProductDialog
+    from cahpp_app.collaboration import CollaborationManager
+    remote = CollaborationManager(db, "poste-rc1-distinct", "Autre poste", profile / "partage")
+    remote.initialize_workspace()
+    with remote.acquire_lock("produit", db.get_product(pid)["code_cahpp"]):
+        dialog = ProductDialog(db, pid, window, operations=window.operations)
+        dialog.fields["designation"].setText("Modification refusée")
+        dialog.save()
+        assert not dialog.saved
+        assert "ressource" in dialog.error.text()
+        assert db.get_product(pid)["designation"] == "Article"
+    dialog = ProductDialog(db, pid, window, operations=window.operations)
+    db.update_product_team_details(pid, "Note plus récente", "")
+    dialog.save()
+    assert not dialog.saved and "changé" in dialog.error.text()
     events = []
     original_changed = window.data_changed
 

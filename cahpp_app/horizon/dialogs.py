@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..numbers import parse_decimal
+from ..collaboration import CollaborationError
 from .services import number
 from .widgets import button, label
 
@@ -133,7 +134,7 @@ class ProductDialog(QDialog):
                     self.team_notes.toPlainText(),
                     self.replacement.text(),
                 )
-        except ValueError as exc:
+        except (ValueError, CollaborationError, OSError) as exc:
             self.error.setText(str(exc))
             self.error.show()
             return
