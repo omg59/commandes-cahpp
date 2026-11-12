@@ -367,20 +367,13 @@ class PreparePage(QWidget):
     def generate_pdf(self, choose=False):
         if not self.save_draft(synchronize=False):
             return
-        from ..local_services import safe_filename
         from ..paths import EXPORT_DIR
-        from ..pdf_export import generate_order_pdf
+        from ..pdf_export import default_order_pdf_path, generate_order_pdf
 
         order, _ = self.window.database.get_order(self.cart.order_id)
         settings = self.window.database.get_settings()
         directory = Path(settings.get("pdf_default_directory") or EXPORT_DIR)
-        filename = (
-            safe_filename(
-                f"{order['order_date']} - {order['supplier_name']} - {order['order_number']}"
-            )
-            + ".pdf"
-        )
-        output = directory / filename
+        output = default_order_pdf_path(self.window.database, order["id"], directory)
         if choose:
             selected, _ = QFileDialog.getSaveFileName(
                 self, "Enregistrer le bon PDF", str(output), "PDF (*.pdf)"
@@ -840,7 +833,7 @@ class OrdersPage(QWidget):
     @action
     def regenerate_pdf(self):
         from ..paths import EXPORT_DIR
-        from ..pdf_export import generate_order_pdf
+        from ..pdf_export import default_order_pdf_path, generate_order_pdf
 
         order, _ = self.window.database.get_order(self.selected_id)
         path, _ = QFileDialog.getSaveFileName(

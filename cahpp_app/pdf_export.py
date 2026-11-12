@@ -445,6 +445,29 @@ def _render_order_pdf(
     return output_path
 
 
+
+def default_order_pdf_path(database: Database, order_id: int, directory: Path | str) -> Path:
+    """Nom d'export historique, avec suffixe si le fichier est déjà occupé."""
+    from .local_services import safe_filename
+
+    order, _ = database.get_order(order_id)
+    stem = safe_filename(f"BC-{order['order_date']}_{order['supplier_name']}")
+    directory = Path(directory).expanduser().resolve()
+    own = resolve_portable_path(order["pdf_path"]).resolve() if order["pdf_path"] else None
+    with database.connect() as connection:
+        reserved = {
+            resolve_portable_path(row["pdf_path"]).resolve()
+            for row in connection.execute("SELECT pdf_path FROM orders WHERE id<>? AND pdf_path<>''", (order_id,))
+        }
+    sequence = 1
+    while True:
+        suffix = "" if sequence == 1 else f"_{sequence}"
+        candidate = directory / f"{stem}{suffix}.pdf"
+        if candidate not in reserved and (candidate == own or not candidate.exists()):
+            return candidate
+        sequence += 1
+
+
 def generate_order_pdf(
     database: Database, order_id: int, output_path: Path | str
 ) -> Path:

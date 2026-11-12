@@ -334,3 +334,23 @@ class Rc1Test(unittest.TestCase):
         self.assertEqual(
             stats["detail"]["summary"]["total_ht"], stats["totals"]["total_ht"]
         )
+
+
+    def test_pdf_filename_uses_historical_format_and_preserves_same_day_documents(self):
+        from cahpp_app.pdf_export import default_order_pdf_path
+        with self.db.session() as c:
+            c.execute("UPDATE suppliers SET name='HARTMANN' WHERE id=?", (self.sid,))
+        first = self.cart().save(self.db)
+        second = self.cart().save(self.db)
+        with self.db.session() as c:
+            c.execute("UPDATE orders SET order_date='2026-11-12' WHERE id IN (?,?)", (first, second))
+        output = default_order_pdf_path(self.db, first, self.root)
+        self.assertEqual(output.name, 'BC-2026-11-12_HARTMANN.pdf')
+        generate_order_pdf(self.db, first, output)
+        original = output.read_bytes()
+        self.assertEqual(default_order_pdf_path(self.db, first, self.root), output)
+        other = default_order_pdf_path(self.db, second, self.root)
+        self.assertEqual(other.name, 'BC-2026-11-12_HARTMANN_2.pdf')
+        generate_order_pdf(self.db, second, other)
+        self.assertEqual(output.read_bytes(), original)
+        self.assertEqual(default_order_pdf_path(self.db, second, self.root), other)

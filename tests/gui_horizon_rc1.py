@@ -67,7 +67,8 @@ def main():
     assert events
     order, _ = db.get_order(window.prepare.cart.order_id)
     assert order["status"] == "Générée"
-    assert order["order_number"] in order["pdf_path"]
+    from pathlib import Path
+    assert Path(order["pdf_path"]).name == f"BC-{order['order_date']}_Fournisseur RC1.pdf"
     window.close()
     wait(app, lambda: not window.isVisible())
 

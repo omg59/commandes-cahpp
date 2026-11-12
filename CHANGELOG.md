@@ -2,6 +2,8 @@
 
 ## Horizon 2.0.0rc1 — stabilisation
 
+- Noms des PDF au format `BC-AAAA-MM-DD_Fournisseur.pdf` ; suffixe `_2`, `_3`… si nécessaire pour conserver un fichier existant.
+
 - Protection des modifications entre postes, des identités de commandes et du partage.
 - PDF uniques et écriture atomique ; sauvegardes complètes avec documents externes.
 - Reprise des publications de catalogue interrompues, sans réimporter les prix.

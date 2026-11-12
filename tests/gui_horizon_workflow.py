@@ -271,7 +271,7 @@ def main():
         order, lines = db.get_order(oid)
         assert order["requester_service"] == "Service d'essai"
         assert Path(order["pdf_path"]).is_file()
-        assert Path(order["pdf_path"]).name.startswith("2026-02-05")
+        assert Path(order["pdf_path"]).name.startswith("BC-2026-02-05_")
         window.orders.selected_id = oid
         window.orders.mark_sent()
         wait(app, lambda: not window.jobs.tasks)
