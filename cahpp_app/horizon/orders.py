@@ -318,7 +318,7 @@ class PreparePage(QWidget):
         )
 
     @action
-    def save_draft(self):
+    def save_draft(self, *, synchronize=True):
         try:
             if self.suppliers.currentData() is None:
                 raise ValueError(
@@ -356,7 +356,8 @@ class PreparePage(QWidget):
             self.order_date.blockSignals(False)
             self.badge.setText(order["order_number"] + " · Brouillon")
             self.window.notify("Brouillon enregistré : " + order["order_number"])
-            self.window.data_changed()
+            if synchronize:
+                self.window.data_changed()
             return True
         except ValueError as exc:
             self.window.report_error(exc)
@@ -364,7 +365,7 @@ class PreparePage(QWidget):
 
     @action
     def generate_pdf(self, choose=False):
-        if not self.save_draft():
+        if not self.save_draft(synchronize=False):
             return
         from ..local_services import safe_filename
         from ..paths import EXPORT_DIR
@@ -373,10 +374,9 @@ class PreparePage(QWidget):
         order, _ = self.window.database.get_order(self.cart.order_id)
         settings = self.window.database.get_settings()
         directory = Path(settings.get("pdf_default_directory") or EXPORT_DIR)
-        sequence = self.window.database.daily_supplier_order_sequence(order["id"])
         filename = (
             safe_filename(
-                f"{order['order_date']} - {order['supplier_name']} - {sequence}"
+                f"{order['order_date']} - {order['supplier_name']} - {order['order_number']}"
             )
             + ".pdf"
         )

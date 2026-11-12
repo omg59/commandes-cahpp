@@ -7,6 +7,8 @@ import ast
 import hashlib
 import json
 import re
+import platform
+from importlib.metadata import distributions
 from pathlib import Path
 
 
@@ -47,6 +49,8 @@ def installer_manifest(root: Path) -> dict[str, object]:
             digest.update(chunk)
     return {
         "version": version,
+        "python": platform.python_version(),
+        "dependencies": {d.metadata["Name"]: d.version for d in distributions() if d.metadata["Name"]},
         "file": executable.name,
         "size_bytes": executable.stat().st_size,
         "sha256": digest.hexdigest(),

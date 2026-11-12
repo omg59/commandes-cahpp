@@ -16,9 +16,10 @@ from .widgets import button, label
 
 
 class ProductDialog(QDialog):
-    def __init__(self, database, product_id, parent=None):
+    def __init__(self, database, product_id, parent=None, *, operations=None):
         super().__init__(parent)
         self.database = database
+        self.operations = operations
         self.product = database.get_product(product_id)
         self.saved = False
         self.setWindowTitle("Vérifier / modifier l'article")
@@ -105,20 +106,33 @@ class ProductDialog(QDialog):
                 raise ValueError(
                     "Le nombre d'unités par carton doit être supérieur à zéro."
                 )
-            if self.product["source"] == "LOCAL":
-                self.database.update_manual_product(self.product["id"], **values)
-            else:
-                self.database.set_product_override(
-                    self.product["id"],
-                    **values,
-                    catalog_review_confirmed=self.confirm.isChecked(),
-                    reviewed_catalog_token=self.product["catalog_review_token"],
-                )
-            self.database.update_product_team_details(
-                self.product["id"],
-                self.team_notes.toPlainText(),
-                self.replacement.text(),
+            from contextlib import nullcontext
+
+            guard = (
+                self.operations.locked_product(self.product["id"])
+                if self.operations
+                else nullcontext()
             )
+            with guard:
+                current = self.database.get_product(self.product["id"])
+                if current != self.product:
+                    raise ValueError(
+                        "Cet article a changé depuis son ouverture. Fermez puis rouvrez la fiche avant de l'enregistrer."
+                    )
+                if self.product["source"] == "LOCAL":
+                    self.database.update_manual_product(self.product["id"], **values)
+                else:
+                    self.database.set_product_override(
+                        self.product["id"],
+                        **values,
+                        catalog_review_confirmed=self.confirm.isChecked(),
+                        reviewed_catalog_token=self.product["catalog_review_token"],
+                    )
+                self.database.update_product_team_details(
+                    self.product["id"],
+                    self.team_notes.toPlainText(),
+                    self.replacement.text(),
+                )
         except ValueError as exc:
             self.error.setText(str(exc))
             self.error.show()

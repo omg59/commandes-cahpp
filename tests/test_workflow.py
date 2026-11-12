@@ -433,7 +433,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(migrated_settings["mail_compose_url"])
         self.assertEqual(migrated_settings["sync_interval_seconds"], "60")
         self.assertEqual(migrated_settings["pause_sync_while_editing"], "1")
-        self.assertEqual(version, 15)
+        self.assertEqual(version, 16)
         self.assertTrue(migrated_line_uid)
 
     def test_supplier_contact_punctuation_is_preserved_and_repaired(self):
@@ -490,7 +490,7 @@ class WorkflowTest(unittest.TestCase):
         with repaired.connect() as connection:
             self.assertEqual(
                 connection.execute("PRAGMA user_version").fetchone()[0],
-                15,
+                16,
             )
 
         repaired.apply_team_state(

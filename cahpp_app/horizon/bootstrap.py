@@ -121,7 +121,7 @@ def validate_profile_database(path: Path):
                 )
             }
             if (
-                not 1 <= version <= 15
+                not 1 <= version <= 16
                 or not {"products", "orders", "order_lines", "settings", "suppliers"}
                 <= tables
             ):
@@ -218,10 +218,10 @@ def copy_database(source: Path, profiles: Path) -> Path:
             if (
                 not {"products", "orders", "order_lines", "settings", "suppliers"}
                 <= tables
-                or not 1 <= version <= 15
+                or not 1 <= version <= 16
             ):
                 raise ValueError(
-                    "Choisissez une base Commandes CAHPP de schéma 15 ou antérieur."
+                    "Choisissez une base Commandes CAHPP de schéma 16 ou antérieur."
                 )
             with closing(sqlite3.connect(target)) as local, local:
                 origin.backup(local)
@@ -231,7 +231,7 @@ def copy_database(source: Path, profiles: Path) -> Path:
                     "UPDATE settings SET value='0' WHERE key='collaboration_enabled'"
                 )
                 local.execute(
-                    "UPDATE settings SET value='' WHERE key IN ('collaboration_root','shared_folder','shared_workspace_path','collaboration_workspace_id','collaboration_last_sync_at','collaboration_catalog_hash','collaboration_catalog_version','pdf_default_directory')"
+                    "UPDATE settings SET value='' WHERE key IN ('collaboration_root','shared_folder','shared_workspace_path','collaboration_workspace_id','collaboration_last_sync_at','collaboration_catalog_hash','collaboration_catalog_version','horizon_catalog_pending','pdf_default_directory')"
                 )
                 local.execute(
                     "UPDATE settings SET value=? WHERE key='user_id'",
@@ -271,7 +271,8 @@ def copy_database(source: Path, profiles: Path) -> Path:
                     relative = (
                         Path("documents")
                         / "copie-initiale"
-                        / (uuid.uuid4().hex + original.suffix)
+                        / uuid.uuid4().hex
+                        / original.name
                     )
                     new_file = destination / relative
                     new_file.parent.mkdir(parents=True, exist_ok=True)

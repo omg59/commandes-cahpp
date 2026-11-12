@@ -87,6 +87,11 @@ class Operations:
     @contextmanager
     def resource(self, kind, key):
         with self.write():
+            if kind == "fournisseur":
+                supplier = self.database.get_supplier(key)
+                if supplier is None:
+                    raise ValueError("Fournisseur introuvable.")
+                key = str(supplier["cahpp_id"] or supplier["name"]).strip().casefold()
             handle = None
             resource = f"{kind}:{key}"
             retained = (
@@ -107,7 +112,17 @@ class Operations:
                     handle = self.manager.acquire_lock(kind, str(key))
                     self.held_resources[resource] = handle
             try:
+                if self.manager and kind == "commande":
+                    self.manager.refresh_order(str(key))
                 yield
+                if self.manager and kind == "commande":
+                    with self.database.connect() as c:
+                        row = c.execute(
+                            "SELECT id FROM orders WHERE shared_uid=? AND sync_state<>'Synchronisée'",
+                            (str(key),),
+                        ).fetchone()
+                    if row:
+                        self.manager.publish_order(row["id"])
             finally:
                 if handle:
                     try:
@@ -136,6 +151,12 @@ class Operations:
         if self.manager:
             order, _ = self.database.get_order(order_id)
             self.order_lock = self.manager.acquire_lock("commande", order["shared_uid"])
+            try:
+                self.manager.refresh_order(order["shared_uid"])
+            except Exception:
+                self.release_handle(self.order_lock)
+                self.order_lock = None
+                raise
         self.editing_order = order_id
 
     def release_order(self):
@@ -194,6 +215,8 @@ class Operations:
             cart.order_id = oid
             cart.dirty = False
             self.hold_order(oid)
+            if self.manager:
+                self.manager.publish_order(oid)
             return oid
 
     def duplicate(self, order_id, line_uids=None):
@@ -211,6 +234,7 @@ class Operations:
                 return {"enabled": False}
             try:
                 self.manager.refresh_active_locks()
+                self.retry_catalog_publication()
                 result = self.manager.sync_all()
                 self.last_sync_result, self.last_sync_error = result, ""
                 return result
@@ -225,7 +249,7 @@ class Operations:
         from ..local_services import create_complete_backup
         from ..paths import BACKUP_DIR
 
-        with self.guard:
+        with self.write():
             lock = (
                 self.manager.acquire_lock("systeme", "catalogue", ttl_seconds=7200)
                 if self.manager
@@ -248,15 +272,55 @@ class Operations:
                     except Exception:
                         temp.unlink(missing_ok=True)
                         raise
+                if self.manager and not shared_manifest:
+                    self.retry_catalog_publication(lock=handle)
+                    self.queue_catalog_publication(Path(path))
                 result = CatalogImporter(self.database).import_file(
                     path, options=options, preview=preview, progress=progress
                 )
                 if self.manager:
                     if shared_manifest:
                         self.manager.mark_catalog_applied(shared_manifest)
-                    elif not result.already_imported:
-                        self.manager.publish_catalog(Path(path), result, lock=handle)
+                    else:
+                        self.retry_catalog_publication(lock=handle)
                 return result
+
+    def queue_catalog_publication(self, source):
+        import json
+        import shutil
+        from ..catalog_import.formats import sha256
+
+        pending = Path(self.database.path).parent / "catalogue-a-publier.xlsx"
+        temporary = pending.with_suffix(".tmp")
+        shutil.copy2(source, temporary)
+        temporary.replace(pending)
+        self.database.save_settings(
+            {
+                "horizon_catalog_pending": json.dumps(
+                    {"path": str(pending), "file_hash": sha256(pending)}
+                )
+            }
+        )
+
+    def retry_catalog_publication(self, lock=None):
+        import json
+        from ..catalog_import.engine import _previous_result
+
+        pending = self.database.get_settings().get("horizon_catalog_pending", "")
+        if not pending or not self.manager:
+            return
+        record = json.loads(pending)
+        with self.database.connect() as c:
+            imported = c.execute(
+                "SELECT * FROM imports WHERE file_hash=?", (record["file_hash"],)
+            ).fetchone()
+        if imported is None:
+            return
+        self.manager.publish_catalog(
+            Path(record["path"]), _previous_result(imported), lock=lock
+        )
+        self.database.save_settings({"horizon_catalog_pending": ""})
+        Path(record["path"]).unlink(missing_ok=True)
 
     def close(self):
         with self.guard:
@@ -266,7 +330,13 @@ class Operations:
     def pending_installer(self, current_version, dismissed=""):
         import re
 
-        if not self.manager or not self.manager.updates_dir.is_dir():
+        import sys
+
+        if (
+            sys.platform != "win32"
+            or not self.manager
+            or not self.manager.updates_dir.is_dir()
+        ):
             return None
 
         def version_key(text):

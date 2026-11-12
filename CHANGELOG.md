@@ -1,5 +1,19 @@
 # Historique des versions
 
+## Horizon 2.0.0rc1 — stabilisation
+
+- Protection des modifications entre postes, des identités de commandes et du partage.
+- PDF uniques et écriture atomique ; sauvegardes complètes avec documents externes.
+- Reprise des publications de catalogue interrompues, sans réimporter les prix.
+- Génération du PDF sans conflit avec sa propre synchronisation ; pièces jointes manquantes signalées.
+- Filtres historiques et statistiques appliqués avant toute limitation ; synchronisations sans recopie inutile.
+- Verrous fournisseurs communs aux postes, fiches articles sans blocage pendant la saisie.
+- Mise à jour Windows proposée uniquement sous Windows ; dépendance Pillow corrigée.
+- Diagnostics des versions communes et des publications en attente.
+
+La RC1 ajoute le schéma 16. Sauvegarder avant migration et mettre tous les postes
+à jour. [Détails et procédure de retour](docs/horizon.md#passage-de-la-bêta-à-la-rc1).
+
 ## Horizon 2.0.0b5 — première préversion publiée, 9 novembre 2026
 
 - publication des paquets Windows et Linux validés, avec sources identifiées et empreintes SHA-256 ;

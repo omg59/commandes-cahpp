@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import time
+from importlib.metadata import distributions
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from datetime import datetime, timezone
@@ -252,6 +253,8 @@ def build(*, output: Path, cache: Path, skip_tests=False, reuse_bundle=False):
         "architecture": ARCH,
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "build_system": platform.platform(),
+        "python": platform.python_version(),
+        "dependencies": {d.metadata["Name"]: d.version for d in distributions() if d.metadata["Name"]},
         "build_glibc": platform.libc_ver()[1],
         "appimagetool": APPIMAGETOOL,
         "runtime": RUNTIME,

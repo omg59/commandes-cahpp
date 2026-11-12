@@ -158,41 +158,101 @@ def _delete_order_files(
         shutil.rmtree(staging)
 
 
-def create_complete_backup(
-    database: Database, destination: str | Path
-) -> Path:
+def create_complete_backup(database: Database, destination: str | Path) -> Path:
     destination = Path(destination)
     if destination.suffix.lower() != ".zip":
         destination = destination.with_suffix(".zip")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    import sqlite3
+    import uuid
+
     with tempfile.TemporaryDirectory(prefix="commandes-cahpp-") as temp_name:
         temp = Path(temp_name)
         database_copy = temp / "data" / DATABASE_PATH.name
         database.backup(database_copy)
+        copied = {}
+
+        def collect(value):
+            if not value:
+                return ""
+            source = resolve_portable_path(value).resolve()
+            if not source.is_file():
+                raise ValueError(
+                    f"Sauvegarde incomplète : document introuvable ({source.name})."
+                )
+            if source not in copied:
+                relative = (
+                    Path("documents") / "references" / uuid.uuid4().hex / source.name
+                )
+                target = temp / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                copied[source] = relative.as_posix()
+            return copied[source]
+
+        connection = sqlite3.connect(database_copy)
+        try:
+            with connection:
+                for table, column in (
+                    ("orders", "pdf_path"),
+                    ("order_attachments", "stored_path"),
+                ):
+                    for rid, value in connection.execute(
+                        f"SELECT id,{column} FROM {table}"
+                    ).fetchall():
+                        connection.execute(
+                            f"UPDATE {table} SET {column}=? WHERE id=?",
+                            (collect(value), rid),
+                        )
+                logo = connection.execute(
+                    "SELECT value FROM settings WHERE key='logo_path'"
+                ).fetchone()
+                if logo and logo[0]:
+                    connection.execute(
+                        "UPDATE settings SET value=? WHERE key='logo_path'",
+                        (collect(logo[0]),),
+                    )
+        finally:
+            connection.close()
         manifest = {
             "application": "Commandes CAHPP",
-            "backup_format": 1,
+            "backup_format": 2,
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "database": f"data/{DATABASE_PATH.name}",
             "documents": "documents/",
         }
         (temp / "sauvegarde.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        with zipfile.ZipFile(
-            destination, "w", compression=zipfile.ZIP_DEFLATED
-        ) as archive:
-            for path in sorted(temp.rglob("*")):
-                if path.is_file():
-                    archive.write(path, path.relative_to(temp))
-            if DOCUMENTS_DIR.is_dir():
-                for path in sorted(DOCUMENTS_DIR.rglob("*")):
+        descriptor, archive_name = tempfile.mkstemp(
+            prefix=".sauvegarde-", suffix=".zip", dir=destination.parent
+        )
+        import os
+
+        os.close(descriptor)
+        archive_path = Path(archive_name)
+        try:
+            with zipfile.ZipFile(
+                archive_path, "w", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                for path in sorted(temp.rglob("*")):
                     if path.is_file():
-                        archive.write(
-                            path,
-                            Path("documents") / path.relative_to(DOCUMENTS_DIR),
-                        )
+                        archive.write(path, path.relative_to(temp))
+                if DOCUMENTS_DIR.is_dir():
+                    for path in sorted(DOCUMENTS_DIR.rglob("*")):
+                        if path.is_file() and path.resolve() not in {
+                            destination.resolve(),
+                            archive_path.resolve(),
+                        }:
+                            archive.write(
+                                path,
+                                Path("documents")
+                                / "autres"
+                                / path.relative_to(DOCUMENTS_DIR),
+                            )
+            archive_path.replace(destination)
+        finally:
+            archive_path.unlink(missing_ok=True)
     return destination
 
 
@@ -237,30 +297,44 @@ def prepare_mail_order(
 ) -> tuple[str, Path, list[Path]]:
     order, _ = database.get_order(order_id)
     if not order["supplier_email"]:
-        raise ValueError(
-            "Aucune adresse e-mail n'est configurée pour ce fournisseur."
-        )
+        raise ValueError("Aucune adresse e-mail n'est configurée pour ce fournisseur.")
     pdf_path = resolve_portable_path(order["pdf_path"]) if order["pdf_path"] else None
     if pdf_path is None or not pdf_path.is_file():
         raise ValueError("Générez d'abord le PDF de cette commande.")
 
     staging = MAIL_PREP_DIR / safe_filename(order["order_number"])
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True)
-
     sources = [pdf_path]
     for attachment in database.list_order_attachments(order_id):
         if attachment["include_in_email"]:
             path = resolve_portable_path(attachment["stored_path"])
-            if path.is_file():
-                sources.append(path)
-
-    prepared: list[Path] = []
-    for source in sources:
-        destination = _available_destination(staging, source.name)
-        shutil.copy2(source, destination)
-        prepared.append(destination)
+            if not path.is_file():
+                raise ValueError(
+                    "Pièce jointe introuvable : "
+                    + attachment["display_name"]
+                    + ". Rétablissez-la ou retirez-la de l'e-mail."
+                )
+            sources.append(path)
+    MAIL_PREP_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".preparation-", dir=MAIL_PREP_DIR
+    ) as temporary:
+        incoming = Path(temporary) / "message"
+        incoming.mkdir()
+        names = []
+        for source in sources:
+            target = _available_destination(incoming, source.name)
+            shutil.copy2(source, target)
+            names.append(target.name)
+        previous = Path(temporary) / "precedent"
+        if staging.exists():
+            staging.rename(previous)
+        try:
+            incoming.rename(staging)
+        except Exception:
+            if previous.exists():
+                previous.rename(staging)
+            raise
+    prepared = [staging / name for name in names]
 
     settings = database.get_settings()
     order_date = datetime.fromisoformat(order["order_date"]).strftime("%d/%m/%Y")
@@ -273,14 +347,10 @@ def prepare_mail_order(
         "total_ht": f"{float(order['total_ht']):.2f}".replace(".", ","),
         "total_ttc": f"{float(order['total_ttc']):.2f}".replace(".", ","),
         "establishment_name": settings.get("establishment_name", ""),
-        "establishment_subtitle": settings.get(
-            "establishment_subtitle", ""
-        ),
+        "establishment_subtitle": settings.get("establishment_subtitle", ""),
         "customer_number": order["customer_number"] or "",
     }
-    subject = _render_template(
-        settings.get("email_subject_template", ""), values
-    )
+    subject = _render_template(settings.get("email_subject_template", ""), values)
     body = _render_template(settings.get("email_body_template", ""), values)
     compose_url = _mail_compose_url(
         settings.get("mail_compose_url", DEFAULT_MAIL_URL),

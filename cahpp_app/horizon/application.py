@@ -599,12 +599,16 @@ class HorizonWindow(QMainWindow):
         if self.jobs.busy:
             QTimer.singleShot(50, self.finish_close)
             return
+        path = getattr(self, "pending_installer_path", None)
+        if path:
+            result = QProcess.startDetached(path, [])
+            started = result[0] if isinstance(result, tuple) else result
+            if not started:
+                self.setEnabled(True)
+                QMessageBox.warning(self, "Mise à jour", "Impossible de lancer l'installateur. Vous pouvez le lancer manuellement depuis le dossier partagé.")
         self.close_ready = True
         self.operations.close()
         self.close()
-        path = getattr(self, "pending_installer_path", None)
-        if path:
-            QProcess.startDetached(path, [])
 
     def configure_sync_timer(self):
         settings = self.database.get_settings()

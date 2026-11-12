@@ -366,9 +366,7 @@ CATALOG_REVIEW_SQL = """(
 )"""
 
 
-_SIMPLE_EMAIL_PATTERN = re.compile(
-    r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$"
-)
+_SIMPLE_EMAIL_PATTERN = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
 
 
 def repair_supplier_contact_value(field: str, value: object) -> str:
@@ -520,7 +518,7 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 15")
+            connection.execute("PRAGMA user_version = 16")
 
     def _create_search_table(self, connection: sqlite3.Connection) -> None:
         connection.execute(
@@ -555,9 +553,10 @@ class Database:
 
     def _migrate_schema(self, connection: sqlite3.Connection) -> None:
         """Ajoute sans perte les champs apparus après le prototype 0.4."""
-        previous_version = int(
-            connection.execute("PRAGMA user_version").fetchone()[0]
+        self._ensure_column(
+            connection, "orders", "sync_base_revision", "INTEGER NOT NULL DEFAULT 0"
         )
+        previous_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         for column, declaration in (
             ("contact_name", "TEXT NOT NULL DEFAULT ''"),
             ("address", "TEXT NOT NULL DEFAULT ''"),
@@ -600,12 +599,14 @@ class Database:
             "line_uid",
             "TEXT NOT NULL DEFAULT ''",
         )
-        for row in connection.execute(
-            "SELECT id FROM order_lines WHERE line_uid = ''"
-        ):
+        for row in connection.execute("SELECT id FROM order_lines WHERE line_uid = ''"):
             connection.execute(
                 "UPDATE order_lines SET line_uid = ? WHERE id = ?",
                 (str(uuid.uuid4()), row["id"]),
+            )
+        if previous_version < 16:
+            connection.execute(
+                "UPDATE orders SET sync_base_revision=shared_revision WHERE sync_state='Synchronisée'"
             )
         for column, declaration in (
             ("created_by", "TEXT NOT NULL DEFAULT ''"),
@@ -615,8 +616,15 @@ class Database:
         ):
             self._ensure_column(connection, "products", column, declaration)
         for column in ("catalog_review_token", "catalog_review_reason"):
-            self._ensure_column(connection, "products", column, "TEXT NOT NULL DEFAULT ''")
-        self._ensure_column(connection, "product_overrides", "validated_catalog_token", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(
+                connection, "products", column, "TEXT NOT NULL DEFAULT ''"
+            )
+        self._ensure_column(
+            connection,
+            "product_overrides",
+            "validated_catalog_token",
+            "TEXT NOT NULL DEFAULT ''",
+        )
         for column, declaration in (
             ("mode", "TEXT NOT NULL DEFAULT 'full'"),
             ("period", "TEXT NOT NULL DEFAULT ''"),
@@ -630,9 +638,7 @@ class Database:
             ("internal_notes", "TEXT NOT NULL DEFAULT ''"),
             ("replacement_code_cahpp", "TEXT NOT NULL DEFAULT ''"),
         ):
-            self._ensure_column(
-                connection, "product_team_state", column, declaration
-            )
+            self._ensure_column(connection, "product_team_state", column, declaration)
         self._ensure_column(
             connection,
             "product_overrides",
@@ -2009,6 +2015,7 @@ class Database:
         delivery_status: str = "",
         include_archived: bool = False,
         limit: int = 500,
+        group: str = "",
     ) -> list[sqlite3.Row]:
         filters = ["COALESCE(o.deleted_at, '') = ''"]
         parameters: list[object] = []
@@ -2044,6 +2051,12 @@ class Database:
                 parameters.append(delivery_status)
         if not include_archived:
             filters.append("COALESCE(o.archived_at, '') = ''")
+        if group == "À préparer / envoyer":
+            filters.append("o.sent_at = ''")
+        elif group == "À recevoir":
+            filters.append("o.sent_at <> '' AND o.delivery_status <> 'Livrée'")
+        elif group == "Terminées":
+            filters.append("o.delivery_status = 'Livrée'")
         where = " AND ".join(filters)
         with self.connect() as connection:
             return list(
@@ -3163,13 +3176,16 @@ class Database:
         return order_ids
 
     def statistics(
-        self, date_from: date, date_to: date
+        self, date_from: date, date_to: date, supplier_id: int | None = None
     ) -> dict[str, object]:
-        parameters = (date_from.isoformat(), date_to.isoformat())
+        parameters = [date_from.isoformat(), date_to.isoformat()]
         order_filter = """
             o.deleted_at = '' AND o.sent_at <> ''
             AND o.order_date BETWEEN ? AND ?
         """
+        if supplier_id is not None:
+            order_filter += " AND o.supplier_id = ?"
+            parameters.append(supplier_id)
         with self.connect() as connection:
             summary = connection.execute(
                 f"""
@@ -3226,7 +3242,7 @@ class Database:
                     WHERE {order_filter}
                     GROUP BY s.name, ol.supplier_ref, ol.designation
                     ORDER BY total_ht DESC, ol.designation COLLATE NOCASE
-                    LIMIT 500
+
                     """,
                     parameters,
                 )
@@ -3268,7 +3284,7 @@ class Database:
                           COALESCE(po.unit_price, p.unit_price) - r.ordered_price
                       ) > 0.00005
                     ORDER BY ABS(difference_percent) DESC, r.designation
-                    LIMIT 500
+
                     """,
                     parameters,
                 )
@@ -3971,14 +3987,27 @@ class Database:
             existing = connection.execute(
                 """
                 SELECT * FROM orders
-                WHERE shared_uid = ? OR order_number = ?
-                ORDER BY shared_uid = ? DESC
+                WHERE shared_uid = ?
                 LIMIT 1
                 """,
-                (shared_uid, order_number, shared_uid),
+                (shared_uid,),
             ).fetchone()
+            collision = connection.execute(
+                "SELECT shared_uid FROM orders WHERE order_number=? AND shared_uid<>?",
+                (order_number, shared_uid),
+            ).fetchone()
+            if collision:
+                raise ValueError(
+                    "Conflit d'identité : ce numéro appartient à une autre commande. Aucune donnée remplacée."
+                )
             remote_revision = int(order.get("shared_revision") or 0)
             if existing is not None:
+                if existing["sync_state"] != "Synchronisée":
+                    if remote_revision != int(existing["sync_base_revision"]):
+                        raise ValueError(
+                            "Conflit de synchronisation : modifications locales conservées, version distante différente."
+                        )
+                    return int(existing["id"]), False
                 local_revision = int(existing["shared_revision"] or 0)
                 if local_revision > remote_revision:
                     return int(existing["id"]), False
@@ -4030,9 +4059,8 @@ class Database:
                 order.get("sent_at") or "",
                 order.get("confirmed_at") or "",
                 order.get("confirmed_by") or "",
-                order.get("delivery_status") or (
-                    "En attente" if order.get("sent_at") else "Non suivie"
-                ),
+                order.get("delivery_status")
+                or ("En attente" if order.get("sent_at") else "Non suivie"),
                 order.get("delivered_at") or "",
                 order.get("delivered_by") or "",
                 order.get("invoiced_at") or "",
@@ -4222,6 +4250,10 @@ class Database:
                     str(item.get("actor_id") or ""),
                     str(item.get("actor_name") or ""),
                 )
+            connection.execute(
+                "UPDATE orders SET sync_base_revision=? WHERE id=?",
+                (remote_revision, order_id),
+            )
         return order_id, True
 
     def pending_order_ids(self) -> list[int]:
@@ -4255,7 +4287,7 @@ class Database:
             connection.execute(
                 """
                 UPDATE orders
-                SET sync_state = 'Synchronisée', last_synced_at = ?
+                SET sync_state = 'Synchronisée', sync_base_revision=shared_revision, last_synced_at = ?
                 WHERE id = ?
                 """,
                 (datetime.now().isoformat(timespec="seconds"), order_id),
@@ -4477,20 +4509,21 @@ class Database:
         search_index = self.search_index_status(deep=True)
         with self.connect() as connection:
             quick_check = [
-                str(row[0])
-                for row in connection.execute("PRAGMA quick_check")
+                str(row[0]) for row in connection.execute("PRAGMA quick_check")
+            ]
+            synchronization = [
+                dict(r)
+                for r in connection.execute(
+                    "SELECT shared_revision AS local_revision, sync_base_revision AS base_revision FROM orders WHERE sync_state<>'Synchronisée'"
+                )
             ]
             schema_version = int(
                 connection.execute("PRAGMA user_version").fetchone()[0]
             )
-            journal_mode = str(
-                connection.execute("PRAGMA journal_mode").fetchone()[0]
-            )
+            journal_mode = str(connection.execute("PRAGMA journal_mode").fetchone()[0])
             counts = {
                 "products": int(
-                    connection.execute(
-                        "SELECT COUNT(*) FROM products"
-                    ).fetchone()[0]
+                    connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
                 ),
                 "active_products": int(
                     connection.execute(
@@ -4498,9 +4531,7 @@ class Database:
                     ).fetchone()[0]
                 ),
                 "suppliers": int(
-                    connection.execute(
-                        "SELECT COUNT(*) FROM suppliers"
-                    ).fetchone()[0]
+                    connection.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0]
                 ),
                 "orders": int(
                     connection.execute(
@@ -4562,13 +4593,14 @@ class Database:
                     ).fetchone()[0]
                 ),
                 "imports": int(
+                    connection.execute("SELECT COUNT(*) FROM imports").fetchone()[0]
+                ),
+                "catalog_reviews": int(
                     connection.execute(
-                        "SELECT COUNT(*) FROM imports"
+                        "SELECT COUNT(*) FROM products p LEFT JOIN product_overrides po ON po.product_id=p.id WHERE p.active=1 AND "
+                        + CATALOG_REVIEW_SQL
                     ).fetchone()[0]
                 ),
-                "catalog_reviews": int(connection.execute(
-                    "SELECT COUNT(*) FROM products p LEFT JOIN product_overrides po ON po.product_id=p.id WHERE p.active=1 AND " + CATALOG_REVIEW_SQL
-                ).fetchone()[0]),
             }
             anomalies = {
                 "orders_without_shared_uid": int(
@@ -4604,6 +4636,10 @@ class Database:
             "wal_size_bytes": wal_path.stat().st_size if wal_path.is_file() else 0,
             "shm_size_bytes": shm_path.stat().st_size if shm_path.is_file() else 0,
             "schema_version": schema_version,
+            "pending_revision_bases": synchronization,
+            "catalog_publication_pending": bool(
+                self.get_settings().get("horizon_catalog_pending")
+            ),
             "journal_mode": journal_mode,
             "fts_available": self.fts_available,
             "search_index": search_index,
@@ -4612,6 +4648,8 @@ class Database:
             "catalog_search_plan": self.catalog_search_plan(),
             "quick_check": quick_check,
             "counts": counts,
-            "catalog_effective_period": self.get_settings().get("catalog_effective_period", ""),
+            "catalog_effective_period": self.get_settings().get(
+                "catalog_effective_period", ""
+            ),
             "anomalies": anomalies,
         }

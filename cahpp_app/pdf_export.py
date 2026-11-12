@@ -93,8 +93,10 @@ def _make_page_footer(footer_text: str, show_page_number: bool):
 
     return page_footer
 
+    return page_footer
 
-def generate_order_pdf(
+
+def _render_order_pdf(
     database: Database,
     order_id: int,
     output_path: Path | str,
@@ -181,7 +183,9 @@ def generate_order_pdf(
     logo = ""
     if logo_path.is_file():
         try:
-            logo = Image(str(logo_path), width=28 * mm, height=20 * mm, kind="proportional")
+            logo = Image(
+                str(logo_path), width=28 * mm, height=20 * mm, kind="proportional"
+            )
         except Exception as exc:
             log_failure(logger, "pdf_logo_ignore", exc)
             logo = ""
@@ -201,9 +205,7 @@ def generate_order_pdf(
     if settings.get("ape"):
         administrative.append(f"APE : {_safe(settings['ape'])}")
     contact = " - ".join(
-        _safe(item)
-        for item in (settings.get("phone"), settings.get("email"))
-        if item
+        _safe(item) for item in (settings.get("phone"), settings.get("email")) if item
     )
     identity_parts = [
         Paragraph(establishment or "Établissement à renseigner", subtitle),
@@ -280,9 +282,7 @@ def generate_order_pdf(
 
     supplier_details = [f"<b>{_safe(order['supplier_name'])}</b>"]
     if order["customer_number"]:
-        supplier_details.append(
-            f"N° client : {_safe(order['customer_number'])}"
-        )
+        supplier_details.append(f"N° client : {_safe(order['customer_number'])}")
     if order["supplier_email"]:
         supplier_details.append(_safe(order["supplier_email"]))
     if order["supplier_phone"]:
@@ -362,7 +362,9 @@ def generate_order_pdf(
         ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
     ]
     for row_number in range(2, len(table_data), 2):
-        line_styles.append(("BACKGROUND", (0, row_number), (-1, row_number), LIGHT_GREY))
+        line_styles.append(
+            ("BACKGROUND", (0, row_number), (-1, row_number), LIGHT_GREY)
+        )
     line_table.setStyle(TableStyle(line_styles))
     story.extend([line_table, Spacer(1, 4 * mm)])
 
@@ -375,9 +377,7 @@ def generate_order_pdf(
         ["Total HT", _currency(order["total_ht"])],
     ]
     for rate, amount in sorted(vat_totals.items()):
-        totals_data.append(
-            [f"TVA {_quantity(rate)} %", _currency(amount)]
-        )
+        totals_data.append([f"TVA {_quantity(rate)} %", _currency(amount)])
     totals_data.append(["Total TTC", _currency(order["total_ttc"])])
     totals_table = Table(
         [
@@ -442,5 +442,47 @@ def generate_order_pdf(
         onFirstPage=page_footer,
         onLaterPages=page_footer,
     )
-    database.update_order_pdf(order_id, str(output_path))
     return output_path
+
+
+def generate_order_pdf(
+    database: Database, order_id: int, output_path: Path | str
+) -> Path:
+    import tempfile
+    import os
+
+    output = Path(output_path).expanduser().resolve()
+    order, _ = database.get_order(order_id)
+    with database.connect() as connection:
+        paths = connection.execute(
+            "SELECT id,pdf_path FROM orders WHERE pdf_path<>''"
+        ).fetchall()
+    if any(
+        row["id"] != order_id
+        and resolve_portable_path(row["pdf_path"]).resolve() == output
+        for row in paths
+    ):
+        raise ValueError(
+            "Ce fichier appartient à une autre commande. Choisissez un autre nom."
+        )
+    own = (
+        order["pdf_path"]
+        and resolve_portable_path(order["pdf_path"]).resolve() == output
+    )
+    if output.exists() and not own:
+        raise ValueError(
+            "Ce fichier existe déjà. Choisissez un autre nom pour conserver le document existant."
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(
+        prefix=".bon-", suffix=".pdf", dir=output.parent
+    )
+    os.close(descriptor)
+    temporary = Path(name)
+    try:
+        _render_order_pdf(database, order_id, temporary)
+        temporary.replace(output)
+        database.update_order_pdf(order_id, str(output))
+    finally:
+        temporary.unlink(missing_ok=True)
+    return output

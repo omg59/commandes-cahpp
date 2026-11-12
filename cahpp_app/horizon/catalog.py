@@ -309,10 +309,9 @@ class CatalogPage(QWidget):
             )
             return
         if self.current:
-            with self.window.operations.locked_product(self.current["id"]):
-                dialog = ProductDialog(self.window.database, self.current["id"], self)
-                if dialog.exec():
-                    self.window.data_changed()
+            dialog = ProductDialog(self.window.database, self.current["id"], self, operations=self.window.operations)
+            if dialog.exec():
+                self.window.data_changed()
 
     @action
     def toggle_favorite(self):

@@ -243,6 +243,14 @@ class CollaborationManager:
             )
         manifest_path = root / "espace-collaboratif.json"
         manifest = _read_json(manifest_path, None)
+        expected_id = self.database.get_settings().get("collaboration_workspace_id", "")
+        if expected_id and (
+            not isinstance(manifest, dict)
+            or manifest.get("workspace_id") != expected_id
+        ):
+            raise CollaborationError(
+                "L'identité du partage a changé ou son manifeste a disparu. Rétablissez le dossier d'origine avant de synchroniser."
+            )
         if manifest is None:
             manifest = {
                 "application": "Commandes CAHPP",
@@ -481,16 +489,32 @@ class CollaborationManager:
             sequences = dict(state.get("sequences") or {})
             current = int(sequences.get(year) or 0)
             prefix = f"BC-{year}-"
-            for order_file in self.orders_dir.glob("*/commande.json"):
-                payload = _read_json(order_file, {})
-                if not isinstance(payload, dict):
-                    continue
-                number = str(dict(payload.get("order") or {}).get("order_number") or "")
-                if number.startswith(prefix):
+            if year not in sequences:
+                with self.database.connect() as c:
+                    numbers = [
+                        r[0]
+                        for r in c.execute(
+                            "SELECT order_number FROM orders WHERE order_number LIKE ?",
+                            (prefix + "%",),
+                        )
+                    ]
+                for number in numbers:
                     try:
                         current = max(current, int(number.rsplit("-", 1)[1]))
                     except (IndexError, ValueError):
                         pass
+                for order_file in self.orders_dir.glob("*/commande.json"):
+                    payload = _read_json(order_file, {})
+                    if not isinstance(payload, dict):
+                        continue
+                    number = str(
+                        dict(payload.get("order") or {}).get("order_number") or ""
+                    )
+                    if number.startswith(prefix):
+                        try:
+                            current = max(current, int(number.rsplit("-", 1)[1]))
+                        except (IndexError, ValueError):
+                            pass
             current += 1
             sequences[year] = current
             _atomic_json(
@@ -504,8 +528,19 @@ class CollaborationManager:
             )
             return f"{prefix}{current:04d}"
 
+    @staticmethod
+    def _validated_uid(shared_uid: str) -> str:
+        try:
+            return str(uuid.UUID(shared_uid))
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise CollaborationError(
+                "Identifiant de commande partagée invalide."
+            ) from exc
+
     def _order_dir(self, shared_uid: str) -> Path:
-        return self.orders_dir / shared_uid
+        candidate = (self.orders_dir / self._validated_uid(shared_uid)).resolve()
+        candidate.relative_to(self.orders_dir.resolve())
+        return candidate
 
     def to_shared_uri(self, path: Path) -> str:
         relative = path.resolve().relative_to(self._required_root().resolve())
@@ -526,7 +561,11 @@ class CollaborationManager:
 
         order = dict(payload.get("order") or {})
         shared_uid = str(order["shared_uid"])
-        files_dir = self._order_dir(shared_uid) / "fichiers"
+        files_dir = (
+            self._order_dir(shared_uid)
+            / "fichiers"
+            / str(int(order.get("shared_revision") or 1))
+        )
         if order.get("deleted_at"):
             if files_dir.is_dir() and not files_dir.is_symlink():
                 shutil.rmtree(files_dir)
@@ -576,7 +615,9 @@ class CollaborationManager:
         shared_uid = str(order.get("shared_uid") or "")
         if not shared_uid:
             return cached
-        cache_dir = local_services.DOCUMENTS_DIR / "_partage" / shared_uid
+        cache_root = (local_services.DOCUMENTS_DIR / "_partage").resolve()
+        cache_dir = (cache_root / self._validated_uid(shared_uid)).resolve()
+        cache_dir.relative_to(cache_root)
         if order.get("deleted_at"):
             if cache_dir.is_dir() and not cache_dir.is_symlink():
                 shutil.rmtree(cache_dir)
@@ -639,17 +680,70 @@ class CollaborationManager:
             if isinstance(remote, dict) and remote:
                 remote_order = dict(remote.get("order") or {})
                 remote_revision = int(remote_order.get("shared_revision") or 0)
-                local_revision = int(order.get("shared_revision") or 0)
-                if remote_revision > local_revision:
+                if remote_order.get("shared_uid") != shared_uid:
                     raise SyncConflictError(
-                        "Une version plus récente de cette commande existe "
-                        "sur le partage."
+                        "Identité de commande partagée incohérente."
                     )
-                if remote_revision == local_revision and str(
-                    remote_order.get("updated_at") or ""
-                ) > str(order.get("updated_at") or ""):
+                local_order, _ = self.database.get_order(order_id)
+                if remote_revision != int(local_order["sync_base_revision"]):
+                    ignored = {
+                        "id",
+                        "order_id",
+                        "product_id",
+                        "supplier_id",
+                        "pdf_path",
+                        "stored_path",
+                        "sync_state",
+                        "last_synced_at",
+                        "sync_base_revision",
+                    }
+
+                    def business(value):
+                        if isinstance(value, dict):
+                            return {
+                                k: business(v)
+                                for k, v in value.items()
+                                if k not in ignored
+                            }
+                        if isinstance(value, list):
+                            return [business(v) for v in value]
+                        return value
+
+                    from .local_services import resolve_portable_path
+
+                    def document_digests(record):
+                        values = [dict(record.get("order") or {}).get("pdf_path", "")]
+                        values += [
+                            a.get("stored_path", "")
+                            for a in record.get("attachments", [])
+                        ]
+                        paths = [
+                            self.resolve_shared_uri(v)
+                            if v.startswith("shared:")
+                            else resolve_portable_path(v)
+                            for v in values
+                            if v
+                        ]
+                        return [_sha256(p) if p.is_file() else None for p in paths]
+
+                    if (
+                        remote_revision == int(order.get("shared_revision") or 0)
+                        and business(remote) == business(payload)
+                        and document_digests(remote) == document_digests(payload)
+                    ):
+                        cached = self._cache_order_files(remote)
+                        self.database.update_order_shared_paths(
+                            order_id,
+                            pdf_path=cached["order"].get("pdf_path", ""),
+                            attachment_paths={
+                                a["display_name"]: a["stored_path"]
+                                for a in cached.get("attachments", [])
+                            },
+                        )
+                        self.database.mark_order_synced(order_id)
+                        return
                     raise SyncConflictError(
-                        "Cette commande a été modifiée sur un autre poste."
+                        "Conflit : la version partagée diffère de la dernière version synchronisée. Modifications locales conservées."
                     )
             payload = self._copy_order_files(order_id, dict(payload))
             order = dict(payload["order"])
@@ -684,31 +778,79 @@ class CollaborationManager:
             if own_lock:
                 handle.release()
 
+    def refresh_order(self, shared_uid: str) -> bool:
+        payload = _read_json(self._order_dir(shared_uid) / "commande.json", {})
+        if not isinstance(payload, dict) or not payload:
+            return False
+        order = dict(payload.get("order") or {})
+        if order.get("shared_uid") != shared_uid:
+            raise SyncConflictError("Identité de commande partagée incohérente.")
+        # Decide before touching files or children. import_order remains transactional.
+        with self.database.connect() as connection:
+            local = connection.execute(
+                "SELECT * FROM orders WHERE shared_uid=?", (shared_uid,)
+            ).fetchone()
+        if local:
+            revision = int(order.get("shared_revision") or 0)
+            if local["sync_state"] != "Synchronisée":
+                if revision != int(local["sync_base_revision"]):
+                    raise SyncConflictError(
+                        "Conflit de synchronisation : modifications locales conservées."
+                    )
+                return False
+            if revision <= int(local["shared_revision"]):
+                # Repair a missing cached document without copying healthy caches.
+                from .local_services import resolve_portable_path
+
+                files = [local["pdf_path"]] if local["pdf_path"] else []
+                files += [
+                    a["stored_path"]
+                    for a in self.database.list_order_attachments(local["id"])
+                ]
+                if all(resolve_portable_path(value).is_file() for value in files):
+                    return False
+                cached = self._cache_order_files(payload)
+                self.database.update_order_shared_paths(
+                    local["id"],
+                    pdf_path=cached["order"].get("pdf_path", ""),
+                    attachment_paths={
+                        a["display_name"]: a["stored_path"]
+                        for a in cached.get("attachments", [])
+                    },
+                )
+                return False
+        # Validate identity before caching too (an independent history must not alter files).
+        with self.database.connect() as connection:
+            collision = connection.execute(
+                "SELECT 1 FROM orders WHERE order_number=? AND shared_uid<>?",
+                (order.get("order_number"), shared_uid),
+            ).fetchone()
+        if collision:
+            raise SyncConflictError(
+                "Conflit d'identité de commande : aucune donnée remplacée."
+            )
+        _, changed = self.database.import_order(self._cache_order_files(payload))
+        return changed
+
     def sync_orders(self) -> dict[str, int]:
         if not self.enabled:
             return {"imported": 0, "published": 0, "conflicts": 0}
-        imported = 0
-        published = 0
-        conflicts = 0
+        imported = published = conflicts = 0
         for path in sorted(self.orders_dir.glob("*/commande.json")):
-            payload = _read_json(path, {})
-            if not isinstance(payload, dict):
-                continue
-            cached = self._cache_order_files(payload)
-            _, changed = self.database.import_order(cached)
-            imported += int(changed)
+            try:
+                # JSON manifests are atomic; readers need not block an active editor.
+                imported += int(self.refresh_order(path.parent.name))
+            except (ResourceLockedError, SyncConflictError, ValueError):
+                conflicts += 1
+                logger.warning("synchronisation_import_conflit_donnees_conservees")
         for order_id in self.database.pending_order_ids():
             try:
                 self.publish_order(order_id)
                 published += 1
             except (ResourceLockedError, SyncConflictError):
                 conflicts += 1
-                logger.warning("synchronisation_conflit_ou_verrou")
-        return {
-            "imported": imported,
-            "published": published,
-            "conflicts": conflicts,
-        }
+                logger.warning("synchronisation_publication_conflit_donnees_conservees")
+        return {"imported": imported, "published": published, "conflicts": conflicts}
 
     def publish_catalog(self, source: Path, result, *, lock=None) -> dict[str, object]:
         if not self.enabled:

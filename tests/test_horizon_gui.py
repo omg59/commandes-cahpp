@@ -10,6 +10,9 @@ from pathlib import Path
 
 
 class HorizonGuiTest(unittest.TestCase):
+    def test_shared_pdf_generation_finishes_before_background_sync(self):
+        self.run_scenario("tests.gui_horizon_rc1")
+
     def test_quantity_dialog_and_responsive_statistics_selector(self):
         self.run_scenario("tests.gui_horizon_quantity")
 

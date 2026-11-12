@@ -201,7 +201,9 @@ class HorizonService:
             drafts = c.execute(
                 "SELECT COUNT(*) FROM orders WHERE deleted_at='' AND archived_at='' AND sent_at='' AND status IN ('Brouillon','Générée','E-mail préparé')"
             ).fetchone()[0]
-        stats = self.statistics(6, None, cancel=cancel, progress=progress)
+        stats = self.statistics(
+            6, None, cancel=cancel, progress=progress, include_detail=False
+        )
         return {
             "dashboard": dashboard,
             "review": review,
@@ -217,6 +219,7 @@ class HorizonService:
         *,
         date_from=None,
         date_to=None,
+        include_detail=True,
         cancel,
         progress,
     ):
@@ -273,7 +276,9 @@ class HorizonService:
         for n in range(first_serial, serial + 1):
             labels.append(names[n % 12])
             values.append(monthly.get(f"{n // 12:04d}-{n % 12 + 1:02d}", 0))
-        detail = self.statistics_detail(first, today, supplier_id)
+        detail = (
+            self.statistics_detail(first, today, supplier_id) if include_detail else {}
+        )
         return {
             "totals": totals,
             "labels": labels,
@@ -285,24 +290,11 @@ class HorizonService:
         }
 
     def statistics_detail(self, first, last, supplier_id=None):
-        detail = self.database.statistics(first, last)
-        detail = {
+        detail = self.database.statistics(first, last, supplier_id=supplier_id)
+        return {
             key: dict(value) if key == "summary" else [dict(r) for r in value]
             for key, value in detail.items()
         }
-        if supplier_id:
-            supplier = self.database.get_supplier(supplier_id)
-            name = supplier["name"] if supplier else ""
-            for key in ("suppliers", "products", "price_variances"):
-                detail[key] = [r for r in detail[key] if r["supplier_name"] == name]
-            suppliers = detail["suppliers"]
-            detail["summary"] = {
-                "order_count": sum(r["order_count"] for r in suppliers),
-                "supplier_count": len(suppliers),
-                "total_ht": sum(r["total_ht"] for r in suppliers),
-                "total_ttc": sum(r["total_ttc"] for r in suppliers),
-            }
-        return detail
 
     def orders(
         self,
@@ -322,7 +314,8 @@ class HorizonService:
                 status=status,
                 delivery_status=delivery_status,
                 include_archived=include_archived,
-                limit=500,
+                limit=-1,
+                group=group,
             )
         ]
         if group == "À préparer / envoyer":

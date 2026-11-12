@@ -276,8 +276,11 @@ class HorizonOperationsTest(unittest.TestCase):
             "CommandesCAHPP-Horizon-Setup-invalide.exe",
         ]:
             (updates / name).write_bytes(b"fixture")
-        self.assertEqual(a.pending_installer("2.0.0a2")["version"], "2.0.0b1")
-        self.assertIsNone(a.pending_installer("2.0.0a2", "2.0.0b1"))
+        with patch("sys.platform", "win32"):
+            self.assertEqual(a.pending_installer("2.0.0a2")["version"], "2.0.0b1")
+            self.assertIsNone(a.pending_installer("2.0.0a2", "2.0.0b1"))
+        with patch("sys.platform", "linux"):
+            self.assertIsNone(a.pending_installer("2.0.0a2"))
 
     def test_statistics_custom_period_and_supplier_export_match_display(self):
         oid = self.cart().save(self.db)

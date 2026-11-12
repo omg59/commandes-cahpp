@@ -1,8 +1,8 @@
-# Commandes CAHPP Horizon — 2.0.0b5
+# Commandes CAHPP Horizon — 2.0.0rc1
 
 Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
 Qt/PySide6. Le développement reste sur la branche
-`feature/horizon-ui`. Le moteur conserve la version 1.6.0 et le schéma 15 :
+`feature/horizon-ui`. Le moteur issu de la version 1.6.0 utilise désormais le schéma 16 :
 la version stable et son installateur restent distincts.
 
 ## Démarrer et installer
@@ -14,7 +14,7 @@ ouvrir le dernier workflow réussi et sa section **Artifacts**. Il faut être
 connecté à GitHub pour télécharger les fichiers.
 
 - **CommandesCAHPP-Horizon-Installer-Windows** : extraire le ZIP et lancer
-  `CommandesCAHPP-Horizon-Setup-2.0.0b5.exe`, puis suivre l'installation.
+  `CommandesCAHPP-Horizon-Setup-2.0.0rc1.exe`, puis suivre l'installation.
 - **CommandesCAHPP-Horizon-Windows** : extraire tout le ZIP et lancer
   `CommandesCAHPP-Horizon.exe`. Garder le dossier `_internal` à côté de l'EXE.
 
@@ -43,16 +43,16 @@ ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharge
 l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
 pour télécharger les artefacts. Le ZIP contient :
 
-- `CommandesCAHPP-Horizon-2.0.0b5-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0b5-x86_64.tar.gz` : variante portable à décompresser ;
+- `CommandesCAHPP-Horizon-2.0.0rc1-x86_64.AppImage` : l'application en un fichier ;
+- `CommandesCAHPP-Horizon-2.0.0rc1-x86_64.tar.gz` : variante portable à décompresser ;
 - `SHA256SUMS` et le manifeste JSON de construction.
 
 Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
 fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0b5-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0b5-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-2.0.0rc1-x86_64.AppImage
+./CommandesCAHPP-Horizon-2.0.0rc1-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -296,3 +296,24 @@ Le logo et les icônes d'application reprennent les fichiers de la version 1.6.0
 dans `assets`, sans retouche. La palette du logiciel est bleue et jaune.
 Les thèmes clair/sombre
 et les dialogues standard en français restent disponibles.
+
+## Passage de la bêta à la RC1
+
+Je recommande de faire une sauvegarde complète avant la mise à jour. La RC1
+conserve le profil existant et ajoute une information de version commune aux
+commandes (schéma 16), sans changer les quantités ni les documents. Les imports
+par copie des bases 1.6 restent disponibles. Une base ouverte en RC1 ne doit pas
+être rouverte avec un ancien exécutable : restaurez la sauvegarde pour revenir
+en arrière. Mettez tous les postes du même partage à jour avant de reprendre
+les modifications.
+
+Un conflit de synchronisation conserve les modifications locales et la version
+du partage. Ne supprimez ni le profil ni le partage pour le contourner : exportez
+le diagnostic depuis les paramètres afin d'identifier les versions à rapprocher.
+Un manifeste de partage disparu ou remplacé bloque les écritures jusqu'au
+rétablissement du dossier d'origine.
+
+Les sauvegardes ZIP incluent les PDF, les pièces jointes et le logo référencés,
+même hors du profil. Un document manquant bloque la sauvegarde avec un message,
+sans écraser la sauvegarde précédente. Pour restaurer, extrayez l'archive puis
+choisissez la base du dossier `data` dans l'import par copie.
