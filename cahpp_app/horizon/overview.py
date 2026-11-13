@@ -47,38 +47,12 @@ class OverviewPage(QWidget):
         for m in self.metrics:
             row.addWidget(m, 1)
         layout.addLayout(row)
-        middle = QHBoxLayout()
-        graph, body = card()
-        body.addWidget(label("Vos achats au fil des mois", "heading"))
-        body.addWidget(label("Montants HT des commandes envoyées", "muted"))
-        self.chart = Chart()
-        body.addWidget(self.chart)
-        middle.addWidget(graph, 3)
-        tasks, body = card()
-        body.addWidget(label("À traiter", "heading"))
-        self.check = button(
-            "Consulter les articles à vérifier", self.open_review, "accent"
-        )
-        body.addWidget(self.check)
-        body.addWidget(
-            button(
-                "Reprendre un brouillon",
-                lambda: window.open_orders("À préparer / envoyer"),
-            )
-        )
-        body.addWidget(
-            button("Suivre les livraisons", lambda: window.open_orders("À recevoir"))
-        )
-        body.addStretch()
-        body.addWidget(
-            label(
-                "Paramètres, sauvegardes et diagnostics sont disponibles dans votre profil Horizon.",
-                "muted",
-                True,
-            )
-        )
-        middle.addWidget(tasks, 2)
-        layout.addLayout(middle)
+        actions = QHBoxLayout()
+        self.check = button("Consulter les articles à vérifier", self.open_review, "accent")
+        actions.addWidget(self.check)
+        actions.addWidget(button("Reprendre un brouillon", lambda: window.open_orders("À préparer / envoyer")))
+        actions.addWidget(button("Suivre les livraisons", lambda: window.open_orders("À recevoir")))
+        layout.addLayout(actions)
         recent, body = card()
         body.addWidget(label("Dernières commandes", "heading"))
         self.model = RowsModel(
@@ -91,7 +65,7 @@ class OverviewPage(QWidget):
             self,
         )
         self.table = table(self.model)
-        self.table.setMinimumHeight(200)
+        self.table.setMinimumHeight(110)
         self.table.doubleClicked.connect(
             lambda index: window.open_order(self.model.rows[index.row()]["id"])
         )
@@ -112,8 +86,11 @@ class OverviewPage(QWidget):
         alerts.doubleClicked.connect(
             lambda index: window.open_order(self.alerts_model.rows[index.row()]["id"])
         )
-        layout.addWidget(label("Confirmations et livraisons à relancer", "heading"))
-        layout.addWidget(alerts)
+        follow_up, body = card()
+        body.addWidget(label("Confirmations et livraisons à relancer", "heading"))
+        alerts.setMinimumHeight(110)
+        body.addWidget(alerts)
+        layout.addWidget(follow_up, 1)
 
     def open_review(self):
         self.window.catalog.browser.filter.setCurrentIndex(2)
@@ -139,9 +116,6 @@ class OverviewPage(QWidget):
         ]
         for metric, (value, caption) in zip(self.metrics, details):
             metric.set_value(value, caption)
-        self.chart.set_values(
-            data["statistics"]["labels"], data["statistics"]["values"]
-        )
         self.check.setText(f"Vérifier {data['review']} article(s)")
         self.model.replace(data["orders"])
 

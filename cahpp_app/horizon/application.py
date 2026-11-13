@@ -164,7 +164,6 @@ class HorizonWindow(QMainWindow):
             self.nav_buttons[key] = b
             nav.addWidget(b)
         nav.addStretch()
-        nav.addWidget(label("VERSION BÊTA", "brandSub"))
         nav.addWidget(label(VERSION, "brandSub"))
         nav.addSpacing(8)
         user = database.get_settings().get("user_name") or "Utilisateur Horizon"
@@ -349,7 +348,7 @@ class HorizonWindow(QMainWindow):
         self.theme_switch.blockSignals(False)
         self.theme_switch.describe(dark)
         self.settings.setValue("dark", dark)
-        for chart in (self.overview.chart, self.statistics.line, self.statistics.bars):
+        for chart in (self.statistics.line, self.statistics.bars):
             chart.update()
 
     def data_changed(self):

@@ -122,7 +122,7 @@ def main():
         assert not database.get_product(pid)["catalog_review_required"]
         assert database.get_product(pid)["conditionnement"] == 40
         apply_theme(app, True)
-        window.overview.chart.repaint()
+        window.statistics.line.repaint()
         app.processEvents()
         apply_theme(app, False)
         result_threads = []
