@@ -1,5 +1,10 @@
 # Historique des versions
 
+## Horizon 2.0.0rc2
+
+- Tableaux et panier plus compacts, surtitre de la vue d’ensemble supprimé.
+- [Notes de version](docs/releases/2.0.0rc2.md).
+
 ## Horizon 2.0.0rc1 — stabilisation
 
 - Noms des PDF au format `BC-AAAA-MM-DD_Fournisseur.pdf` ; suffixe `_2`, `_3`… si nécessaire pour conserver un fichier existant.

@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Windows et Linux · Version candidate 2.0.0rc1**
+**Windows et Linux · Version candidate 2.0.0rc2**
 
 Je développe Horizon pour simplifier la préparation et le suivi des commandes
 fournisseurs à partir du catalogue CAHPP : retrouver les articles, préparer les
@@ -18,7 +18,7 @@ dossier partagé, sans serveur dédié.
 
 **[Version publiée et téléchargements](https://github.com/omg59/commandes-cahpp/releases)**
 
-Pour tester la **RC1**, ouvrez le dernier [workflow Horizon réussi](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
+Pour tester la **RC2**, ouvrez le dernier [workflow Horizon réussi](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
 puis **Artifacts** et choisissez votre système (compte GitHub requis).
 Les paquets incluent Python.
 
