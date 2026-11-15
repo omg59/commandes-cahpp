@@ -3,13 +3,14 @@ import base64
 import io
 import json
 import os
+import logging
 import ssl
 import tempfile
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 from uuid import UUID
 
 import certifi
@@ -32,6 +33,9 @@ class RelayHTTPError(ValueError):
     def __init__(self, error, route):
         self.http_status = error.code
         self.http_endpoint = route.split("/")[0]
+        server = error.headers.get("Server", "").lower()
+        self.http_server = next((name for name in ("openresty", "nginx", "cloudflare", "envoy", "squid")
+                                 if name in server), "unknown")
         content_type = error.headers.get("Content-Type", "")
         self.http_origin = "html" if "text/html" in content_type else "unknown"
         messages = {
@@ -58,11 +62,11 @@ class RelayHTTPError(ValueError):
                        "dans Nginx Proxy Manager et les règles d’accès de Cloudflare.")
         else:
             message = "Vérifiez la clé PC, la destination du proxy et les règles d’accès au relais."
-        super().__init__(f"HTTP {error.code} sur /v1/{self.http_endpoint} — {message}")
+        super().__init__(f"HTTP {error.code} sur /v1/{self.http_endpoint} — {message} (serveur : {self.http_server})")
 
 
 class Relay:
-    def __init__(self, url, token):
+    def __init__(self, url, token, *, use_system_proxy=False):
         self.url = url.rstrip("/")
         parts = urlsplit(self.url)
         if not parts.hostname or parts.username or parts.password or parts.query or parts.fragment or not (
@@ -74,10 +78,19 @@ class Relay:
         self.token = token
         context = ssl.create_default_context()
         context.load_verify_locations(cafile=certifi.where())
-        self.opener = build_opener(NoRedirect(), HTTPSHandler(context=context))
+        self.use_system_proxy = use_system_proxy
+        self.opener = build_opener(
+            ProxyHandler() if use_system_proxy else ProxyHandler({}),
+            NoRedirect(), HTTPSHandler(context=context),
+        )
 
     def call(self, route, body=None):
         data = None if body is None else json.dumps(body).encode()
+        logging.getLogger(__name__).info(
+            "relais_requete methode=%s route=%s transport=%s",
+            "GET" if data is None else "PUT", route.split("/")[0],
+            "proxy-systeme" if self.use_system_proxy else "direct",
+        )
         req = Request(f"{self.url}/v1/{route}", data=data, method="GET" if data is None else "PUT",
                       headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
         try:

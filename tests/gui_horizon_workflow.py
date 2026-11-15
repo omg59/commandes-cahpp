@@ -70,7 +70,13 @@ def main():
         preferences.mobile_url.setText("https://horizon.example.test")
         preferences.mobile_token.setText("cle-pc-de-test-" + "x" * 32)
         preferences.mobile_remember.setChecked(True)
+        assert not preferences.mobile_proxy.isChecked()
+        preferences.mobile_proxy.setChecked(True)
         preferences.save_mobile()
+        assert window.settings.value("mobile/use_system_proxy", type=bool)
+        preferences.mobile_proxy.setChecked(False)
+        preferences.save_mobile()
+        assert not window.settings.value("mobile/use_system_proxy", type=bool)
         assert window.settings.value("mobile/url") == "https://horizon.example.test"
         assert window.settings.value("mobile/token") == preferences.mobile_token.text()
         restored = QSettings(str(profile / "interface.ini"), QSettings.Format.IniFormat)

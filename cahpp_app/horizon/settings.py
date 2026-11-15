@@ -354,6 +354,9 @@ class SettingsPage(QWidget):
         self.mobile_remember = QCheckBox("Mémoriser la clé dans le fichier local de ce profil")
         self.mobile_remember.setChecked(window.settings.contains("mobile/token"))
         body.addWidget(self.mobile_remember)
+        self.mobile_proxy = QCheckBox("Utiliser le proxy système pour joindre le relais")
+        self.mobile_proxy.setChecked(window.settings.value("mobile/use_system_proxy", False, type=bool))
+        body.addWidget(self.mobile_proxy)
         row = QHBoxLayout()
         row.addWidget(button("Enregistrer la connexion", self.save_mobile))
         self.mobile_button = button("Synchroniser avec Android", self.sync_mobile)
@@ -401,7 +404,8 @@ class SettingsPage(QWidget):
     def save_mobile(self):
         url = self.mobile_url.text().strip()
         token = self.mobile_token.text().strip()
-        Relay(url, token)
+        Relay(url, token, use_system_proxy=self.mobile_proxy.isChecked())
+        self.window.settings.setValue("mobile/use_system_proxy", self.mobile_proxy.isChecked())
         self.window.settings.setValue("mobile/url", url)
         if self.mobile_remember.isChecked():
             self.window.settings.setValue("mobile/token", token)
@@ -417,15 +421,19 @@ class SettingsPage(QWidget):
         if not connection:
             return
         url, token = connection
+        use_system_proxy = self.mobile_proxy.isChecked()
+        self.mobile_connection_info = (
+            f"{url} · " + ("proxy système" if use_system_proxy else "connexion directe")
+        )
         self.mobile_button.setEnabled(False)
         self.mobile_status.setText("Synchronisation avec le relais en cours…")
 
         def work(*, cancel, progress):
-            return synchronize(self.window.operations, Relay(url, token))
+            return synchronize(self.window.operations, Relay(url, token, use_system_proxy=use_system_proxy))
 
         def finished(result, error):
             self.mobile_button.setEnabled(True)
-            self.mobile_status.setText(str(error) if error else result)
+            self.mobile_status.setText(self.mobile_connection_info + "\n" + (str(error) if error else result))
             if error:
                 self.window.report_error(error)
             else:

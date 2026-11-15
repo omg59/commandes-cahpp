@@ -1,11 +1,13 @@
 """Vérifier la confiance TLS et le nom d'hôte sur un serveur local."""
 import json
+import os
 import shutil
 import ssl
 import subprocess
 import tempfile
 import threading
 import unittest
+from urllib.error import URLError
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -52,7 +54,14 @@ class RelayTlsTest(unittest.TestCase):
                     Relay(url, "test-key").call("orders")
                 self.assertEqual(requests, [])
                 with patch("cahpp_app.horizon.mobile_sync.certifi.where", return_value=str(certificate)):
-                    self.assertEqual(Relay(url, "test-key").call("orders"), [])
+                    with patch.dict(os.environ, {
+                        "https_proxy": "http://127.0.0.1:1",
+                        "HTTPS_PROXY": "http://127.0.0.1:1",
+                        "no_proxy": "", "NO_PROXY": "",
+                    }):
+                        self.assertEqual(Relay(url, "test-key").call("orders"), [])
+                        with self.assertRaises(URLError):
+                            Relay(url, "test-key", use_system_proxy=True).call("orders")
                     with self.assertRaisesRegex(ValueError, "certificat HTTPS"):
                         Relay(url.replace("localhost", "127.0.0.1"), "test-key").call("orders")
                 self.assertEqual(requests, ["Bearer test-key"])
