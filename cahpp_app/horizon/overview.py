@@ -28,7 +28,6 @@ class OverviewPage(QWidget):
         layout.setSpacing(18)
         header = QHBoxLayout()
         text = QVBoxLayout()
-        text.addWidget(label("VOTRE ESPACE DE TRAVAIL", "eyebrow"))
         text.addWidget(label("Vue d'ensemble", "title"))
         text.addWidget(label("Préparer, suivre et vérifier vos commandes.", "muted"))
         header.addLayout(text, 1)
