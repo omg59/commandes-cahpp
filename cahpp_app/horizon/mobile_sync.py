@@ -15,6 +15,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen.canvas import Canvas
 
+from ..collaboration import ResourceLockedError, SyncConflictError
 from ..local_services import portable_path, resolve_portable_path
 
 
@@ -52,10 +53,14 @@ def delivery_pdf(pages, destination):
         raise ValueError("Le bon doit contenir une à huit pages.")
     pdf = Canvas(str(destination), pagesize=A4)
     for encoded in pages:
-        with Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))) as image:
-            if image.format != "JPEG" or image.width * image.height > 20_000_000:
-                raise ValueError("Photo JPEG invalide ou trop grande.")
-            photo = ImageOps.exif_transpose(image).convert("RGB")
+        try:
+            with Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))) as image:
+                if image.format != "JPEG" or image.width * image.height > 20_000_000:
+                    raise ValueError("Photo JPEG invalide ou trop grande.")
+                photo = ImageOps.exif_transpose(image).convert("RGB")
+        except (UnidentifiedImageError, Image.DecompressionBombError, OSError) as exc:
+            raise ValueError("Photo JPEG illisible.") from exc
+        with photo:
             width, height = A4 if photo.height >= photo.width else tuple(reversed(A4))
             pdf.setPageSize((width, height))
             pdf.drawImage(ImageReader(photo), 12, 12, width - 24, height - 24,
@@ -92,7 +97,7 @@ def apply_receipt(op, key, receipt):
             try:
                 try:
                     delivery_pdf(receipt["pages"], temp)
-                except (UnidentifiedImageError, Image.DecompressionBombError, ValueError) as exc:
+                except ValueError as exc:
                     raise ReceiptConflict("Photo illisible ou invalide.") from exc
                 os.replace(temp, path)
                 try:
@@ -132,7 +137,7 @@ def publish_orders(op, relay):
 def synchronize(op, relay):
     if not op.manager:
         raise ValueError("Activez le dossier partagé sur ce profil avant la synchronisation mobile.")
-    archived = rejected = 0
+    archived = rejected = deferred = 0
     with op.write():
         if op.editing_order is not None:
             raise ValueError("Fermez la commande en cours de modification avant la synchronisation mobile.")
@@ -146,6 +151,9 @@ def synchronize(op, relay):
                 continue
             try:
                 apply_receipt(op, key, result["receipt"])
+            except (ResourceLockedError, SyncConflictError):
+                deferred += 1
+                continue
             except ReceiptConflict as exc:
                 relay.call(route + "/result", {"state": "rejected", "reason": str(exc)[:500]})
                 rejected += 1
@@ -153,4 +161,5 @@ def synchronize(op, relay):
                 relay.call(route + "/result", {"state": "archived"})
                 archived += 1
         publish_orders(op, relay)
-    return f"{archived} réception(s) archivée(s), {rejected} à corriger."
+    return (f"{archived} réception(s) archivée(s), {rejected} à corriger, "
+            f"{deferred} en attente de déverrouillage ou de résolution de conflit.")

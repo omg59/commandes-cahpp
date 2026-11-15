@@ -94,7 +94,7 @@ class DiagnosticDialog(QDialog):
             )
             return (
                 report
-                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\n"
+                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\nRéceptions Android : {self.mobile_result}\n"
             )
 
     def busy(self, value, message=""):
@@ -105,6 +105,7 @@ class DiagnosticDialog(QDialog):
         self.export_button.setEnabled(bool(self.report))
 
     def run(self):
+        self.mobile_result = self.window.preferences.mobile_status.text() or "Aucun échange pendant cette session."
         self.task_count = len(self.window.jobs.tasks)
         self.import_running = self.window.import_busy
         self.busy(True, "Contrôles SQLite, index, performances et partage en cours…")
