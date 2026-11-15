@@ -99,3 +99,33 @@ class MobileReceiptTest(unittest.TestCase):
                 synchronize(b, pc)
                 self.assertEqual(phone.call(stale)["state"], "rejected")
                 self.assertEqual(len(other.list_order_attachments(other_id)), 1)
+                # Une réception sans photo ajoute des quantités sans créer un faux document.
+                no_photo = dict(receipt, quantities={line["id"]: 2}, pages=[], without_document=True)
+                no_photo_route = "receipts/" + str(uuid4())
+                phone.call(no_photo_route, no_photo)
+                synchronize(b, pc)
+                self.assertEqual(phone.call(no_photo_route)["state"], "archived")
+                self.assertEqual(other.receipt_summary(other_id)["lines"][0]["remaining_units"], 2)
+                self.assertEqual(len(other.list_order_attachments(other_id)), 1)
+                product = phone.call("catalog?q=Article")["items"][0]
+                action_id = str(uuid4())
+                action_route = "actions/" + action_id
+                action = {"kind": "create", "lines": [{"code": product["code"],
+                          "fingerprint": product["fingerprint"], "cartons": 2}], "notes": "Création mobile"}
+                phone.call(action_route, action)
+                original = pc.call
+                def lose_action_ack(endpoint, body=None):
+                    if endpoint == action_route + "/result":
+                        raise ConnectionError("Accusé perdu")
+                    return original(endpoint, body)
+                with patch.object(pc, "call", lose_action_ack), self.assertRaises(ConnectionError):
+                    synchronize(b, pc)
+                synchronize(a, pc)
+                self.assertEqual(phone.call(action_route)["state"], "archived")
+                self.assertEqual(len(db.list_orders()), 2)
+                self.assertEqual(len(other.list_orders()), 2)
+                created = next(o for o in phone.call("order-history") if o["id"] == action_id)
+                self.assertFalse(created["sent"])
+                self.assertEqual(created["lines"][0]["units"], 20)
+                document = next(d for d in created["documents"] if d["main"])
+                self.assertTrue(base64.b64decode(phone.call("documents/" + document["id"])["data"]).startswith(b"%PDF"))

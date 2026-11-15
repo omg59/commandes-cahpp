@@ -273,6 +273,25 @@ ON order_audit(order_id, occurred_at);
 """
 
 
+_MOBILE_CATALOG_FIELDS = {
+    "products": ("code_cahpp", "supplier_id", "supplier_ref", "designation", "conditionnement",
+                 "qml", "unit_price", "vat", "active", "favorite", "catalog_review_token"),
+    "product_overrides": ("supplier_ref", "designation", "conditionnement", "unit_packaging", "unit_price", "vat", "validated_catalog_token"),
+    "suppliers": ("cahpp_id", "name", "email", "phone", "contact_name", "customer_number", "address",
+                  "website", "franco_ht", "minimum_order_ht", "notes"),
+}
+MOBILE_CATALOG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mobile_catalog_clock(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+INSERT OR IGNORE INTO mobile_catalog_clock VALUES(1,0);
+""" + "\n".join(
+    f"CREATE TRIGGER IF NOT EXISTS mobile_catalog_{table}_{event.lower()} "
+    f"AFTER {event} ON {table} "
+    + ("WHEN " + " OR ".join(f"OLD.{field} IS NOT NEW.{field}" for field in fields) + " " if event == "UPDATE" else "")
+    + "BEGIN UPDATE mobile_catalog_clock SET revision=revision+1 WHERE id=1; END;"
+    for table, fields in _MOBILE_CATALOG_FIELDS.items()
+    for event in ("INSERT", "UPDATE", "DELETE")
+)
+
 DEFAULT_SETTINGS = {
     "establishment_name": "",
     "establishment_subtitle": "",
@@ -508,6 +527,7 @@ class Database:
         with self.session() as connection:
             connection.executescript(SCHEMA)
             self._migrate_schema(connection)
+            connection.executescript(MOBILE_CATALOG_SCHEMA)
             try:
                 self._create_search_table(connection)
             except sqlite3.DatabaseError as exc:
@@ -1865,6 +1885,7 @@ class Database:
         order_number: str | None = None,
         shared_uid: str | None = None,
         requester_service: str = "",
+        creation_comment_uid: str | None = None,
     ) -> int:
         if not lines:
             raise ValueError("La commande ne contient aucune ligne.")
@@ -2001,6 +2022,12 @@ class Database:
                 """,
                 ((order_id, *line) for line in normalized_lines),
             )
+            if is_new and creation_comment_uid:
+                connection.execute(
+                    """INSERT INTO order_comments(order_id, comment_uid, body, author_name, created_at)
+                       VALUES(?,?,?,?,?)""",
+                    (order_id, creation_comment_uid, "Commande créée depuis Horizon Mobile", actor_name, now),
+                )
             self._record_order_audit(
                 connection,
                 int(order_id),

@@ -1,6 +1,7 @@
 """Échange explicite avec le relais depuis un poste du partage."""
 import base64
 import io
+import hashlib
 import json
 import os
 import logging
@@ -21,7 +22,9 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen.canvas import Canvas
 
 from ..collaboration import ResourceLockedError, SyncConflictError
-from ..local_services import portable_path, resolve_portable_path
+from ..local_services import portable_path, resolve_portable_path, order_mail_content
+from .mobile_catalog import publish_catalog
+from .mobile_commands import apply_action
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -154,6 +157,14 @@ def apply_receipt(op, key, receipt):
         if not existing:
             if order["deleted_at"] or order["archived_at"]:
                 raise ReceiptConflict("Commande supprimée ou archivée.")
+            pages = receipt.get("pages", [])
+            if not pages:
+                if receipt.get("without_document") is not True:
+                    raise ReceiptConflict("Confirmez la réception sans bon de livraison.")
+                db.add_receipt(order["id"], date.fromisoformat(receipt["date"]), receipt["quantities"],
+                               reference=receipt.get("reference", ""), receipt_uid=key,
+                               notes="Saisie depuis Horizon Mobile — bon de livraison non fourni")
+                return
             root = db.path.parent.parent / "documents" / "receptions-mobile" / uid
             root.mkdir(parents=True, exist_ok=True)
             path = root / name
@@ -175,28 +186,66 @@ def apply_receipt(op, key, receipt):
             finally:
                 temp.unlink(missing_ok=True)
         docs = db.list_order_attachments(order["id"])
-        if not any(d["display_name"] == name and resolve_portable_path(d["stored_path"]).is_file() for d in docs):
+        if receipt.get("pages") and not any(d["display_name"] == name and resolve_portable_path(d["stored_path"]).is_file() for d in docs):
             raise RuntimeError("Bon de livraison introuvable sur le poste. Archivage à vérifier.")
     # La sortie du verrou a publié la commande et le PDF sur le partage.
 
 
 def publish_orders(op, relay):
     db = op.database
-    versions = relay.call("versions")
+    state = relay.call("mobile-state")
+    versions = state["orders"]
+    documents = set(state["documents"])
     with db.connect() as c:
-        orders = list(c.execute("SELECT id, shared_uid, shared_revision, sent_at FROM orders WHERE sync_state='Synchronisée'"))
+        orders = list(c.execute("SELECT id, shared_uid, shared_revision FROM orders WHERE sync_state='Synchronisée'"))
     for row in orders:
         uid = row["shared_uid"]
-        if not uid or (not row["sent_at"] and uid not in versions) or versions.get(uid, -1) >= row["shared_revision"]:
+        if not uid or versions.get(uid, [-1, 0]) >= [row["shared_revision"], 2]:
             continue
         summary = db.receipt_summary(row["id"])
         order = summary["order"]
-        lines = [{"id": line["line_uid"], "label": line["designation"], "remaining": line["remaining_units"]}
-                 for line in summary["lines"] if line["remaining_units"] > 0]
-        active = lines and order["sent_at"] and not (order["archived_at"] or order["deleted_at"] or order["delivered_at"])
-        snapshot = {"id": uid, "number": order["order_number"], "supplier": order["supplier_name"],
-                    "lines": lines} if active else None
-        relay.call("orders/" + uid, {"revision": order["shared_revision"], "order": snapshot})
+        snapshot = None
+        if not order["deleted_at"]:
+            lines = [{"id": line["line_uid"], "label": line["designation"], "reference": line["supplier_ref"],
+                      "code": line["code_cahpp"], "cartons": line["cartons"], "pack": line["units_per_carton"],
+                      "units": line["total_units"], "price": line["unit_price"], "vat": line["vat"],
+                      "received": line["received_units"], "remaining": line["remaining_units"]}
+                     for line in summary["lines"]]
+            receivable = bool(order["sent_at"] and not order["archived_at"] and any(line["remaining"] > 0 for line in lines))
+            subject, mail_body = order_mail_content(db, row["id"])
+            snapshot = {
+                "format": 2, "id": uid, "revision": row["shared_revision"], "number": order["order_number"],
+                "supplier": order["supplier_name"], "date": order["order_date"], "status": order["status"],
+                "sent": bool(order["sent_at"]), "confirmed": bool(order["confirmed_at"]),
+                "invoiced": bool(order["invoiced_at"]), "archived": bool(order["archived_at"]),
+                "receivable": receivable, "total_ht": order["total_ht"], "total_ttc": order["total_ttc"],
+                "delivery": order["delivery_status"], "notes": order["notes"], "lines": lines,
+                "receipts": [{"date": r["receipt_date"], "reference": r["reference"], "units": r["total_received"]}
+                             for r in summary["receipts"]],
+                "subject": subject, "mail_body": mail_body, "documents": [],
+            }
+            full, _ = db.get_order(row["id"])
+            snapshot["email"] = full["supplier_email"]
+            with db.connect() as c:
+                snapshot["comments"] = [dict(r) for r in c.execute(
+                    "SELECT body,author_name,created_at FROM order_comments WHERE order_id=? ORDER BY id", (row["id"],))]
+            files = ([{"display_name": Path(order["pdf_path"]).name, "stored_path": order["pdf_path"],
+                       "kind": "Bon de commande", "main": True}] if order["pdf_path"] else [])
+            files += [dict(r) | {"main": False} for r in db.list_order_attachments(row["id"])]
+            for item in files:
+                path = resolve_portable_path(item["stored_path"])
+                mime = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(path.suffix.lower())
+                if not mime or not path.is_file() or path.stat().st_size > 10 * 1024 * 1024:
+                    continue
+                data = path.read_bytes()
+                digest = hashlib.sha256(data).hexdigest()
+                if digest not in documents:
+                    relay.call("documents/" + digest, {"name": item["display_name"], "mime": mime,
+                                                      "data": base64.b64encode(data).decode()})
+                    documents.add(digest)
+                snapshot["documents"].append({"id": digest, "name": item["display_name"], "kind": item["kind"],
+                                              "main": item["main"], "mime": mime})
+        relay.call("orders/" + uid, {"revision": row["shared_revision"], "order": snapshot})
 
 
 def synchronize(op, relay):
@@ -207,6 +256,23 @@ def synchronize(op, relay):
         if op.editing_order is not None:
             raise ValueError("Fermez la commande en cours de modification avant la synchronisation mobile.")
         op.manager.sync_orders()
+        for item in relay.call("pending-actions"):
+            key = str(UUID(item))
+            route = "actions/" + key
+            result = relay.call(route)
+            if result["state"] != "pending":
+                continue
+            try:
+                value = apply_action(op, key, result["action"])
+            except (ResourceLockedError, SyncConflictError):
+                deferred += 1
+                continue
+            except ValueError as exc:
+                relay.call(route + "/result", {"state": "rejected", "reason": str(exc)[:500]})
+                rejected += 1
+            else:
+                relay.call(route + "/result", {"state": "archived", "result": value})
+                archived += 1
         publish_orders(op, relay)
         for item in relay.call("pending"):
             key = str(UUID(item))
@@ -226,5 +292,6 @@ def synchronize(op, relay):
                 relay.call(route + "/result", {"state": "archived"})
                 archived += 1
         publish_orders(op, relay)
-    return (f"{archived} réception(s) archivée(s), {rejected} à corriger, "
-            f"{deferred} en attente de déverrouillage ou de résolution de conflit.")
+    catalog_status = publish_catalog(op.database, relay)
+    return (f"{archived} opération(s) archivée(s), {rejected} à corriger, "
+            f"{deferred} en attente de déverrouillage ou de résolution de conflit. " + catalog_status)

@@ -96,7 +96,7 @@ def build_diagnostic_report(
                 f"Commandes archivées : {counts.get('archived_orders', 0)}",
                 f"Livraisons en attente : {counts.get('pending_deliveries', 0)}",
                 f"Commandes à synchroniser : {counts.get('pending_orders', 0)}",
-                f"Publication locale du catalogue en attente : {_yes_no(local.get('catalog_publication_pending'))}",
+                f"Publication locale du catalogue en attente : {"oui" if local.get('catalog_publication_pending') else "non"}",
                 "Révisions locales / bases communes en attente : " + ", ".join(f"{r['local_revision']}/{r['base_revision']}" for r in local.get('pending_revision_bases', [])),
                 f"Documents liés : {counts.get('attachments', 0)}",
                 f"Réceptions enregistrées : {counts.get('receipts', 0)}",
