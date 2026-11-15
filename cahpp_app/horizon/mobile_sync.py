@@ -119,7 +119,8 @@ class Relay:
             "proxy-systeme" if self.use_system_proxy else "direct",
             block + 1 if block is not None else "-", len(data or b""), size, compressed,
         )
-        headers = {"Authorization": "Bearer " + self.token, "Content-Type": "application/json"}
+        headers = {"Authorization": "Bearer " + self.token, "Content-Type": "application/json",
+                   "X-Horizon-Mobile-Protocol": "3"}
         if compressed:
             headers["Content-Encoding"] = "gzip"
         req = Request(f"{self.url}/v1/{route}", data=data, method="GET" if data is None else "PUT",
