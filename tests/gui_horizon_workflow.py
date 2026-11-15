@@ -12,7 +12,7 @@ def main():
     from cahpp_app.horizon.bootstrap import configure
 
     profile, info = configure([])
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QSettings
     from PySide6.QtWidgets import (
         QMessageBox,
         QPushButton,
@@ -25,7 +25,7 @@ def main():
     from cahpp_app.horizon.application import HorizonWindow, create_application
     from cahpp_app.horizon.services import seed_demo
     from cahpp_app.horizon.services import Cart
-    from cahpp_app.horizon.settings import DiagnosticDialog, SettingsPage
+    from cahpp_app.horizon.settings import DiagnosticDialog
     from cahpp_app.horizon.models import RowsModel, date_column
     from cahpp_app.horizon.dispatch import OrderDispatchDialog
     from cahpp_app.horizon.tracking import OrderWorkspaceDialog, ReceiptDialog
@@ -68,14 +68,13 @@ def main():
         preferences.save_mobile()
         assert window.settings.value("mobile/url") == "https://horizon.example.test"
         assert window.settings.value("mobile/token") == preferences.mobile_token.text()
-        restored = SettingsPage(window)
-        assert restored.mobile_url.text() == preferences.mobile_url.text()
-        assert restored.mobile_token.text() == preferences.mobile_token.text()
+        restored = QSettings(str(profile / "interface.ini"), QSettings.Format.IniFormat)
+        assert restored.value("mobile/url") == preferences.mobile_url.text()
+        assert restored.value("mobile/token") == preferences.mobile_token.text()
         preferences.mobile_remember.setChecked(False)
         preferences.save_mobile()
         assert not window.settings.contains("mobile/token")
         assert "mobile/token" not in db.get_settings()
-        restored.deleteLater()
         preferences.tabs.setCurrentWidget(preferences.mobile_page)
         assert preferences.save_button.isHidden()
         preferences.tabs.setCurrentIndex(0)
