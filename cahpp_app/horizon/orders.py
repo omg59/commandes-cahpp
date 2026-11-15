@@ -96,7 +96,7 @@ class PreparePage(QWidget):
             1, QHeaderView.ResizeMode.Stretch
         )
         self.cart_table.setMinimumHeight(180)
-        self.cart_table.verticalHeader().setDefaultSectionSize(62)
+        self.cart_table.verticalHeader().setDefaultSectionSize(42)
         self.model.changed.connect(self.update_totals)
         self.model.validation_error.connect(window.notify)
         body.addWidget(self.cart_table, 1)

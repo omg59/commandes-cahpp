@@ -71,7 +71,7 @@ def apply_theme(app, dark=False):
         QCheckBox {{ spacing:8px; padding:5px 0; }}
         QCheckBox::indicator {{ width:17px; height:17px; }}
         QTableView {{ background:{panel}; alternate-background-color:{panel}; border:0; gridline-color:{border}; selection-background-color:{tint}; selection-color:{text}; outline:0; }}
-        QTableView::item {{ padding:8px; border-bottom:1px solid {border}; }}
+        QTableView::item {{ padding:2px 8px; border-bottom:1px solid {border}; }}
         QTableView::item:selected {{ color:{text}; background:{tint}; }}
         QHeaderView::section {{ background:{tint}; color:{muted}; border:0; border-bottom:1px solid {border}; padding:11px 8px; font-weight:600; }}
         QScrollArea {{ border:0; background:transparent; }}

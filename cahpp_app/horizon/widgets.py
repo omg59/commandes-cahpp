@@ -150,7 +150,7 @@ def table(model):
     item.setSelectionMode(QTableView.SelectionMode.SingleSelection)
     item.setShowGrid(False)
     item.verticalHeader().hide()
-    item.verticalHeader().setDefaultSectionSize(58)
+    item.verticalHeader().setDefaultSectionSize(40)
     item.horizontalHeader().setSectionResizeMode(
         QHeaderView.ResizeMode.ResizeToContents
     )
