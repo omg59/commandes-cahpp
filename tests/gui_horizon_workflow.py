@@ -25,7 +25,7 @@ def main():
     from cahpp_app.horizon.application import HorizonWindow, create_application
     from cahpp_app.horizon.services import seed_demo
     from cahpp_app.horizon.services import Cart
-    from cahpp_app.horizon.settings import DiagnosticDialog
+    from cahpp_app.horizon.settings import DiagnosticDialog, SettingsPage
     from cahpp_app.horizon.models import RowsModel, date_column
     from cahpp_app.horizon.dispatch import OrderDispatchDialog
     from cahpp_app.horizon.tracking import OrderWorkspaceDialog, ReceiptDialog
@@ -60,6 +60,25 @@ def main():
             "imports",
             "settings",
         }
+        # La connexion Android se configure et se recharge depuis le profil local.
+        preferences = window.preferences
+        preferences.mobile_url.setText("https://horizon.example.test")
+        preferences.mobile_token.setText("cle-pc-de-test-" + "x" * 32)
+        preferences.mobile_remember.setChecked(True)
+        preferences.save_mobile()
+        assert window.settings.value("mobile/url") == "https://horizon.example.test"
+        assert window.settings.value("mobile/token") == preferences.mobile_token.text()
+        restored = SettingsPage(window)
+        assert restored.mobile_url.text() == preferences.mobile_url.text()
+        assert restored.mobile_token.text() == preferences.mobile_token.text()
+        preferences.mobile_remember.setChecked(False)
+        preferences.save_mobile()
+        assert not window.settings.contains("mobile/token")
+        assert "mobile/token" not in db.get_settings()
+        restored.deleteLater()
+        preferences.tabs.setCurrentWidget(preferences.mobile_page)
+        assert preferences.save_button.isHidden()
+        preferences.tabs.setCurrentIndex(0)
         assert window.brand_logo.alignment() & Qt.AlignmentFlag.AlignHCenter
         window.nav_buttons["commands"].click()
         assert window.current_page() is window.prepare

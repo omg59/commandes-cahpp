@@ -10,6 +10,8 @@ from PySide6.QtCore import QUrl, qVersion
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QLineEdit,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -303,10 +305,6 @@ class SettingsPage(QWidget):
                         True,
                     )
                 )
-                self.mobile_button = button("Synchroniser avec Android", self.sync_mobile)
-                body.addWidget(self.mobile_button)
-                self.mobile_status = label("", "muted", True)
-                body.addWidget(self.mobile_status)
             elif title == "Maintenance":
                 row = QHBoxLayout()
                 for text, callback in [
@@ -334,6 +332,37 @@ class SettingsPage(QWidget):
             self.tabs.addTab(page, title)
             if title == "Établissement":
                 self.tabs.addTab(window.suppliers, "Fournisseurs")
+        mobile = self.mobile_page = QWidget()
+        body = QVBoxLayout(mobile)
+        body.addWidget(label(
+            "Configurez le relais puis synchronisez pour rendre les commandes envoyées "
+            "disponibles sur le téléphone. Activez d’abord le dossier partagé dans Collaboration.",
+            "muted", True,
+        ))
+        self.mobile_fields = Fields(body)
+        self.mobile_url = self.mobile_fields.add("Adresse HTTPS du relais", "url")
+        self.mobile_url.setPlaceholderText("https://horizon.macq.xyz")
+        self.mobile_token = self.mobile_fields.add("Clé PC du relais", "token")
+        self.mobile_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.mobile_token.setPlaceholderText("Valeur de HORIZON_PC_TOKEN dans Portainer")
+        self.mobile_url.setText(window.settings.value(
+            "mobile/url", os.environ.get("HORIZON_RELAY_URL", ""), type=str,
+        ))
+        self.mobile_token.setText(window.settings.value(
+            "mobile/token", os.environ.get("HORIZON_PC_TOKEN", ""), type=str,
+        ))
+        self.mobile_remember = QCheckBox("Mémoriser la clé dans le fichier local de ce profil")
+        self.mobile_remember.setChecked(window.settings.contains("mobile/token"))
+        body.addWidget(self.mobile_remember)
+        row = QHBoxLayout()
+        row.addWidget(button("Enregistrer la connexion", self.save_mobile))
+        self.mobile_button = button("Synchroniser avec Android", self.sync_mobile)
+        row.addWidget(self.mobile_button)
+        body.addLayout(row)
+        self.mobile_status = label("", "muted", True)
+        body.addWidget(self.mobile_status)
+        body.addStretch()
+        self.tabs.addTab(mobile, "Android")
         self.about = AboutPage(window)
         self.tabs.addTab(self.about, "À propos")
         row = QHBoxLayout()
@@ -349,7 +378,8 @@ class SettingsPage(QWidget):
     def tab_changed(self):
         suppliers_selected = self.tabs.currentWidget() is self.window.suppliers
         self.save_button.setVisible(
-            not suppliers_selected and self.tabs.currentWidget() is not self.about
+            not suppliers_selected
+            and self.tabs.currentWidget() not in (self.about, self.mobile_page)
         )
         if suppliers_selected:
             self.window.suppliers.refresh()
@@ -367,12 +397,26 @@ class SettingsPage(QWidget):
     def has_unsaved_changes(self):
         return self.baseline is not None and self.values() != self.baseline
 
+    @action
+    def save_mobile(self):
+        url = self.mobile_url.text().strip()
+        token = self.mobile_token.text().strip()
+        Relay(url, token)
+        self.window.settings.setValue("mobile/url", url)
+        if self.mobile_remember.isChecked():
+            self.window.settings.setValue("mobile/token", token)
+        else:
+            self.window.settings.remove("mobile/token")
+        self.window.settings.sync()
+        self.mobile_status.setText("Connexion enregistrée. Vous pouvez synchroniser avec Android.")
+        return url, token
+
+    @action
     def sync_mobile(self):
-        url = os.environ.get("HORIZON_RELAY_URL", "")
-        token = os.environ.get("HORIZON_PC_TOKEN", "")
-        if not url or not token:
-            self.mobile_status.setText("Configurez HORIZON_RELAY_URL et HORIZON_PC_TOKEN sur ce poste, puis relancez Horizon.")
+        connection = self.save_mobile()
+        if not connection:
             return
+        url, token = connection
         self.mobile_button.setEnabled(False)
         self.mobile_status.setText("Synchronisation avec le relais en cours…")
 

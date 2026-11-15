@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Windows et Linux · Version de test 2.1.0a1 · Réceptions Android**
+**Windows et Linux · Version de test 2.1.0a2 · Réceptions Android**
 
 Je développe Horizon pour simplifier la préparation et le suivi des commandes
 fournisseurs à partir du catalogue CAHPP : retrouver les articles, préparer les
@@ -39,6 +39,8 @@ La [RC2 de Commandes CAHPP](https://github.com/omg59/commandes-cahpp/releases/ta
 
 ## Tester les réceptions Android
 
-Utilisez une copie de profil et un dossier partagé de test. Sur le poste chargé des échanges, définissez `HORIZON_RELAY_URL` (URL HTTPS du relais) et `HORIZON_PC_TOKEN` avant de démarrer Horizon. Dans **Paramètres → Collaboration**, activez le partage de test puis cliquez sur **Synchroniser avec Android**. Les commandes envoyées avec un reliquat deviennent disponibles sur le téléphone.
+Utilisez une copie de profil et un dossier partagé de test. Dans **Paramètres → Collaboration**, activez le partage de test et enregistrez les paramètres. Dans **Paramètres → Android**, saisissez l’adresse HTTPS du relais et la **clé PC** configurée dans Portainer (`HORIZON_PC_TOKEN`). Cliquez sur **Enregistrer la connexion**, puis **Synchroniser avec Android**. Les commandes envoyées avec un reliquat deviennent disponibles sur le téléphone.
+
+L’adresse est enregistrée dans le profil. Vous pouvez cocher **Mémoriser la clé dans le fichier local de ce profil** pour conserver également la clé entre deux démarrages. Cette option stocke la clé en clair dans `interface.ini`. Sans cette option, la clé saisie reste disponible pendant la session. Les variables d’environnement `HORIZON_RELAY_URL` et `HORIZON_PC_TOKEN` restent utilisables pour préremplir les champs. La clé mobile est distincte et se saisit sur Android.
 
 Après l’envoi d’une réception depuis Android, cliquez de nouveau sur **Synchroniser avec Android**. La commande reçoit ses quantités et un seul bon de livraison PDF, dans l’ordre des photos. Le deuxième poste récupère le résultat par sa synchronisation habituelle avec le partage. Pour l’essai initial, utilisez la même version de test sur les deux postes. Le téléphone permet ensuite de vérifier l’archivage.
