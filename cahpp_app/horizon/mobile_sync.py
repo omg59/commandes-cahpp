@@ -27,6 +27,7 @@ from ..collaboration import ResourceLockedError, SyncConflictError
 from ..local_services import portable_path, resolve_portable_path, order_mail_content
 from .mobile_catalog import CatalogTransferPaused, publish_catalog
 from .mobile_commands import apply_action
+from .mobile_identity import mobile_actor
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -181,7 +182,7 @@ class ReceiptConflict(ValueError):
 def apply_receipt(op, key, receipt):
     db = op.database
     uid = str(UUID(receipt["order_id"]))
-    with op.resource("commande", uid):
+    with mobile_actor(db, receipt), op.resource("commande", uid):
         with db.connect() as c:
             order = c.execute("SELECT id, deleted_at, archived_at FROM orders WHERE shared_uid=?", (uid,)).fetchone()
             existing = c.execute("SELECT order_id FROM order_receipts WHERE receipt_uid=?", (key,)).fetchone()
@@ -237,7 +238,7 @@ def publish_orders(op, relay):
         orders = list(c.execute("SELECT id, shared_uid, shared_revision FROM orders WHERE sync_state='Synchronisée'"))
     for row in orders:
         uid = row["shared_uid"]
-        if not uid or versions.get(uid, [-1, 0]) >= [row["shared_revision"], 2]:
+        if not uid or versions.get(uid, [-1, 0]) >= [row["shared_revision"], 3]:
             continue
         summary = db.receipt_summary(row["id"])
         order = summary["order"]
@@ -251,13 +252,15 @@ def publish_orders(op, relay):
             receivable = bool(order["sent_at"] and not order["archived_at"] and any(line["remaining"] > 0 for line in lines))
             subject, mail_body = order_mail_content(db, row["id"])
             snapshot = {
-                "format": 2, "id": uid, "revision": row["shared_revision"], "number": order["order_number"],
+                "format": 3, "id": uid, "revision": row["shared_revision"], "number": order["order_number"],
                 "supplier": order["supplier_name"], "date": order["order_date"], "status": order["status"],
                 "sent": bool(order["sent_at"]), "confirmed": bool(order["confirmed_at"]),
                 "invoiced": bool(order["invoiced_at"]), "archived": bool(order["archived_at"]),
                 "receivable": receivable, "total_ht": order["total_ht"], "total_ttc": order["total_ttc"],
                 "delivery": order["delivery_status"], "notes": order["notes"], "lines": lines,
-                "receipts": [{"date": r["receipt_date"], "reference": r["reference"], "units": r["total_received"]}
+                "service": order["requester_service"], "created_by": order["created_by"], "updated_by": order["updated_by"],
+                "receipts": [{"date": r["receipt_date"], "reference": r["reference"], "units": r["total_received"],
+                              "received_by": r["received_by"]}
                              for r in summary["receipts"]],
                 "subject": subject, "mail_body": mail_body, "documents": [],
             }

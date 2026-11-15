@@ -8,6 +8,7 @@ from ..local_services import portable_path, safe_filename, resolve_portable_path
 
 from ..pdf_export import default_order_pdf_path, generate_order_pdf
 from .mobile_catalog import product_snapshot
+from .mobile_identity import mobile_actor
 from .services import Cart
 
 
@@ -18,10 +19,11 @@ def generate_pdf(db, order_id):
 
 def apply_action(op, key, body):
     db = op.database
-    uid = key if body["kind"] == "create" else body["order_id"]
-    with op.resource("commande", uid):
+    cart_action = body["kind"] in ("create", "save_draft")
+    uid = body.get("order_id", key) if cart_action else body["order_id"]
+    with mobile_actor(db, body), op.resource("commande", uid):
         with db.connect() as c:
-            existing = c.execute("SELECT id,shared_revision,deleted_at,archived_at,pdf_path,sent_at,confirmed_at,invoiced_at FROM orders WHERE shared_uid=?", (uid,)).fetchone()
+            existing = c.execute("SELECT id,shared_revision,status,order_date,deleted_at,archived_at,pdf_path,sent_at,confirmed_at,invoiced_at FROM orders WHERE shared_uid=?", (uid,)).fetchone()
             marker = c.execute(
                 "SELECT order_id FROM order_audit WHERE event_uid=? UNION SELECT order_id FROM order_comments WHERE comment_uid=?",
                 (key, key)).fetchone()
@@ -31,11 +33,20 @@ def apply_action(op, key, body):
             oid = existing["id"]
             db.record_mobile_action(oid, key, body["kind"])
             if body["kind"] == "create" and not existing["pdf_path"]:
+                expected = body["revision"] + 1 if "order_id" in body else 1
+                if existing["shared_revision"] != expected:
+                    raise ValueError("Le brouillon a changé après son enregistrement. Générez le bon depuis sa dernière version.")
                 generate_pdf(db, oid)
             return {"order_id": uid}
-        if body["kind"] == "create":
-            if existing:
+        if cart_action:
+            updating = "order_id" in body
+            if existing and not updating:
                 raise ValueError("Cet identifiant appartient déjà à une commande.")
+            if updating and (not existing or existing["deleted_at"] or existing["archived_at"]
+                             or existing["status"] != "Brouillon" or existing["sent_at"]):
+                raise ValueError("Ce brouillon n’est plus modifiable. Actualisez les commandes.")
+            if updating and existing["shared_revision"] != body["revision"]:
+                raise ValueError("Le brouillon a changé sur un autre poste. Reprenez sa dernière version depuis Commandes.")
             cart = Cart()
             for line in body["lines"]:
                 with db.connect() as c:
@@ -48,11 +59,14 @@ def apply_action(op, key, body):
                     raise ValueError(f"Les informations de « {product['designation']} » ont changé. Vérifiez le panier avec le catalogue actualisé.")
                 cart.add(product, quantity=line["cartons"])
             # Le numéro et le marqueur sont enregistrés avec les lignes dans la même transaction.
-            number = op.manager.reserve_order_number(date.today())
+            number = None if updating else op.manager.reserve_order_number(date.today())
             oid = db.save_order(cart.supplier_id, [line.as_mapping() for line in cart.lines],
+                                order_id=existing["id"] if updating else None,
+                                selected_date=date.fromisoformat(existing["order_date"]) if updating else None,
                                 shared_uid=uid, order_number=number, notes=body.get("notes", ""),
-                                requester_service=body.get("service", ""), creation_event_uid=key)
-            generate_pdf(db, oid)
+                                requester_service=body.get("service", ""), save_event_uid=key)
+            if body["kind"] == "create":
+                generate_pdf(db, oid)
             return {"order_id": uid}
         if not existing or existing["deleted_at"]:
             raise ValueError("Commande supprimée ou introuvable.")

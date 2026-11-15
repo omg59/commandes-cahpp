@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -492,6 +493,7 @@ class Database:
         self.search_plan_preparation: dict[str, object] = {}
         self.current_user_id = ""
         self.current_user_name = "Utilisateur"
+        self._actor_context = ContextVar("horizon_actor", default=None)
         self.initialize()
 
     def connect(self) -> sqlite3.Connection:
@@ -773,7 +775,16 @@ class Database:
         self.current_user_name = user_name.strip() or "Utilisateur"
 
     def _actor(self) -> tuple[str, str]:
-        return self.current_user_id, self.current_user_name
+        return self._actor_context.get() or (self.current_user_id, self.current_user_name)
+
+    @contextmanager
+    def using_actor(self, actor_id: str, actor_name: str):
+        """Attribue une opération au mobile sans modifier l’identité du poste ou des autres threads."""
+        token = self._actor_context.set((actor_id, actor_name))
+        try:
+            yield
+        finally:
+            self._actor_context.reset(token)
 
     def dashboard_stats(self) -> dict[str, object]:
         with self.connect() as connection:
@@ -1886,6 +1897,7 @@ class Database:
         shared_uid: str | None = None,
         requester_service: str = "",
         creation_event_uid: str | None = None,
+        save_event_uid: str | None = None,
     ) -> int:
         if not lines:
             raise ValueError("La commande ne contient aucune ligne.")
@@ -2026,7 +2038,7 @@ class Database:
                 connection,
                 int(order_id),
                 "Commande créée" if is_new else "Brouillon modifié",
-                event_uid=creation_event_uid if is_new else None,
+                event_uid=save_event_uid or (creation_event_uid if is_new else None),
             )
         return int(order_id)
 
@@ -2038,6 +2050,7 @@ class Database:
                 "sent": "Commande envoyée", "confirm": "Confirmation fournisseur",
                 "invoiced": "Facturation", "archive": "Archivage", "document": "Document ajouté",
                 "generate_pdf": "Bon de commande généré", "comment": "Note interne", "create": "Commande créée",
+                "save_draft": "Brouillon enregistré",
             }
             self._record_order_audit(connection, order_id, "Depuis Horizon Mobile — " + labels.get(action, action), event_uid=request_uid)
             self._touch_order(connection, order_id, datetime.now().isoformat(timespec="seconds"))
