@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Windows et Linux · Version de test 2.1.0a7 · Réceptions Android**
+**Windows et Linux · Version de test 2.1.0a8 · Réceptions Android**
 
 Je développe Horizon pour simplifier la préparation et le suivi des commandes
 fournisseurs à partir du catalogue CAHPP : retrouver les articles, préparer les
@@ -51,7 +51,9 @@ Dans **Paramètres → Android**, activez **Synchroniser automatiquement avec An
 
 ## Catalogue et commandes Android
 
-La version 2.1.0a7 utilise l’API étendue du relais **horizon-server 0.3.0**. Mettez le relais à jour dans Portainer, puis installez cette version PC et l’APK Android 0.3.0.
+La version 2.1.0a8 utilise l’API étendue du relais **horizon-server 0.3.1**. Mettez le relais à jour dans Portainer, puis installez cette version PC. L’APK Android 0.3.0 reste compatible.
+
+Le catalogue est transmis en JSON compact et compressé lorsque le relais le permet. Le délai des envois de catalogue est adapté aux connexions lentes. Les blocs déjà reçus sont conservés après une interruption, la progression reste affichée et le transfert reprend au cycle suivant. Les générations existantes sont réutilisées : cette mise à jour ne force pas une republication complète.
 
 Le PC publie le catalogue par blocs, avec reprise du transfert. La première publication d’un grand catalogue peut nécessiter plusieurs passages de synchronisation. Son avancement apparaît dans **Paramètres → Android**. Ensuite, les changements de catalogue déclenchent une nouvelle génération.
 

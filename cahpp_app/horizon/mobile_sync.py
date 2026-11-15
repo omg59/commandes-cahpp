@@ -1,5 +1,6 @@
 """Échange explicite avec le relais depuis un poste du partage."""
 import base64
+import gzip
 import io
 import hashlib
 import json
@@ -7,6 +8,7 @@ import os
 import logging
 import ssl
 import tempfile
+import time
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -23,13 +25,26 @@ from reportlab.pdfgen.canvas import Canvas
 
 from ..collaboration import ResourceLockedError, SyncConflictError
 from ..local_services import portable_path, resolve_portable_path, order_mail_content
-from .mobile_catalog import publish_catalog
+from .mobile_catalog import CatalogTransferPaused, publish_catalog
 from .mobile_commands import apply_action
 
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args):
         return None
+
+
+class RelayNetworkError(URLError):
+    """Erreur réseau présentable, sans adresse, clé ni message brut de socket."""
+    def __init__(self, *, timeout, endpoint, block):
+        self.network_cause = "timeout" if timeout else "connection"
+        place = " du catalogue" if endpoint == "catalog-sync" else " avec le relais"
+        detail = f" (bloc {block + 1})" if block is not None else ""
+        self.message = ("Délai réseau dépassé" if timeout else "Connexion interrompue") + place + detail + "."
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
 
 
 class RelayHTTPError(ValueError):
@@ -79,6 +94,7 @@ class Relay:
         if not token:
             raise ValueError("La clé PC du relais est manquante.")
         self.token = token
+        self.catalog_gzip = False
         context = ssl.create_default_context()
         context.load_verify_locations(cafile=certifi.where())
         self.use_system_proxy = use_system_proxy
@@ -88,32 +104,53 @@ class Relay:
         )
 
     def call(self, route, body=None):
-        data = None if body is None else json.dumps(body).encode()
-        logging.getLogger(__name__).info(
-            "relais_requete methode=%s route=%s transport=%s",
-            "GET" if data is None else "PUT", route.split("/")[0],
+        data = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
+        endpoint, *tail = route.split("/")
+        block = int(tail[1]) if endpoint == "catalog-sync" and len(tail) == 2 and tail[1].isdigit() else None
+        size = len(data or b"")
+        compressed = data is not None and endpoint == "catalog-sync" and self.catalog_gzip and size >= 1024
+        if compressed:
+            data = gzip.compress(data, compresslevel=5, mtime=0)
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "relais_requete methode=%s route=%s transport=%s bloc=%s octets=%s bruts=%s gzip=%s",
+            "GET" if data is None else "PUT", endpoint,
             "proxy-systeme" if self.use_system_proxy else "direct",
+            block + 1 if block is not None else "-", len(data or b""), size, compressed,
         )
+        headers = {"Authorization": "Bearer " + self.token, "Content-Type": "application/json"}
+        if compressed:
+            headers["Content-Encoding"] = "gzip"
         req = Request(f"{self.url}/v1/{route}", data=data, method="GET" if data is None else "PUT",
-                      headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
+                      headers=headers)
+        started = time.monotonic()
         try:
-            response = self.opener.open(req, timeout=30)
+            # La publication initiale est un transfert volumineux, distinct du suivi courant.
+            with self.opener.open(req, timeout=90 if endpoint == "catalog-sync" and data is not None else 30) as result:
+                raw = result.read(17 * 1024 * 1024 + 1)
+                if len(raw) > 17 * 1024 * 1024:
+                    raise ValueError("Réponse du relais trop volumineuse.")
         except HTTPError as exc:
+            logger.warning("relais_refus route=%s bloc=%s http=%s", endpoint,
+                           block + 1 if block is not None else "-", exc.code)
             raise RelayHTTPError(exc, route) from exc
-        except URLError as exc:
-            if isinstance(exc.reason, ssl.SSLCertVerificationError):
+        except (URLError, OSError) as exc:
+            reason = exc.reason if isinstance(exc, URLError) else exc
+            if isinstance(reason, ssl.SSLCertVerificationError):
                 raise ValueError(
                     "Le certificat HTTPS du relais ne peut pas être validé. "
                     "Vérifiez que le domaine correspond au certificat et que "
                     "Nginx Proxy Manager présente la chaîne de certificats complète. "
-                    f"Détail TLS : {exc.reason.verify_message}"
+                    f"Détail TLS : {reason.verify_message}"
                 ) from exc
-            raise
-        with response as result:
-            raw = result.read(17 * 1024 * 1024 + 1)
-            if len(raw) > 17 * 1024 * 1024:
-                raise ValueError("Réponse du relais trop volumineuse.")
-            return json.loads(raw)
+            timed_out = isinstance(reason, TimeoutError)
+            logger.warning("relais_interruption route=%s bloc=%s cause=%s octets=%s duree_ms=%s",
+                           endpoint, block + 1 if block is not None else "-", "timeout" if timed_out else "connection",
+                           len(data or b""), round((time.monotonic() - started) * 1000))
+            raise RelayNetworkError(timeout=timed_out, endpoint=endpoint, block=block) from exc
+        logger.info("relais_reponse route=%s bloc=%s duree_ms=%s", endpoint,
+                    block + 1 if block is not None else "-", round((time.monotonic() - started) * 1000))
+        return json.loads(raw)
 
 
 def delivery_pdf(pages, destination):
@@ -293,6 +330,10 @@ def synchronize(op, relay):
                 relay.call(route + "/result", {"state": "archived"})
                 archived += 1
         publish_orders(op, relay)
-    catalog_status = publish_catalog(op.database, relay)
+    try:
+        catalog_status = publish_catalog(op.database, relay)
+    except CatalogTransferPaused as exc:
+        # Les opérations métier ont déjà été traitées. Le catalogue reprendra au prochain cycle.
+        catalog_status = str(exc)
     return (f"{archived} opération(s) archivée(s), {rejected} à corriger, "
             f"{deferred} en attente de déverrouillage ou de résolution de conflit. " + catalog_status)

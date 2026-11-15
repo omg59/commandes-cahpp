@@ -19,6 +19,7 @@ from PIL import Image
 from cahpp_app import local_services
 from cahpp_app.database import Database
 from cahpp_app.horizon.mobile_sync import Relay, synchronize
+from cahpp_app.horizon.mobile_catalog import CatalogTransferPaused
 from cahpp_app.horizon.operations import Operations
 from cahpp_app.horizon.services import Cart
 
@@ -27,6 +28,30 @@ RELAY = Path(os.environ.get("HORIZON_SERVER_SOURCE", Path(__file__).resolve().pa
 
 @unittest.skipUnless(RELAY.is_file(), "Cloner également horizon-server pour le test inter-dépôts")
 class MobileReceiptTest(unittest.TestCase):
+    def test_compressed_publication_over_http_keeps_accented_search_working(self):
+        spec = importlib.util.spec_from_file_location("horizon_test_relay_gzip", RELAY)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with ExitStack() as cleanup:
+            root = Path(cleanup.enter_context(tempfile.TemporaryDirectory()))
+            http = make_server("127.0.0.1", 0, module.create_app(root / "relay.db", "p" * 32, "m" * 32))
+            worker = threading.Thread(target=http.serve_forever, daemon=True)
+            worker.start()
+            cleanup.callback(http.server_close)
+            cleanup.callback(worker.join)
+            cleanup.callback(http.shutdown)
+            pc = Relay(f"http://127.0.0.1:{http.server_port}", "p" * 32)
+            phone = Relay(f"http://127.0.0.1:{http.server_port}", "m" * 32)
+            pc.catalog_gzip = pc.call("mobile-state")["catalog_gzip"]
+            route = "catalog-sync/" + "a" * 64
+            pc.call(route, {"parts": 1, "count": 100, "suppliers": []})
+            pc.call(route + "/0", [{"code": f"ART-{i}", "label": "Compresses stériles",
+                                   "supplier_id": "s1", "fingerprint": "a" * 64} for i in range(100)])
+            pc.call(route + "/commit", {})
+            result = phone.call("catalog?q=ster")
+            self.assertEqual(len(result["items"]), 40)
+            self.assertTrue(result["more"])
+
     def test_replay_after_lost_ack_two_workstations_and_two_pages(self):
         spec = importlib.util.spec_from_file_location("horizon_test_relay", RELAY)
         module = importlib.util.module_from_spec(spec)
@@ -103,7 +128,11 @@ class MobileReceiptTest(unittest.TestCase):
                 no_photo = dict(receipt, quantities={line["id"]: 2}, pages=[], without_document=True)
                 no_photo_route = "receipts/" + str(uuid4())
                 phone.call(no_photo_route, no_photo)
-                synchronize(b, pc)
+                with patch("cahpp_app.horizon.mobile_sync.publish_catalog",
+                           side_effect=CatalogTransferPaused("Publication interrompue")):
+                    status = synchronize(b, pc)
+                self.assertIn("1 opération(s) archivée(s)", status)
+                self.assertIn("Publication interrompue", status)
                 self.assertEqual(phone.call(no_photo_route)["state"], "archived")
                 self.assertEqual(other.receipt_summary(other_id)["lines"][0]["remaining_units"], 2)
                 self.assertEqual(len(other.list_order_attachments(other_id)), 1)

@@ -7,9 +7,15 @@ from ..numbers import parse_decimal
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
+from urllib.error import URLError
 
 from ..database import PRODUCT_SELECT
+
+
+class CatalogTransferPaused(ValueError):
+    pass
 
 
 def numeric(value):
@@ -99,18 +105,40 @@ def catalog_cache(db):
 
 def publish_catalog(db, relay):
     state = relay.call("mobile-state")
+    relay.catalog_gzip = state.get("catalog_gzip", False) is True
     root, manifest = catalog_cache(db)
     generation = manifest["generation"]
     if state["catalog"] == generation:
         return ""
     route = "catalog-sync/" + generation
-    relay.call(route, {**manifest, "previous": state["catalog"]})
-    received = set(relay.call(route)["parts"])
+    done = None
+    def paused_message(prefix):
+        progress = (f"{done}/{manifest['parts']} blocs confirmés" if done is not None
+                    else "progression à vérifier")
+        return (f"{prefix} : {progress}. "
+                "Reprise au prochain cycle ; les blocs reçus sont conservés.")
+
+    def call(endpoint, body=None):
+        try:
+            return relay.call(endpoint, body)
+        except (URLError, TimeoutError, ConnectionError) as exc:
+            raise CatalogTransferPaused(paused_message("Publication du catalogue mobile interrompue")) from exc
+        except ValueError as exc:
+            if getattr(exc, "http_status", None) not in {408, 429, 500, 502, 503, 504}:
+                raise
+            raise CatalogTransferPaused(paused_message("Relais temporairement indisponible")) from exc
+    # La lecture des accusés précède le manifeste : même un échec d’envoi garde une progression exacte.
+    received = set(call(route)["parts"])
+    done = len(received)
+    call(route, {**manifest, "previous": state["catalog"]})
     missing = [i for i in range(manifest["parts"]) if i not in received]
+    started = time.monotonic()
     for part in missing[:25]:
-        relay.call(route + "/" + str(part), json.loads((root / f"{part}.json").read_text()))
-    done = len(received) + min(25, len(missing))
+        call(route + "/" + str(part), json.loads((root / f"{part}.json").read_text()))
+        done += 1
+        if time.monotonic() - started >= 20:
+            break
     if done == manifest["parts"]:
-        relay.call(route + "/commit", {})
+        call(route + "/commit", {})
         return f"Catalogue mobile publié ({manifest['count']} références)."
     return f"Publication du catalogue mobile : {done}/{manifest['parts']} blocs."
