@@ -60,6 +60,11 @@ def main():
             "imports",
             "settings",
         }
+        with patch("cahpp_app.horizon.application.QProcess") as process:
+            for result in (True, (True, 1234)):
+                process.return_value.startDetached.return_value = result
+                window.choose_profile()
+                process.return_value.startDetached.assert_called()
         # La connexion Android se configure et se recharge depuis le profil local.
         preferences = window.preferences
         preferences.mobile_url.setText("https://horizon.example.test")

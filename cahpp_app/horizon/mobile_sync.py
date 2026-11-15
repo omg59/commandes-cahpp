@@ -8,7 +8,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 from uuid import UUID
 
@@ -26,6 +26,39 @@ from ..local_services import portable_path, resolve_portable_path
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args):
         return None
+
+
+class RelayHTTPError(ValueError):
+    def __init__(self, error, route):
+        self.http_status = error.code
+        self.http_endpoint = route.split("/")[0]
+        content_type = error.headers.get("Content-Type", "")
+        self.http_origin = "html" if "text/html" in content_type else "unknown"
+        messages = {
+            "Clé invalide.": "La clé PC est refusée. Vérifiez HORIZON_PC_TOKEN dans Portainer.",
+            "Action non autorisée.": "Cette clé ne permet pas une synchronisation PC. Utilisez HORIZON_PC_TOKEN.",
+            "Ressource inconnue.": "La route demandée est indisponible. Vérifiez l’adresse du relais et sa version.",
+            "API inconnue.": "Vérifiez l’adresse du relais : elle doit désigner la racine du service.",
+        }
+        try:
+            raw = error.read(4096)
+            payload = json.loads(raw)
+            message = messages.get(payload.get("error")) if isinstance(payload, dict) else None
+        except (ValueError, UnicodeError, OSError):
+            message = None
+        finally:
+            error.close()
+        if message:
+            self.http_origin = "relay"
+        elif error.headers.get("cf-mitigated", "").lower() == "challenge":
+            self.http_origin = "cloudflare-challenge"
+            message = "Cloudflare exige une vérification interactive pour la connexion au relais."
+        elif self.http_origin == "html":
+            message = ("Le serveur renvoie une page HTML. Vérifiez la règle du domaine "
+                       "dans Nginx Proxy Manager et les règles d’accès de Cloudflare.")
+        else:
+            message = "Vérifiez la clé PC, la destination du proxy et les règles d’accès au relais."
+        super().__init__(f"HTTP {error.code} sur /v1/{self.http_endpoint} — {message}")
 
 
 class Relay:
@@ -49,6 +82,8 @@ class Relay:
                       headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
         try:
             response = self.opener.open(req, timeout=30)
+        except HTTPError as exc:
+            raise RelayHTTPError(exc, route) from exc
         except URLError as exc:
             if isinstance(exc.reason, ssl.SSLCertVerificationError):
                 raise ValueError(

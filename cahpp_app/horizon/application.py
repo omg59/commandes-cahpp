@@ -439,7 +439,8 @@ class HorizonWindow(QMainWindow):
         process.setProcessEnvironment(environment)
         process.setProgram(program)
         process.setArguments(args)
-        ok, _ = process.startDetached()
+        result = process.startDetached()
+        ok = result[0] if isinstance(result, tuple) else result
         if not ok:
             self.report_error("Le nouveau profil n'a pas pu être lancé.")
         else:
