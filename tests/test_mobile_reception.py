@@ -129,3 +129,40 @@ class MobileReceiptTest(unittest.TestCase):
                 self.assertEqual(created["lines"][0]["units"], 20)
                 document = next(d for d in created["documents"] if d["main"])
                 self.assertTrue(base64.b64decode(phone.call("documents/" + document["id"])["data"]).startswith(b"%PDF"))
+                def current_order():
+                    return next(o for o in phone.call("order-history") if o["id"] == action_id)
+                def command(kind, **fields):
+                    snapshot = current_order()
+                    payload = {"kind": kind, "order_id": action_id, "revision": snapshot["revision"], **fields}
+                    path = "actions/" + str(uuid4())
+                    phone.call(path, payload)
+                    synchronize(a, pc)
+                    self.assertEqual(phone.call(path)["state"], "archived")
+                    return path, payload
+                command("sent")
+                self.assertTrue(current_order()["sent"])
+                command("confirm")
+                self.assertTrue(current_order()["confirmed"])
+                stale_revision = current_order()["revision"]
+                note_path, note_body = command("comment", text="Note envoyée depuis le téléphone")
+                self.assertEqual(phone.call(note_path, note_body)["state"], "archived")
+                stale_action = "actions/" + str(uuid4())
+                phone.call(stale_action, {"kind": "invoiced", "order_id": action_id, "revision": stale_revision})
+                synchronize(a, pc)
+                self.assertEqual(phone.call(stale_action)["state"], "rejected")
+                command("document", name="facture.pdf", document_kind="Facture", mime="application/pdf",
+                        data=phone.call("documents/" + document["id"])["data"])
+                self.assertEqual(len(current_order()["documents"]), 2)
+                command("invoiced")
+                self.assertTrue(current_order()["invoiced"])
+                command("archive")
+                self.assertTrue(current_order()["archived"])
+                self.assertFalse(current_order()["receivable"])
+                # Un tarif actualisé ne doit pas être remplacé par l'ancien prix du panier.
+                with db.session() as c:
+                    c.execute("UPDATE products SET unit_price=3 WHERE id=?", (pid,))
+                outdated = "actions/" + str(uuid4())
+                phone.call(outdated, action)
+                synchronize(a, pc)
+                self.assertEqual(phone.call(outdated)["state"], "rejected")
+                self.assertEqual(len(db.list_orders(include_archived=True)), 2)

@@ -21,12 +21,15 @@ def apply_action(op, key, body):
     uid = key if body["kind"] == "create" else body["order_id"]
     with op.resource("commande", uid):
         with db.connect() as c:
-            existing = c.execute("SELECT id,shared_revision,deleted_at,archived_at,pdf_path,sent_at FROM orders WHERE shared_uid=?", (uid,)).fetchone()
-            marker = c.execute("SELECT order_id FROM order_comments WHERE comment_uid=?", (key,)).fetchone()
+            existing = c.execute("SELECT id,shared_revision,deleted_at,archived_at,pdf_path,sent_at,confirmed_at,invoiced_at FROM orders WHERE shared_uid=?", (uid,)).fetchone()
+            marker = c.execute(
+                "SELECT order_id FROM order_audit WHERE event_uid=? UNION SELECT order_id FROM order_comments WHERE comment_uid=?",
+                (key, key)).fetchone()
         if marker:
             if not existing or marker["order_id"] != existing["id"]:
                 raise ValueError("Identité de l’action mobile incohérente.")
             oid = existing["id"]
+            db.record_mobile_action(oid, key, body["kind"])
             if body["kind"] == "create" and not existing["pdf_path"]:
                 generate_pdf(db, oid)
             return {"order_id": uid}
@@ -48,7 +51,7 @@ def apply_action(op, key, body):
             number = op.manager.reserve_order_number(date.today())
             oid = db.save_order(cart.supplier_id, [line.as_mapping() for line in cart.lines],
                                 shared_uid=uid, order_number=number, notes=body.get("notes", ""),
-                                requester_service=body.get("service", ""), creation_comment_uid=key)
+                                requester_service=body.get("service", ""), creation_event_uid=key)
             generate_pdf(db, oid)
             return {"order_id": uid}
         if not existing or existing["deleted_at"]:
@@ -60,6 +63,10 @@ def apply_action(op, key, body):
             if attachment:
                 stored = resolve_portable_path(attachment["stored_path"])
                 existing_document = stored.is_file() and hashlib.sha256(stored.read_bytes()).digest() == hashlib.sha256(base64.b64decode(body["data"])).digest()
+        completed_fields = {"sent": "sent_at", "confirm": "confirmed_at", "invoiced": "invoiced_at", "archive": "archived_at"}
+        if existing["shared_revision"] != body["revision"] and body["kind"] in completed_fields and existing[completed_fields[body["kind"]]]:
+            db.record_mobile_action(existing["id"], key, body["kind"])
+            return {"order_id": uid}
         if not existing_document and existing["shared_revision"] != body["revision"]:
             raise ValueError("La commande a été modifiée sur un autre poste. Actualisez-la avant de recommencer.")
         if existing["archived_at"] and body["kind"] != "archive":
@@ -68,6 +75,7 @@ def apply_action(op, key, body):
         kind = body["kind"]
         if kind == "comment":
             db.add_order_comment(oid, body["text"], comment_uid=key)
+            db.record_mobile_action(oid, key, kind)
             return {"order_id": uid}
         if kind == "sent":
             if not existing["pdf_path"]:
@@ -92,5 +100,5 @@ def apply_action(op, key, body):
                 db.add_order_attachment(oid, body["document_kind"], filename, portable_path(path))
         else:
             raise ValueError("Action mobile inconnue.")
-        db.add_order_comment(oid, "Action depuis Horizon Mobile : " + kind, comment_uid=key)
+        db.record_mobile_action(oid, key, kind)
         return {"order_id": uid}

@@ -255,6 +255,7 @@ def synchronize(op, relay):
     with op.write():
         if op.editing_order is not None:
             raise ValueError("Fermez la commande en cours de modification avant la synchronisation mobile.")
+        op.manager.sync_team_state()
         op.manager.sync_orders()
         for item in relay.call("pending-actions"):
             key = str(UUID(item))

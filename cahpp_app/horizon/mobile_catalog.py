@@ -1,12 +1,25 @@
 """Projection du catalogue par blocs immuables, invalidée sur changement métier."""
 import hashlib
 import json
+import math
+
+from ..numbers import parse_decimal
 import os
 import shutil
 import tempfile
 from pathlib import Path
 
 from ..database import PRODUCT_SELECT
+
+
+def numeric(value):
+    if value is None:
+        return None
+    try:
+        number = float(parse_decimal(value, "Valeur du catalogue"))
+        return number if math.isfinite(number) else None
+    except (ValueError, OverflowError):
+        return None
 
 
 def supplier_key(row):
@@ -17,8 +30,8 @@ def product_snapshot(db, product, supplier):
     record = {
         "code": product["code_cahpp"], "reference": product["supplier_ref"],
         "label": product["designation"], "supplier_id": supplier_key(supplier),
-        "supplier": supplier["name"], "pack": product["conditionnement"] or product["qml"],
-        "price": product["unit_price"], "vat": product["vat"],
+        "supplier": supplier["name"], "pack": numeric(product["conditionnement"] or product["qml"]),
+        "price": numeric(product["unit_price"]), "vat": numeric(product["vat"]),
         "review": bool(product["catalog_review_required"]), "active": bool(product["active"]),
     }
     record["fingerprint"] = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
@@ -28,20 +41,21 @@ def product_snapshot(db, product, supplier):
 
 def catalog_cache(db):
     root = db.path.parent / "mobile-catalog"
+    root.mkdir(parents=True, exist_ok=True)
     meta = root / "manifest.json"
     with db.connect() as c:
         c.execute("BEGIN")
         revision = c.execute("SELECT revision FROM mobile_catalog_clock WHERE id=1").fetchone()[0]
         if meta.is_file():
             current = json.loads(meta.read_text())
-            if current["revision"] == revision:
-                return root, current
+            if current["revision"] == revision and (root / current["generation"]).is_dir():
+                return root / current["generation"], current
         suppliers = {r["id"]: dict(r) for r in c.execute("SELECT * FROM suppliers")}
         public_suppliers = [{
             k: s[k] for k in ("name", "email", "phone", "contact_name", "customer_number", "address",
                               "website", "franco_ht", "minimum_order_ht", "notes")
-        } | {"id": supplier_key(s)} for s in sorted(suppliers.values(), key=lambda s: supplier_key(s))]
-        incoming = Path(tempfile.mkdtemp(prefix="mobile-catalog-", dir=db.path.parent))
+        } | {"id": supplier_key(s), "franco_ht": numeric(s["franco_ht"]), "minimum_order_ht": numeric(s["minimum_order_ht"])} for s in sorted(suppliers.values(), key=lambda s: supplier_key(s))]
+        incoming = Path(tempfile.mkdtemp(prefix="incoming-", dir=root))
         try:
             digest = hashlib.sha256(json.dumps(public_suppliers, sort_keys=True).encode())
             batch, count, parts = [], 0, 0
@@ -67,10 +81,17 @@ def catalog_cache(db):
             current = {"revision": revision, "generation": digest.hexdigest(), "count": count,
                        "parts": parts, "suppliers": public_suppliers}
             (incoming / "manifest.json").write_text(json.dumps(current))
-            if root.exists():
-                shutil.rmtree(root)
-            os.replace(incoming, root)
-            return root, current
+            destination = root / current["generation"]
+            try:
+                incoming.rename(destination)
+            except OSError:
+                if not destination.is_dir():
+                    raise
+            with tempfile.NamedTemporaryFile(mode="w", dir=root, suffix=".json", delete=False) as stream:
+                json.dump(current, stream)
+                index = Path(stream.name)
+            os.replace(index, meta)
+            return destination, current
         finally:
             if incoming.exists():
                 shutil.rmtree(incoming)

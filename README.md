@@ -48,3 +48,13 @@ Après l’envoi d’une réception depuis Android, cliquez de nouveau sur **Syn
 Les échanges avec le relais utilisent une connexion directe par défaut. Si votre réseau impose un proxy, activez **Utiliser le proxy système pour joindre le relais** dans **Paramètres → Android**. Ce choix est enregistré dans le profil.
 
 Dans **Paramètres → Android**, activez **Synchroniser automatiquement avec Android** et choisissez un intervalle (60 secondes par défaut). Enregistrez la connexion. La synchronisation fonctionne pendant que Horizon est ouvert, attend la fin des saisies et imports et reprend après une erreur réseau. Pour retrouver la clé après redémarrage, cochez sa mémorisation locale. Les erreurs automatiques apparaissent dans cet onglet et dans le diagnostic.
+
+## Catalogue et commandes Android
+
+La version 2.1.0a7 utilise l’API étendue du relais **horizon-server 0.3.0**. Mettez le relais à jour dans Portainer, puis installez cette version PC et l’APK Android 0.3.0.
+
+Le PC publie le catalogue par blocs, avec reprise du transfert. La première publication d’un grand catalogue peut nécessiter plusieurs passages de synchronisation. Son avancement apparaît dans **Paramètres → Android**. Ensuite, les changements de catalogue déclenchent une nouvelle génération.
+
+Les paniers mobiles sont vérifiés avec les prix et conditionnements courants avant la création du bon. Le PC attribue le numéro et génère le PDF. Les changements de suivi, notes, réceptions et documents sont appliqués avec les verrous du partage. Une réception sans photo nécessite une confirmation sur le téléphone et est enregistrée sans document artificiel.
+
+Laissez Horizon ouvert sur un poste pour traiter automatiquement les demandes. La consultation du catalogue déjà publié sur le relais reste disponible quand les PC sont fermés.

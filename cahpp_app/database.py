@@ -1885,7 +1885,7 @@ class Database:
         order_number: str | None = None,
         shared_uid: str | None = None,
         requester_service: str = "",
-        creation_comment_uid: str | None = None,
+        creation_event_uid: str | None = None,
     ) -> int:
         if not lines:
             raise ValueError("La commande ne contient aucune ligne.")
@@ -2022,18 +2022,25 @@ class Database:
                 """,
                 ((order_id, *line) for line in normalized_lines),
             )
-            if is_new and creation_comment_uid:
-                connection.execute(
-                    """INSERT INTO order_comments(order_id, comment_uid, body, author_name, created_at)
-                       VALUES(?,?,?,?,?)""",
-                    (order_id, creation_comment_uid, "Commande créée depuis Horizon Mobile", actor_name, now),
-                )
             self._record_order_audit(
                 connection,
                 int(order_id),
                 "Commande créée" if is_new else "Brouillon modifié",
+                event_uid=creation_event_uid if is_new else None,
             )
         return int(order_id)
+
+    def record_mobile_action(self, order_id: int, request_uid: str, action: str) -> None:
+        with self.session() as connection:
+            if connection.execute("SELECT 1 FROM order_audit WHERE event_uid=?", (request_uid,)).fetchone():
+                return
+            labels = {
+                "sent": "Commande envoyée", "confirm": "Confirmation fournisseur",
+                "invoiced": "Facturation", "archive": "Archivage", "document": "Document ajouté",
+                "generate_pdf": "Bon de commande généré", "comment": "Note interne", "create": "Commande créée",
+            }
+            self._record_order_audit(connection, order_id, "Depuis Horizon Mobile — " + labels.get(action, action), event_uid=request_uid)
+            self._touch_order(connection, order_id, datetime.now().isoformat(timespec="seconds"))
 
     def list_orders(
         self,
