@@ -587,6 +587,7 @@ class HorizonWindow(QMainWindow):
             return
         self.closing = True
         self.sync_timer.stop()
+        self.preferences.mobile_timer.stop()
         self.heartbeat_timer.stop()
         self.jobs.close()
         self.catalog.browser.timer.stop()
@@ -656,6 +657,7 @@ class HorizonWindow(QMainWindow):
             if result.get("catalog_pending"):
                 self.imports.refresh()
             self.check_shared_updates()
+            QTimer.singleShot(0, lambda: self.preferences.sync_mobile(automatic=True))
 
         self.jobs.submit("collaboration", self.operations.sync, done)
 

@@ -67,6 +67,7 @@ def main():
                 process.return_value.startDetached.assert_called()
         # La connexion Android se configure et se recharge depuis le profil local.
         preferences = window.preferences
+        preferences.mobile_auto.setChecked(False)
         preferences.mobile_url.setText("https://horizon.example.test")
         preferences.mobile_token.setText("cle-pc-de-test-" + "x" * 32)
         preferences.mobile_remember.setChecked(True)
@@ -442,6 +443,29 @@ def main():
             window.navigate("orders")
             wait(app, lambda: not window.jobs.tasks)
             window.grab().save(sys.argv[1])
+        wait(app, lambda: not window.jobs.tasks)
+        # Un passage automatique ne se chevauche pas et reste silencieux en cas d’échec.
+        with (
+            patch.object(window.operations, "manager", object()),
+            patch.object(window, "dirty_forms", return_value=False),
+            patch.object(window, "data_changed"),
+            patch("cahpp_app.horizon.settings.synchronize", return_value="1 réception archivée") as mobile_sync,
+        ):
+            preferences.mobile_timer.start(15000)
+            preferences.mobile_next_due = 0
+            preferences.sync_mobile(automatic=True)
+            preferences.sync_mobile(automatic=True)
+            wait(app, lambda: not window.jobs.tasks)
+            mobile_sync.assert_called_once()
+            assert "1 réception archivée" in preferences.mobile_status.text()
+            preferences.sync_mobile(automatic=True)
+            mobile_sync.assert_called_once()
+            preferences.mobile_next_due = 0
+            mobile_sync.side_effect = RuntimeError("Relais temporairement indisponible")
+            preferences.sync_mobile(automatic=True)
+            wait(app, lambda: not window.jobs.tasks)
+            assert "Relais temporairement indisponible" in preferences.mobile_status.text()
+            preferences.mobile_timer.stop()
         warnings.assert_not_called()
         assert not errors, repr(errors)
         window.close()

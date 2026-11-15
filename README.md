@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Windows et Linux · Version de test 2.1.0a5 · Réceptions Android**
+**Windows et Linux · Version de test 2.1.0a6 · Réceptions Android**
 
 Je développe Horizon pour simplifier la préparation et le suivi des commandes
 fournisseurs à partir du catalogue CAHPP : retrouver les articles, préparer les
@@ -46,3 +46,5 @@ L’adresse est enregistrée dans le profil. Vous pouvez cocher **Mémoriser la 
 Après l’envoi d’une réception depuis Android, cliquez de nouveau sur **Synchroniser avec Android**. La commande reçoit ses quantités et un seul bon de livraison PDF, dans l’ordre des photos. Le deuxième poste récupère le résultat par sa synchronisation habituelle avec le partage. Pour l’essai initial, utilisez la même version de test sur les deux postes. Le téléphone permet ensuite de vérifier l’archivage.
 
 Les échanges avec le relais utilisent une connexion directe par défaut. Si votre réseau impose un proxy, activez **Utiliser le proxy système pour joindre le relais** dans **Paramètres → Android**. Ce choix est enregistré dans le profil.
+
+Dans **Paramètres → Android**, activez **Synchroniser automatiquement avec Android** et choisissez un intervalle (60 secondes par défaut). Enregistrez la connexion. La synchronisation fonctionne pendant que Horizon est ouvert, attend la fin des saisies et imports et reprend après une erreur réseau. Pour retrouver la clé après redémarrage, cochez sa mémorisation locale. Les erreurs automatiques apparaissent dans cet onglet et dans le diagnostic.
