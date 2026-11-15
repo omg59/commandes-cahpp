@@ -2,9 +2,9 @@ name: Horizon — Windows et Linux
 
 on:
   push:
-    branches: [feature/horizon-ui]
+    branches: [main]
   pull_request:
-    branches: [feature/horizon-ui]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

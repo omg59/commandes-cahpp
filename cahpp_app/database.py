@@ -2870,6 +2870,7 @@ class Database:
         reference: str = "",
         notes: str = "",
         receipt_uid: str | None = None,
+        delivery_note: tuple[str, str] | None = None,
     ) -> int:
         now = datetime.now().isoformat(timespec="seconds")
         _, actor_name = self._actor()
@@ -2976,6 +2977,14 @@ class Database:
                     order_id,
                 ),
             )
+            if delivery_note:
+                display_name, stored_path = delivery_note
+                connection.execute(
+                    """INSERT INTO order_attachments
+                       (order_id, kind, display_name, stored_path, include_in_email, added_at)
+                       VALUES (?, 'Bon de livraison', ?, ?, 0, ?)""",
+                    (order_id, display_name, stored_path, now),
+                )
             self._recompute_order_workflow(connection, order_id, now)
             self._record_order_audit(
                 connection,

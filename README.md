@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Windows et Linux · Version candidate 2.0.0rc2**
+**Windows et Linux · Version de test 2.1.0a1 · Réceptions Android**
 
 Je développe Horizon pour simplifier la préparation et le suivi des commandes
 fournisseurs à partir du catalogue CAHPP : retrouver les articles, préparer les
@@ -16,11 +16,9 @@ dossier partagé, sans serveur dédié.
 | **Windows 64 bits** | Installateur `.exe` ou version portable |
 | **Linux x86_64** | **AppImage** ou archive portable |
 
-**[Version publiée et téléchargements](https://github.com/omg59/commandes-cahpp/releases)**
+Pour tester les réceptions Android, ouvrez le [workflow de ce dépôt](https://github.com/omg59/horizon-pc/actions/workflows/horizon.yml), puis **Artifacts**. Utilisez le dossier portable Windows ou l’AppImage Linux avec un profil de test. Les paquets incluent Python.
 
-Pour tester la **RC2**, ouvrez le dernier [workflow Horizon réussi](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
-puis **Artifacts** et choisissez votre système (compte GitHub requis).
-Les paquets incluent Python.
+La [RC2 de Commandes CAHPP](https://github.com/omg59/commandes-cahpp/releases/tag/v2.0.0rc2) reste disponible dans son dépôt d’origine.
 
 [Installation et prérequis détaillés →](docs/horizon.md)
 
@@ -38,3 +36,9 @@ Les paquets incluent Python.
 [Guide utilisateur](docs/horizon.md) · [Collaboration](docs/collaboration.md) ·
 [Documentation technique](docs/developpement.md) · [Validation](docs/validation.md) ·
 [Historique des versions](CHANGELOG.md)
+
+## Tester les réceptions Android
+
+Utilisez une copie de profil et un dossier partagé de test. Sur le poste chargé des échanges, définissez `HORIZON_RELAY_URL` (URL HTTPS du relais) et `HORIZON_PC_TOKEN` avant de démarrer Horizon. Dans **Paramètres → Collaboration**, activez le partage de test puis cliquez sur **Synchroniser avec Android**. Les commandes envoyées avec un reliquat deviennent disponibles sur le téléphone.
+
+Après l’envoi d’une réception depuis Android, cliquez de nouveau sur **Synchroniser avec Android**. La commande reçoit ses quantités et un seul bon de livraison PDF, dans l’ordre des photos. Le deuxième poste récupère le résultat par sa synchronisation habituelle avec le partage. Pour l’essai initial, utilisez la même version de test sur les deux postes. Le téléphone permet ensuite de vérifier l’archivage.

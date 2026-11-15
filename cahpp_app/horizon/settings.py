@@ -1,5 +1,6 @@
 """Réglages métier, collaboration et diagnostic Qt complet."""
 
+import os
 from datetime import date, datetime
 from functools import partial
 from pathlib import Path
@@ -35,6 +36,7 @@ from .operations import months_before
 from .widgets import button, label
 from .dates import format_datetime
 from .about import AboutPage
+from .mobile_sync import Relay, synchronize
 
 
 class DiagnosticDialog(QDialog):
@@ -300,6 +302,10 @@ class SettingsPage(QWidget):
                         True,
                     )
                 )
+                self.mobile_button = button("Synchroniser avec Android", self.sync_mobile)
+                body.addWidget(self.mobile_button)
+                self.mobile_status = label("", "muted", True)
+                body.addWidget(self.mobile_status)
             elif title == "Maintenance":
                 row = QHBoxLayout()
                 for text, callback in [
@@ -359,6 +365,28 @@ class SettingsPage(QWidget):
 
     def has_unsaved_changes(self):
         return self.baseline is not None and self.values() != self.baseline
+
+    def sync_mobile(self):
+        url = os.environ.get("HORIZON_RELAY_URL", "")
+        token = os.environ.get("HORIZON_PC_TOKEN", "")
+        if not url or not token:
+            self.mobile_status.setText("Configurez HORIZON_RELAY_URL et HORIZON_PC_TOKEN sur ce poste, puis relancez Horizon.")
+            return
+        self.mobile_button.setEnabled(False)
+        self.mobile_status.setText("Synchronisation avec le relais en cours…")
+
+        def work(*, cancel, progress):
+            return synchronize(self.window.operations, Relay(url, token))
+
+        def finished(result, error):
+            self.mobile_button.setEnabled(True)
+            self.mobile_status.setText(str(error) if error else result)
+            if error:
+                self.window.report_error(error)
+            else:
+                self.window.data_changed()
+
+        self.window.jobs.submit("mobile-sync", work, finished)
 
     def refresh(self):
         if self.tabs.currentWidget() is self.window.suppliers:
