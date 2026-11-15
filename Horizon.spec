@@ -5,6 +5,7 @@ from PySide6.QtCore import QLibraryInfo
 import PySide6
 
 datas=collect_data_files("reportlab")
+datas += collect_data_files("certifi")
 datas += [("ressources/horizon", "ressources/horizon"),
           ("assets/app_icon.png", "assets"),
           ("assets/app_icon.ico", "assets"),

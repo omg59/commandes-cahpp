@@ -3,12 +3,16 @@ import base64
 import io
 import json
 import os
+import ssl
 import tempfile
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.error import URLError
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 from uuid import UUID
+
+import certifi
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 from reportlab.lib.pagesizes import A4
@@ -35,13 +39,26 @@ class Relay:
         if not token:
             raise ValueError("La clé PC du relais est manquante.")
         self.token = token
-        self.opener = build_opener(NoRedirect())
+        context = ssl.create_default_context()
+        context.load_verify_locations(cafile=certifi.where())
+        self.opener = build_opener(NoRedirect(), HTTPSHandler(context=context))
 
     def call(self, route, body=None):
         data = None if body is None else json.dumps(body).encode()
         req = Request(f"{self.url}/v1/{route}", data=data, method="GET" if data is None else "PUT",
                       headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
-        with self.opener.open(req, timeout=30) as result:
+        try:
+            response = self.opener.open(req, timeout=30)
+        except URLError as exc:
+            if isinstance(exc.reason, ssl.SSLCertVerificationError):
+                raise ValueError(
+                    "Le certificat HTTPS du relais ne peut pas être validé. "
+                    "Vérifiez que le domaine correspond au certificat et que "
+                    "Nginx Proxy Manager présente la chaîne de certificats complète. "
+                    f"Détail TLS : {exc.reason.verify_message}"
+                ) from exc
+            raise
+        with response as result:
             raw = result.read(17 * 1024 * 1024 + 1)
             if len(raw) > 17 * 1024 * 1024:
                 raise ValueError("Réponse du relais trop volumineuse.")
