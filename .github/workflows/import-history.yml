@@ -25,7 +25,7 @@ jobs:
             echo "Historique déjà intégré."
             exit 0
           fi
-          test "$(git rev-parse origin/main)" = 2f28816250828cae2dfc89313f5becee3f18a4fa
+          test "$(git rev-parse origin/main)" = 784a6a8ecde46f0439482e9ce24765c71b225d15
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B integration-main origin/main
