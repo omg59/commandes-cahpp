@@ -1,0 +1,37 @@
+name: Intégrer l’historique Horizon validé
+on:
+  push:
+    branches: [maintenance/import-history-3]
+permissions:
+  contents: write
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Réunir les historiques sans réécriture
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'b73684991db2390338ad1c6653dad31368d1723ca5d2312fe349f9998f0d8e2f  .migration/horizon-a10-history.bundle' | sha256sum --check
+          cp .migration/horizon-a10-history.bundle /tmp/horizon-a10.bundle
+          git fetch origin main legacy
+          test "$(git rev-parse origin/legacy)" = aa25e75ba84acbc7d833781669186ddf19b0a6ec
+          git bundle verify /tmp/horizon-a10.bundle
+          git fetch /tmp/horizon-a10.bundle refs/remotes/origin/main:refs/remotes/migration/a10
+          if git merge-base --is-ancestor b9b06657a8f2ab8db60ab76bce92fd3311e15fd1 origin/main; then
+            echo "Historique déjà intégré."
+            exit 0
+          fi
+          test "$(git rev-parse origin/main)" = 2f28816250828cae2dfc89313f5becee3f18a4fa
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B integration-main origin/main
+          git merge --no-commit --no-ff -s ours b9b06657a8f2ab8db60ab76bce92fd3311e15fd1
+          git read-tree --reset -u b9b06657a8f2ab8db60ab76bce92fd3311e15fd1
+          test "$(git write-tree)" = 2c93bc5596c759894e0561d6715ad226b8dde2e1
+          git commit -m "Réunir les historiques Horizon RC2 et 2.1.0a10 pour la version 3.0"
+          git push origin HEAD:main
+          test "$(git ls-remote origin refs/heads/legacy | cut -f1)" = aa25e75ba84acbc7d833781669186ddf19b0a6ec
