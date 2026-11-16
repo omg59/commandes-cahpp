@@ -96,7 +96,7 @@ def build_diagnostic_report(
                 f"Commandes archivées : {counts.get('archived_orders', 0)}",
                 f"Livraisons en attente : {counts.get('pending_deliveries', 0)}",
                 f"Commandes à synchroniser : {counts.get('pending_orders', 0)}",
-                f"Publication locale du catalogue en attente : {_yes_no(local.get('catalog_publication_pending'))}",
+                f"Publication locale du catalogue en attente : {"oui" if local.get('catalog_publication_pending') else "non"}",
                 "Révisions locales / bases communes en attente : " + ", ".join(f"{r['local_revision']}/{r['base_revision']}" for r in local.get('pending_revision_bases', [])),
                 f"Documents liés : {counts.get('attachments', 0)}",
                 f"Réceptions enregistrées : {counts.get('receipts', 0)}",
@@ -196,6 +196,12 @@ def build_diagnostic_report(
                     "Catalogue partagé : "
                     f"{shared.get('catalog_version') or 'non publié'}",
                     f"Intégrité du catalogue : {catalog_status}",
+                    "Dernier import local publié : " + (
+                        "non — publication locale à reprendre" if shared.get("catalog_publication", {}).get("local_unpublished")
+                        else "oui" if shared.get("catalog_publication", {}).get("published") else "à comparer avec le partage"
+                    ),
+                    f"Période locale / partagée : {shared.get('catalog_publication', {}).get('local_period') or 'non précisée'} / "
+                    f"{shared.get('catalog_publication', {}).get('shared_period') or 'non précisée'}",
                     f"Verrous actifs : {shared.get('active_locks', 0)}",
                     f"Verrous expirés : {shared.get('expired_locks', 0)}",
                     "Utilisateurs actifs : "

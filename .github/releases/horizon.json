@@ -1,25 +1,25 @@
 {
-  "version": "2.0.0rc2",
-  "tag": "v2.0.0rc2",
-  "title": "Horizon 2.0.0 — RC2",
+  "version": "2.0.0rc1",
+  "tag": "v2.0.0rc1",
+  "title": "Horizon 2.0.0 — RC1",
   "prerelease": true,
-  "run_id": 43711324054,
-  "commit": "ba21a835161a3f5f9737ada34867f6378132431c",
+  "run_id": 43404952633,
+  "commit": "c33d006995fd203f5223cb02e8a97e6b892c1bd7",
   "artifacts": [
     {
-      "id": 14161225142,
+      "id": 14027565764,
       "name": "CommandesCAHPP-Horizon-Windows",
-      "digest": "sha256:6bff305587df82a0f6575fa3666ec154f84d6dc04c70f5b0833c4e4580f60c77"
+      "digest": "sha256:bda6b8881ed826093d19fb1287d5ff1f2588a0abdc087f01b531c47ecb281425"
     },
     {
-      "id": 14160896359,
+      "id": 14026992866,
       "name": "CommandesCAHPP-Horizon-Installer-Windows",
-      "digest": "sha256:94a2db0046758e8fb3438b06b0228914ba5a872aafef13b04d9e92e6e4005d98"
+      "digest": "sha256:07da0fe4a6a9d86f3eea86a9fff0336326dfc4de564b82b4b1feb5d41f410c86"
     },
     {
-      "id": 14160543312,
+      "id": 14026872459,
       "name": "CommandesCAHPP-Horizon-Linux-x86_64",
-      "digest": "sha256:61547bd42e8fa00f1f506bfd664696065077bfb16e9f68c3d2aa56d892de6a15"
+      "digest": "sha256:2479f5e77286ca0d7d302f215a63e62f8f882b09d76e0f98a1b2dea91e6eb7ea"
     }
   ]
 }

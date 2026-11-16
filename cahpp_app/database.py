@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -273,6 +274,25 @@ ON order_audit(order_id, occurred_at);
 """
 
 
+_MOBILE_CATALOG_FIELDS = {
+    "products": ("code_cahpp", "supplier_id", "supplier_ref", "designation", "conditionnement",
+                 "qml", "unit_price", "vat", "active", "favorite", "catalog_review_token"),
+    "product_overrides": ("supplier_ref", "designation", "conditionnement", "unit_packaging", "unit_price", "vat", "validated_catalog_token"),
+    "suppliers": ("cahpp_id", "name", "email", "phone", "contact_name", "customer_number", "address",
+                  "website", "franco_ht", "minimum_order_ht", "notes"),
+}
+MOBILE_CATALOG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mobile_catalog_clock(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+INSERT OR IGNORE INTO mobile_catalog_clock VALUES(1,0);
+""" + "\n".join(
+    f"CREATE TRIGGER IF NOT EXISTS mobile_catalog_{table}_{event.lower()} "
+    f"AFTER {event} ON {table} "
+    + ("WHEN " + " OR ".join(f"OLD.{field} IS NOT NEW.{field}" for field in fields) + " " if event == "UPDATE" else "")
+    + "BEGIN UPDATE mobile_catalog_clock SET revision=revision+1 WHERE id=1; END;"
+    for table, fields in _MOBILE_CATALOG_FIELDS.items()
+    for event in ("INSERT", "UPDATE", "DELETE")
+)
+
 DEFAULT_SETTINGS = {
     "establishment_name": "",
     "establishment_subtitle": "",
@@ -473,6 +493,7 @@ class Database:
         self.search_plan_preparation: dict[str, object] = {}
         self.current_user_id = ""
         self.current_user_name = "Utilisateur"
+        self._actor_context = ContextVar("horizon_actor", default=None)
         self.initialize()
 
     def connect(self) -> sqlite3.Connection:
@@ -508,6 +529,7 @@ class Database:
         with self.session() as connection:
             connection.executescript(SCHEMA)
             self._migrate_schema(connection)
+            connection.executescript(MOBILE_CATALOG_SCHEMA)
             try:
                 self._create_search_table(connection)
             except sqlite3.DatabaseError as exc:
@@ -753,7 +775,16 @@ class Database:
         self.current_user_name = user_name.strip() or "Utilisateur"
 
     def _actor(self) -> tuple[str, str]:
-        return self.current_user_id, self.current_user_name
+        return self._actor_context.get() or (self.current_user_id, self.current_user_name)
+
+    @contextmanager
+    def using_actor(self, actor_id: str, actor_name: str):
+        """Attribue une opération au mobile sans modifier l’identité du poste ou des autres threads."""
+        token = self._actor_context.set((actor_id, actor_name))
+        try:
+            yield
+        finally:
+            self._actor_context.reset(token)
 
     def dashboard_stats(self) -> dict[str, object]:
         with self.connect() as connection:
@@ -1865,6 +1896,8 @@ class Database:
         order_number: str | None = None,
         shared_uid: str | None = None,
         requester_service: str = "",
+        creation_event_uid: str | None = None,
+        save_event_uid: str | None = None,
     ) -> int:
         if not lines:
             raise ValueError("La commande ne contient aucune ligne.")
@@ -2005,8 +2038,22 @@ class Database:
                 connection,
                 int(order_id),
                 "Commande créée" if is_new else "Brouillon modifié",
+                event_uid=save_event_uid or (creation_event_uid if is_new else None),
             )
         return int(order_id)
+
+    def record_mobile_action(self, order_id: int, request_uid: str, action: str) -> None:
+        with self.session() as connection:
+            if connection.execute("SELECT 1 FROM order_audit WHERE event_uid=?", (request_uid,)).fetchone():
+                return
+            labels = {
+                "sent": "Commande envoyée", "confirm": "Confirmation fournisseur",
+                "invoiced": "Facturation", "archive": "Archivage", "document": "Document ajouté",
+                "generate_pdf": "Bon de commande généré", "comment": "Note interne", "create": "Commande créée",
+                "save_draft": "Brouillon enregistré",
+            }
+            self._record_order_audit(connection, order_id, "Depuis Horizon Mobile — " + labels.get(action, action), event_uid=request_uid)
+            self._touch_order(connection, order_id, datetime.now().isoformat(timespec="seconds"))
 
     def list_orders(
         self,
@@ -2870,6 +2917,7 @@ class Database:
         reference: str = "",
         notes: str = "",
         receipt_uid: str | None = None,
+        delivery_note: tuple[str, str] | None = None,
     ) -> int:
         now = datetime.now().isoformat(timespec="seconds")
         _, actor_name = self._actor()
@@ -2976,6 +3024,14 @@ class Database:
                     order_id,
                 ),
             )
+            if delivery_note:
+                display_name, stored_path = delivery_note
+                connection.execute(
+                    """INSERT INTO order_attachments
+                       (order_id, kind, display_name, stored_path, include_in_email, added_at)
+                       VALUES (?, 'Bon de livraison', ?, ?, 0, ?)""",
+                    (order_id, display_name, stored_path, now),
+                )
             self._recompute_order_workflow(connection, order_id, now)
             self._record_order_audit(
                 connection,

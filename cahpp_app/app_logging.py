@@ -53,9 +53,12 @@ def log_failure(logger: logging.Logger, event: str, error: BaseException) -> Non
         for frame in frames
     )
     logger.error(
-        "%s type=%s errno=%s sqlite=%s pile=%s",
+        "%s type=%s errno=%s sqlite=%s http=%s origine=%s serveur=%s pile=%s",
         event, type(error).__name__, getattr(error, "errno", None),
-        getattr(error, "sqlite_errorname", None), stack or "indisponible",
+        getattr(error, "sqlite_errorname", None),
+        getattr(error, "http_status", None), getattr(error, "http_origin", None),
+        getattr(error, "http_server", None),
+        stack or "indisponible",
     )
 
 

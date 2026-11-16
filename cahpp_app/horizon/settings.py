@@ -1,19 +1,24 @@
 """Réglages métier, collaboration et diagnostic Qt complet."""
 
+import os
+import time
 from datetime import date, datetime
 from functools import partial
 from pathlib import Path
 
 from PySide6 import __version__ as pyside_version
-from PySide6.QtCore import QUrl, qVersion
+from PySide6.QtCore import QTimer, QUrl, qVersion
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QLineEdit,
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QMessageBox,
     QPlainTextEdit,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -35,6 +40,7 @@ from .operations import months_before
 from .widgets import button, label
 from .dates import format_datetime
 from .about import AboutPage
+from .mobile_sync import Relay, synchronize
 
 
 class DiagnosticDialog(QDialog):
@@ -92,7 +98,7 @@ class DiagnosticDialog(QDialog):
             )
             return (
                 report
-                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\n"
+                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\nRéceptions Android : {self.mobile_result}\n"
             )
 
     def busy(self, value, message=""):
@@ -103,6 +109,7 @@ class DiagnosticDialog(QDialog):
         self.export_button.setEnabled(bool(self.report))
 
     def run(self):
+        self.mobile_result = self.window.preferences.mobile_status.text() or "Aucun échange pendant cette session."
         self.task_count = len(self.window.jobs.tasks)
         self.import_running = self.window.import_busy
         self.busy(True, "Contrôles SQLite, index, performances et partage en cours…")
@@ -327,6 +334,56 @@ class SettingsPage(QWidget):
             self.tabs.addTab(page, title)
             if title == "Établissement":
                 self.tabs.addTab(window.suppliers, "Fournisseurs")
+        mobile = self.mobile_page = QWidget()
+        body = QVBoxLayout(mobile)
+        body.addWidget(label(
+            "Configurez le relais puis synchronisez pour rendre les commandes envoyées "
+            "disponibles sur le téléphone. Activez d’abord le dossier partagé dans Collaboration.",
+            "muted", True,
+        ))
+        self.mobile_fields = Fields(body)
+        self.mobile_url = self.mobile_fields.add("Adresse HTTPS du relais", "url")
+        self.mobile_url.setPlaceholderText("https://horizon.macq.xyz")
+        self.mobile_token = self.mobile_fields.add("Clé PC du relais", "token")
+        self.mobile_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.mobile_token.setPlaceholderText("Valeur de HORIZON_PC_TOKEN dans Portainer")
+        self.mobile_url.setText(window.settings.value(
+            "mobile/url", os.environ.get("HORIZON_RELAY_URL", ""), type=str,
+        ))
+        self.mobile_token.setText(window.settings.value(
+            "mobile/token", os.environ.get("HORIZON_PC_TOKEN", ""), type=str,
+        ))
+        self.mobile_remember = QCheckBox("Mémoriser la clé dans le fichier local de ce profil")
+        self.mobile_remember.setChecked(window.settings.contains("mobile/token"))
+        body.addWidget(self.mobile_remember)
+        self.mobile_proxy = QCheckBox("Utiliser le proxy système pour joindre le relais")
+        self.mobile_proxy.setChecked(window.settings.value("mobile/use_system_proxy", False, type=bool))
+        body.addWidget(self.mobile_proxy)
+        self.mobile_auto = QCheckBox("Synchroniser automatiquement avec Android")
+        self.mobile_auto.setChecked(window.settings.value("mobile/automatic", True, type=bool))
+        body.addWidget(self.mobile_auto)
+        self.mobile_interval = QSpinBox()
+        self.mobile_interval.setRange(15, 3600)
+        self.mobile_interval.setSuffix(" s")
+        self.mobile_interval.setValue(window.settings.value("mobile/interval", 60, type=int))
+        self.mobile_fields.form.addRow("Intervalle de synchronisation", self.mobile_interval)
+        row = QHBoxLayout()
+        row.addWidget(button("Enregistrer la connexion", self.save_mobile))
+        self.mobile_button = button("Synchroniser avec Android", self.sync_mobile)
+        row.addWidget(self.mobile_button)
+        body.addLayout(row)
+        self.mobile_status = label("", "muted", True)
+        body.addWidget(self.mobile_status)
+        body.addStretch()
+        self.tabs.addTab(mobile, "Android")
+        self.mobile_config = (
+            self.mobile_url.text().strip(), self.mobile_token.text().strip(),
+            self.mobile_proxy.isChecked(),
+        )
+        self.mobile_timer = QTimer(self)
+        self.mobile_timer.timeout.connect(lambda: self.sync_mobile(automatic=True))
+        self.configure_mobile_timer()
+        QTimer.singleShot(1500, lambda: self.sync_mobile(automatic=True))
         self.about = AboutPage(window)
         self.tabs.addTab(self.about, "À propos")
         row = QHBoxLayout()
@@ -342,7 +399,8 @@ class SettingsPage(QWidget):
     def tab_changed(self):
         suppliers_selected = self.tabs.currentWidget() is self.window.suppliers
         self.save_button.setVisible(
-            not suppliers_selected and self.tabs.currentWidget() is not self.about
+            not suppliers_selected
+            and self.tabs.currentWidget() not in (self.about, self.mobile_page)
         )
         if suppliers_selected:
             self.window.suppliers.refresh()
@@ -359,6 +417,79 @@ class SettingsPage(QWidget):
 
     def has_unsaved_changes(self):
         return self.baseline is not None and self.values() != self.baseline
+
+    @action
+    def save_mobile(self):
+        url = self.mobile_url.text().strip()
+        token = self.mobile_token.text().strip()
+        Relay(url, token, use_system_proxy=self.mobile_proxy.isChecked())
+        self.window.settings.setValue("mobile/use_system_proxy", self.mobile_proxy.isChecked())
+        self.window.settings.setValue("mobile/url", url)
+        if self.mobile_remember.isChecked():
+            self.window.settings.setValue("mobile/token", token)
+        else:
+            self.window.settings.remove("mobile/token")
+        self.window.settings.setValue("mobile/automatic", self.mobile_auto.isChecked())
+        self.window.settings.setValue("mobile/interval", self.mobile_interval.value())
+        self.window.settings.sync()
+        self.mobile_config = (url, token, self.mobile_proxy.isChecked())
+        self.configure_mobile_timer()
+        self.mobile_status.setText("Connexion enregistrée. Vous pouvez synchroniser avec Android.")
+        return url, token
+
+    def configure_mobile_timer(self):
+        self.mobile_next_due = 0
+        if self.window.settings.value("mobile/automatic", True, type=bool):
+            self.mobile_timer.start(self.window.settings.value("mobile/interval", 60, type=int) * 1000)
+        else:
+            self.mobile_timer.stop()
+
+    @action
+    def sync_mobile(self, automatic=False):
+        window = self.window
+        if window.closing or any(key == "mobile-sync" for key, _ in window.jobs.tasks):
+            return
+        if automatic:
+            if not self.mobile_timer.isActive() or time.monotonic() < self.mobile_next_due:
+                return
+            if (window.import_busy or window.sync_running or window.dirty_forms()
+                    or window.operations.editing_order is not None or window.jobs.busy):
+                return
+            url, token, use_system_proxy = self.mobile_config
+            if not url or not token or not window.operations.manager:
+                return
+        else:
+            connection = self.save_mobile()
+            if not connection:
+                return
+            url, token, use_system_proxy = self.mobile_config
+        self.mobile_next_due = time.monotonic() + self.mobile_interval.value()
+        self.mobile_connection_info = (
+            f"{url} · " + ("proxy système" if use_system_proxy else "connexion directe")
+        )
+        self.mobile_button.setEnabled(False)
+        self.mobile_status.setText("Synchronisation avec le relais en cours…")
+        operations = window.operations
+
+        def work(*, cancel, progress):
+            if cancel.is_set():
+                return None
+            return synchronize(operations, Relay(url, token, use_system_proxy=use_system_proxy))
+
+        def finished(result, error):
+            self.mobile_button.setEnabled(True)
+            stamp = datetime.now().strftime("%H:%M:%S")
+            self.mobile_status.setText(
+                self.mobile_connection_info + "\n" + stamp + " · "
+                + (str(error) if error else (result or "Synchronisation annulée."))
+            )
+            if error:
+                if not automatic:
+                    window.report_error(error)
+            else:
+                window.data_changed()
+
+        window.jobs.submit("mobile-sync", work, finished)
 
     def refresh(self):
         if self.tabs.currentWidget() is self.window.suppliers:

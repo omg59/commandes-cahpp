@@ -10,6 +10,9 @@ from pathlib import Path
 
 
 class HorizonGuiTest(unittest.TestCase):
+    def test_unpublished_month_can_be_published_without_reimporting_prices(self):
+        self.run_scenario("tests.gui_horizon_catalog_publication")
+
     def test_shared_pdf_generation_finishes_before_background_sync(self):
         self.run_scenario("tests.gui_horizon_rc1")
 

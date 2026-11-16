@@ -852,6 +852,43 @@ class CollaborationManager:
                 logger.warning("synchronisation_publication_conflit_donnees_conservees")
         return {"imported": imported, "published": published, "conflicts": conflicts}
 
+    def _catalog_base_matches(self, previous_hash, import_id, current):
+        """Retrouver une base vérifiée après copie de profil ou activation tardive du partage."""
+        if not current or previous_hash == current.get("sha256"):
+            return True
+        if previous_hash:
+            return False
+        with self.database.connect() as connection:
+            base = connection.execute(
+                "SELECT file_hash FROM imports WHERE id<? AND mode IN ('full','snapshot') ORDER BY id DESC LIMIT 1",
+                (import_id,),
+            ).fetchone()
+        return bool(base and base[0] in {current.get("sha256"), current.get("source_sha256")})
+
+    def catalog_publication_status(self) -> dict[str, object]:
+        current = _read_json(self.catalogs_dir / "catalogue-actuel.json", {}) if self.enabled else {}
+        if not isinstance(current, dict):
+            current = {}
+        settings = self.database.get_settings()
+        with self.database.connect() as connection:
+            row = connection.execute("SELECT * FROM imports ORDER BY id DESC LIMIT 1").fetchone()
+        latest = dict(row) if row else {}
+        local_hash = latest.get("file_hash", "")
+        published = bool(local_hash and local_hash in {current.get("sha256"), current.get("source_sha256")})
+        pending = json.loads(settings.get("horizon_catalog_pending") or "{}")
+        durable = bool(pending.get("file_hash") == local_hash and Path(pending.get("path") or "").is_file())
+        safe_base = bool(latest and self._catalog_base_matches(latest.get("previous_catalog_hash", ""), latest["id"], current))
+        untracked_delta = (latest.get("mode") == "delta" and not published and
+                           (safe_base or latest.get("previous_catalog_hash", "") == settings.get("collaboration_catalog_hash", "")))
+        unpublished = bool(latest and not published and (durable or untracked_delta or not current))
+        return {
+            "local_unpublished": unpublished, "can_publish": unpublished and safe_base,
+            "durable_source": pending.get("path", "") if durable else "",
+            "local_source": latest.get("filename", ""), "local_period": settings.get("catalog_effective_period", ""),
+            "shared_source": current.get("source_name", ""), "shared_period": current.get("period", ""),
+            "shared_version": current.get("version", ""), "published": published,
+        }
+
     def publish_catalog(self, source: Path, result, *, lock=None) -> dict[str, object]:
         if not self.enabled:
             return {}
@@ -902,8 +939,7 @@ class CollaborationManager:
             if (
                 getattr(result, "mode", "full") == "delta"
                 and current
-                and current.get("sha256")
-                != getattr(result, "previous_catalog_hash", "")
+                and not self._catalog_base_matches(getattr(result, "previous_catalog_hash", ""), result.import_id, current)
             ):
                 raise CollaborationError(
                     "Un autre poste a publié un catalogue plus récent. Appliquez-le avant de publier vos évolutions."
@@ -961,7 +997,7 @@ class CollaborationManager:
                     "import_mode": getattr(result, "mode", "full"),
                     "period": getattr(result, "period", ""),
                     "review_count": int(getattr(result, "review_count", 0)),
-                    "source_name": source.name,
+                    "source_name": getattr(result, "filename", source.name),
                     "source_relative_path": source_archive,
                     "published_at": _now(),
                     "published_by": self.user_name,
@@ -999,6 +1035,11 @@ class CollaborationManager:
             return None
         settings = self.database.get_settings()
         if current.get("sha256") == settings.get("collaboration_catalog_hash", ""):
+            return None
+        status = self.catalog_publication_status()
+        if status["local_unpublished"] and status["can_publish"]:
+            # Le partage contient encore la base des évolutions locales : proposer son installation
+            # reviendrait à offrir un catalogue plus ancien au poste qui doit publier.
             return None
         return current
 
@@ -1152,6 +1193,7 @@ class CollaborationManager:
                 str(catalog.get("version") or "") if isinstance(catalog, dict) else ""
             ),
             "catalog_integrity": catalog_integrity,
+            "catalog_publication": self.catalog_publication_status(),
             "catalog_path": str(catalog_path) if catalog_path else "",
             "updates_directory": str(self.updates_dir),
             "active_locks": active_locks,

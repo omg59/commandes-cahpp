@@ -316,11 +316,37 @@ class Operations:
             ).fetchone()
         if imported is None:
             return
-        self.manager.publish_catalog(
+        manifest = self.manager.publish_catalog(
             Path(record["path"]), _previous_result(imported), lock=lock
         )
         self.database.save_settings({"horizon_catalog_pending": ""})
         Path(record["path"]).unlink(missing_ok=True)
+        return manifest
+
+    def publish_latest_catalog(self, source=None, *, cancel, progress):
+        """Publier un import déjà validé sans appliquer à nouveau les tarifs."""
+        from ..catalog_import.formats import sha256
+
+        with self.write():
+            if not self.manager:
+                raise ValueError("Activez le dossier partagé avant de publier le catalogue.")
+            with self.manager.acquire_lock("systeme", "catalogue", ttl_seconds=7200) as handle:
+                if cancel.is_set():
+                    raise ValueError("Publication annulée avant envoi.")
+                with self.database.connect() as connection:
+                    latest = connection.execute("SELECT file_hash FROM imports ORDER BY id DESC LIMIT 1").fetchone()
+                if not latest:
+                    raise ValueError("Aucun catalogue local à publier.")
+                if source is not None:
+                    if sha256(Path(source)) != latest["file_hash"]:
+                        raise ValueError("Choisissez exactement le fichier du dernier import local. Aucun tarif n’a été réimporté.")
+                    self.queue_catalog_publication(Path(source))
+                progress(0, 1, "Publication du catalogue local déjà importé…")
+                manifest = self.retry_catalog_publication(lock=handle)
+                if manifest is None:
+                    raise ValueError("Retrouvez le fichier Excel du dernier import pour le publier sur le partage.")
+                progress(1, 1, "Catalogue publié sur le partage.")
+                return manifest
 
     def close(self):
         with self.guard:

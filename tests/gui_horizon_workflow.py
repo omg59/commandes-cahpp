@@ -12,7 +12,7 @@ def main():
     from cahpp_app.horizon.bootstrap import configure
 
     profile, info = configure([])
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QSettings
     from PySide6.QtWidgets import (
         QMessageBox,
         QPushButton,
@@ -60,6 +60,36 @@ def main():
             "imports",
             "settings",
         }
+        with patch("cahpp_app.horizon.application.QProcess") as process:
+            for result in (True, (True, 1234)):
+                process.return_value.startDetached.return_value = result
+                window.choose_profile()
+                process.return_value.startDetached.assert_called()
+        # La connexion Android se configure et se recharge depuis le profil local.
+        preferences = window.preferences
+        preferences.mobile_auto.setChecked(False)
+        preferences.mobile_url.setText("https://horizon.example.test")
+        preferences.mobile_token.setText("cle-pc-de-test-" + "x" * 32)
+        preferences.mobile_remember.setChecked(True)
+        assert not preferences.mobile_proxy.isChecked()
+        preferences.mobile_proxy.setChecked(True)
+        preferences.save_mobile()
+        assert window.settings.value("mobile/use_system_proxy", type=bool)
+        preferences.mobile_proxy.setChecked(False)
+        preferences.save_mobile()
+        assert not window.settings.value("mobile/use_system_proxy", type=bool)
+        assert window.settings.value("mobile/url") == "https://horizon.example.test"
+        assert window.settings.value("mobile/token") == preferences.mobile_token.text()
+        restored = QSettings(str(profile / "interface.ini"), QSettings.Format.IniFormat)
+        assert restored.value("mobile/url") == preferences.mobile_url.text()
+        assert restored.value("mobile/token") == preferences.mobile_token.text()
+        preferences.mobile_remember.setChecked(False)
+        preferences.save_mobile()
+        assert not window.settings.contains("mobile/token")
+        assert "mobile/token" not in db.get_settings()
+        preferences.tabs.setCurrentWidget(preferences.mobile_page)
+        assert preferences.save_button.isHidden()
+        preferences.tabs.setCurrentIndex(0)
         assert window.brand_logo.alignment() & Qt.AlignmentFlag.AlignHCenter
         window.nav_buttons["commands"].click()
         assert window.current_page() is window.prepare
@@ -413,6 +443,29 @@ def main():
             window.navigate("orders")
             wait(app, lambda: not window.jobs.tasks)
             window.grab().save(sys.argv[1])
+        wait(app, lambda: not window.jobs.tasks)
+        # Un passage automatique ne se chevauche pas et reste silencieux en cas d’échec.
+        with (
+            patch.object(window.operations, "manager", object()),
+            patch.object(window, "dirty_forms", return_value=False),
+            patch.object(window, "data_changed"),
+            patch("cahpp_app.horizon.settings.synchronize", return_value="1 réception archivée") as mobile_sync,
+        ):
+            preferences.mobile_timer.start(15000)
+            preferences.mobile_next_due = 0
+            preferences.sync_mobile(automatic=True)
+            preferences.sync_mobile(automatic=True)
+            wait(app, lambda: not window.jobs.tasks)
+            mobile_sync.assert_called_once()
+            assert "1 réception archivée" in preferences.mobile_status.text()
+            preferences.sync_mobile(automatic=True)
+            mobile_sync.assert_called_once()
+            preferences.mobile_next_due = 0
+            mobile_sync.side_effect = RuntimeError("Relais temporairement indisponible")
+            preferences.sync_mobile(automatic=True)
+            wait(app, lambda: not window.jobs.tasks)
+            assert "Relais temporairement indisponible" in preferences.mobile_status.text()
+            preferences.mobile_timer.stop()
         warnings.assert_not_called()
         assert not errors, repr(errors)
         window.close()

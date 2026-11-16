@@ -292,6 +292,27 @@ def _mail_compose_url(
     return urlunparse(parsed._replace(query=urlencode(parameters)))
 
 
+def order_mail_content(database: Database, order_id: int) -> tuple[str, str]:
+    order, _ = database.get_order(order_id)
+    settings = database.get_settings()
+    order_date = datetime.fromisoformat(order["order_date"]).strftime("%d/%m/%Y")
+    values: dict[str, object] = {
+        "order_number": order["order_number"],
+        "date": order_date,
+        "order_date": order["order_date"],
+        "supplier": order["supplier_name"],
+        "supplier_email": order["supplier_email"],
+        "total_ht": f"{float(order['total_ht']):.2f}".replace(".", ","),
+        "total_ttc": f"{float(order['total_ttc']):.2f}".replace(".", ","),
+        "establishment_name": settings.get("establishment_name", ""),
+        "establishment_subtitle": settings.get("establishment_subtitle", ""),
+        "customer_number": order["customer_number"] or "",
+    }
+    subject = _render_template(settings.get("email_subject_template", ""), values)
+    body = _render_template(settings.get("email_body_template", ""), values)
+    return subject, body
+
+
 def prepare_mail_order(
     database: Database, order_id: int
 ) -> tuple[str, Path, list[Path]]:
@@ -337,21 +358,7 @@ def prepare_mail_order(
     prepared = [staging / name for name in names]
 
     settings = database.get_settings()
-    order_date = datetime.fromisoformat(order["order_date"]).strftime("%d/%m/%Y")
-    values: dict[str, object] = {
-        "order_number": order["order_number"],
-        "date": order_date,
-        "order_date": order["order_date"],
-        "supplier": order["supplier_name"],
-        "supplier_email": order["supplier_email"],
-        "total_ht": f"{float(order['total_ht']):.2f}".replace(".", ","),
-        "total_ttc": f"{float(order['total_ttc']):.2f}".replace(".", ","),
-        "establishment_name": settings.get("establishment_name", ""),
-        "establishment_subtitle": settings.get("establishment_subtitle", ""),
-        "customer_number": order["customer_number"] or "",
-    }
-    subject = _render_template(settings.get("email_subject_template", ""), values)
-    body = _render_template(settings.get("email_body_template", ""), values)
+    subject, body = order_mail_content(database, order_id)
     compose_url = _mail_compose_url(
         settings.get("mail_compose_url", DEFAULT_MAIL_URL),
         order["supplier_email"],

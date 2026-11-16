@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Windows et Linux · Version candidate 2.0.0rc2**
+**Windows et Linux · Version de test 2.1.0a10 · Réceptions Android**
 
 Je développe Horizon pour simplifier la préparation et le suivi des commandes
 fournisseurs à partir du catalogue CAHPP : retrouver les articles, préparer les
@@ -16,11 +16,9 @@ dossier partagé, sans serveur dédié.
 | **Windows 64 bits** | Installateur `.exe` ou version portable |
 | **Linux x86_64** | **AppImage** ou archive portable |
 
-**[Version publiée et téléchargements](https://github.com/omg59/commandes-cahpp/releases)**
+Pour tester les réceptions Android, ouvrez le [workflow de ce dépôt](https://github.com/omg59/horizon-pc/actions/workflows/horizon.yml), puis **Artifacts**. Utilisez le dossier portable Windows ou l’AppImage Linux avec un profil de test. Les paquets incluent Python.
 
-Pour tester la **RC2**, ouvrez le dernier [workflow Horizon réussi](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
-puis **Artifacts** et choisissez votre système (compte GitHub requis).
-Les paquets incluent Python.
+La [RC2 de Commandes CAHPP](https://github.com/omg59/commandes-cahpp/releases/tag/v2.0.0rc2) reste disponible dans son dépôt d’origine.
 
 [Installation et prérequis détaillés →](docs/horizon.md)
 
@@ -38,3 +36,33 @@ Les paquets incluent Python.
 [Guide utilisateur](docs/horizon.md) · [Collaboration](docs/collaboration.md) ·
 [Documentation technique](docs/developpement.md) · [Validation](docs/validation.md) ·
 [Historique des versions](CHANGELOG.md)
+
+## Tester les réceptions Android
+
+Utilisez une copie de profil et un dossier partagé de test. Dans **Paramètres → Collaboration**, activez le partage de test et enregistrez les paramètres. Dans **Paramètres → Android**, saisissez l’adresse HTTPS du relais et la **clé PC** configurée dans Portainer (`HORIZON_PC_TOKEN`). Cliquez sur **Enregistrer la connexion**, puis **Synchroniser avec Android**. Les commandes envoyées avec un reliquat deviennent disponibles sur le téléphone.
+
+L’adresse est enregistrée dans le profil. Vous pouvez cocher **Mémoriser la clé dans le fichier local de ce profil** pour conserver également la clé entre deux démarrages. Cette option stocke la clé en clair dans `interface.ini`. Sans cette option, la clé saisie reste disponible pendant la session. Les variables d’environnement `HORIZON_RELAY_URL` et `HORIZON_PC_TOKEN` restent utilisables pour préremplir les champs. La clé mobile est distincte et se saisit sur Android.
+
+Après l’envoi d’une réception depuis Android, cliquez de nouveau sur **Synchroniser avec Android**. La commande reçoit ses quantités et un seul bon de livraison PDF, dans l’ordre des photos. Le deuxième poste récupère le résultat par sa synchronisation habituelle avec le partage. Pour l’essai initial, utilisez la même version de test sur les deux postes. Le téléphone permet ensuite de vérifier l’archivage.
+
+Les échanges avec le relais utilisent une connexion directe par défaut. Si votre réseau impose un proxy, activez **Utiliser le proxy système pour joindre le relais** dans **Paramètres → Android**. Ce choix est enregistré dans le profil.
+
+Dans **Paramètres → Android**, activez **Synchroniser automatiquement avec Android** et choisissez un intervalle (60 secondes par défaut). Enregistrez la connexion. La synchronisation fonctionne pendant que Horizon est ouvert, attend la fin des saisies et imports et reprend après une erreur réseau. Pour retrouver la clé après redémarrage, cochez sa mémorisation locale. Les erreurs automatiques apparaissent dans cet onglet et dans le diagnostic.
+
+## Catalogue et commandes Android
+
+La version 2.1.0a10 accompagne **horizon-server 0.4.0** et **Horizon Mobile 0.4.0**. Mettez à jour le relais dans Portainer, puis les postes PC et enfin les téléphones. Les anciennes APK restent compatibles pour les fonctions déjà disponibles.
+
+Dans **Mise à jour CAHPP**, le logiciel distingue les imports locaux non publiés des catalogues à recevoir. **Publier le catalogue local** permet de reprendre une publication manquante sans réimporter les tarifs ; si nécessaire, choisissez exactement le fichier Excel du dernier import. Le catalogue reconstitué inclut les évolutions mensuelles déjà appliquées.
+
+Un relais suffit pour tous les utilisateurs de l’établissement. Chaque téléphone transmet son nom déclaré, qui accompagne les créations, modifications, notes et réceptions dans l’historique PC. La clé mobile commune autorise l’accès aux données d’équipe ; les identités déclarées ne constituent pas des comptes à droits individuels.
+
+Les paniers mobiles peuvent être enregistrés comme **Brouillons**, sans PDF, puis repris sur PC ou mobile. Leur numéro est conservé lors des modifications et de la génération du bon. Les demandes mobiles vérifient la révision et les verrous pour préserver les changements faits sur un autre poste.
+
+Le catalogue est transmis en JSON compact et compressé lorsque le relais le permet. Le délai des envois de catalogue est adapté aux connexions lentes. Les blocs déjà reçus sont conservés après une interruption, la progression reste affichée et le transfert reprend au cycle suivant. Les générations existantes sont réutilisées : cette mise à jour ne force pas une republication complète.
+
+Le PC publie le catalogue par blocs, avec reprise du transfert. La première publication d’un grand catalogue peut nécessiter plusieurs passages de synchronisation. Son avancement apparaît dans **Paramètres → Android**. Ensuite, les changements de catalogue déclenchent une nouvelle génération.
+
+Les paniers mobiles sont vérifiés avec les prix et conditionnements courants avant la création du bon. Le PC attribue le numéro et génère le PDF. Les changements de suivi, notes, réceptions et documents sont appliqués avec les verrous du partage. Une réception sans photo nécessite une confirmation sur le téléphone et est enregistrée sans document artificiel.
+
+Laissez Horizon ouvert sur un poste pour traiter automatiquement les demandes. La consultation du catalogue déjà publié sur le relais reste disponible quand les PC sont fermés.
