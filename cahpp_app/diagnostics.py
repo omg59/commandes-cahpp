@@ -196,6 +196,12 @@ def build_diagnostic_report(
                     "Catalogue partagé : "
                     f"{shared.get('catalog_version') or 'non publié'}",
                     f"Intégrité du catalogue : {catalog_status}",
+                    "Dernier import local publié : " + (
+                        "non — publication locale à reprendre" if shared.get("catalog_publication", {}).get("local_unpublished")
+                        else "oui" if shared.get("catalog_publication", {}).get("published") else "à comparer avec le partage"
+                    ),
+                    f"Période locale / partagée : {shared.get('catalog_publication', {}).get('local_period') or 'non précisée'} / "
+                    f"{shared.get('catalog_publication', {}).get('shared_period') or 'non précisée'}",
                     f"Verrous actifs : {shared.get('active_locks', 0)}",
                     f"Verrous expirés : {shared.get('expired_locks', 0)}",
                     "Utilisateurs actifs : "

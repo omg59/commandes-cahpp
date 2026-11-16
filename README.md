@@ -1,6 +1,6 @@
 # Commandes CAHPP Horizon
 
-**Windows et Linux · Version de test 2.1.0a9 · Réceptions Android**
+**Windows et Linux · Version de test 2.1.0a10 · Réceptions Android**
 
 Je développe Horizon pour simplifier la préparation et le suivi des commandes
 fournisseurs à partir du catalogue CAHPP : retrouver les articles, préparer les
@@ -51,7 +51,9 @@ Dans **Paramètres → Android**, activez **Synchroniser automatiquement avec An
 
 ## Catalogue et commandes Android
 
-La version 2.1.0a9 accompagne **horizon-server 0.4.0** et **Horizon Mobile 0.4.0**. Mettez à jour le relais dans Portainer, puis les postes PC et enfin les téléphones. Les anciennes APK restent compatibles pour les fonctions déjà disponibles.
+La version 2.1.0a10 accompagne **horizon-server 0.4.0** et **Horizon Mobile 0.4.0**. Mettez à jour le relais dans Portainer, puis les postes PC et enfin les téléphones. Les anciennes APK restent compatibles pour les fonctions déjà disponibles.
+
+Dans **Mise à jour CAHPP**, le logiciel distingue les imports locaux non publiés des catalogues à recevoir. **Publier le catalogue local** permet de reprendre une publication manquante sans réimporter les tarifs ; si nécessaire, choisissez exactement le fichier Excel du dernier import. Le catalogue reconstitué inclut les évolutions mensuelles déjà appliquées.
 
 Un relais suffit pour tous les utilisateurs de l’établissement. Chaque téléphone transmet son nom déclaré, qui accompagne les créations, modifications, notes et réceptions dans l’historique PC. La clé mobile commune autorise l’accès aux données d’équipe ; les identités déclarées ne constituent pas des comptes à droits individuels.
 

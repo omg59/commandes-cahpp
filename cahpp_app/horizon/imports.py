@@ -1,7 +1,8 @@
 """Historique d'import, catalogue partagé et évolutions des articles commandés."""
 
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
+from .dates import format_month
 from .forms import action, selected_row
 from .models import RowsModel, date_column
 from .services import currency, number
@@ -13,6 +14,7 @@ class ImportsPage(QWidget):
         super().__init__()
         self.window = window
         self.pending = None
+        self.publication = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(label("Mise à jour CAHPP", "title"))
@@ -29,6 +31,9 @@ class ImportsPage(QWidget):
         )
         self.shared = button("Installer le catalogue partagé", self.install_shared)
         row.addWidget(self.shared)
+        self.publish = button("Publier le catalogue local", self.publish_local)
+        self.publish.setEnabled(False)
+        row.addWidget(self.publish)
         row.addWidget(button("Actualiser", self.refresh))
         layout.addLayout(row)
         self.status = label("", "muted", True)
@@ -57,17 +62,19 @@ class ImportsPage(QWidget):
             return (
                 [dict(r) for r in self.window.database.latest_imports()],
                 manager.pending_catalog() if manager else None,
+                manager.catalog_publication_status() if manager else {},
             )
 
         def done(result, error):
             if error:
                 self.window.report_error(error)
                 return
-            rows, self.pending = result
+            rows, self.pending, self.publication = result
             self.model.replace(rows)
             if rows:
                 self.table.selectRow(0)
             self.shared.setEnabled(bool(self.pending))
+            self.publish.setEnabled(bool(self.publication.get("can_publish")))
             if self.pending:
                 token = str(
                     self.pending.get("sha256") or self.pending.get("version") or ""
@@ -77,11 +84,21 @@ class ImportsPage(QWidget):
                     self.window.notify(
                         "Un nouveau catalogue partagé est disponible dans Mise à jour CAHPP."
                     )
-            self.status.setText(
-                "Catalogue partagé disponible : " + str(self.pending.get("version", ""))
-                if self.pending
-                else "Aucun nouveau catalogue partagé à installer."
-            )
+            if self.publication.get("local_unpublished"):
+                message = "Le dernier import local n’a pas été publié sur le partage : " + str(self.publication.get("local_source", ""))
+                message += (". Cliquez sur « Publier le catalogue local »." if self.publication.get("can_publish")
+                            else ". Le partage a une autre version ; résolvez cet écart avant de publier.")
+            elif self.pending:
+                message = "Un catalogue partagé est disponible à installer."
+            elif manager:
+                message = "Le dernier import local est publié sur le partage." if self.publication.get("published") else "Aucun nouveau catalogue partagé à installer."
+            else:
+                message = "Le dossier partagé n’est pas activé sur ce profil."
+            if manager:
+                local = format_month(self.publication.get("local_period")) or "période non précisée"
+                shared = format_month(self.publication.get("shared_period")) or "période non précisée"
+                message += f"\nPériode locale : {local} · Période partagée : {shared}."
+            self.status.setText(message)
 
         self.window.jobs.submit("imports-list", work, done)
 
@@ -90,6 +107,38 @@ class ImportsPage(QWidget):
         if self.pending and self.window.operations.manager:
             path = self.window.operations.manager.catalog_source(self.pending)
             self.window.start_catalog(path, shared_manifest=self.pending)
+
+    @action
+    def publish_local(self):
+        window = self.window
+        if window.import_busy or window.sync_running:
+            raise ValueError("Attendez la fin de l’opération en cours.")
+        source = None
+        if not self.publication.get("durable_source"):
+            source, _ = QFileDialog.getOpenFileName(
+                self, "Retrouver le fichier du dernier import local", str(self.publication.get("local_source", "")),
+                "Classeurs Excel (*.xlsx)",
+            )
+            if not source:
+                return
+        window.import_busy = True
+        window.progress.setRange(0, 100)
+        window.progress.show()
+
+        def work(*, cancel, progress):
+            return window.operations.publish_latest_catalog(source, cancel=cancel, progress=progress)
+
+        def done(result, error):
+            window.end_import()
+            window.data_changed()
+            if error:
+                window.report_error(error)
+            else:
+                QMessageBox.information(window, "Catalogue publié",
+                    "Le catalogue local a été publié sur le partage, sans réimporter les tarifs. "
+                    "Les autres postes peuvent l’installer depuis Mise à jour CAHPP.")
+
+        window.jobs.submit("catalog-publication", work, done)
 
     @action
     def changes(self, favorite=False):

@@ -73,6 +73,19 @@ courant n'est remplacé qu'après copie et vérification de l'ensemble publié.
 Chaque nouveau fichier appliqué depuis l'interface bénéficie d'une sauvegarde
 complète locale préalable, y compris lors d'une réception depuis le partage.
 
+**Mise à jour CAHPP** distingue maintenant le catalogue à recevoir d’un dernier
+import local non publié. Utiliser **Publier le catalogue local** sur le poste
+qui possède les tarifs récents ; si aucune copie d’envoi n’est conservée,
+sélectionner exactement le fichier Excel du dernier import. Son empreinte est
+contrôlée et les tarifs ne sont pas réimportés. L’autre poste reçoit ensuite
+le catalogue complet reconstitué avec les évolutions mensuelles.
+
+Un import mensuel effectué avant l’activation du partage ou dans un profil
+copié peut être repris si l’empreinte du catalogue de base correspond à la
+version partagée. Une version différente publiée par un autre poste bloque
+toujours l’envoi. Les périodes locale et partagée ainsi que les publications
+manquantes apparaissent dans l’écran et le rapport de diagnostic.
+
 ## Travail simultané
 
 - Deux utilisateurs peuvent travailler sur deux commandes différentes.

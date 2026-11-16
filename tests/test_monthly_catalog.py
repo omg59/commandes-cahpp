@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -556,6 +557,82 @@ class MonthlyCatalogTest(unittest.TestCase):
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM imports").fetchone()[0], 2
             )
+
+    def test_horizon_detects_and_publishes_month_imported_before_joining_shared_folder(self):
+        from cahpp_app.horizon.operations import Operations
+        from cahpp_app.diagnostics import build_diagnostic_report
+
+        other = Database(self.root / "other.db")
+        result = CatalogImporter(other).import_file(self.base)
+        shared = self.root / "shared"
+        b = CollaborationManager(other, "b", "B", shared)
+        b.initialize_workspace()
+        old = b.publish_catalog(self.base, result)
+        source = self.root / "2026-11 EVO TARI.xlsx"
+        create_monthly(source, [monthly_row(price=8)])
+        result = self.importer.import_file(source, options=self.options)
+        self.assertEqual(result.previous_catalog_hash, "")
+        self.db.save_settings({"collaboration_enabled": "1", "shared_workspace_path": str(shared)})
+        a = Operations(self.db)
+        self.addCleanup(a.close)
+        a.sync(cancel=threading.Event(), progress=lambda *args: None)
+        status = a.manager.catalog_publication_status()
+        self.assertTrue(status["local_unpublished"])
+        self.assertTrue(status["can_publish"])
+        self.assertFalse(status["durable_source"])
+        self.assertIsNone(a.manager.pending_catalog())  # Ne propose pas de réinstaller octobre.
+        self.assertIn("publication locale à reprendre", build_diagnostic_report(self.db, a.manager, "test"))
+        with self.db.connect() as connection:
+            before = [connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                      for table in ("imports", "price_history")]
+        args = {"cancel": threading.Event(), "progress": lambda *args: None}
+        with self.assertRaisesRegex(ValueError, "exactement le fichier"):
+            a.publish_latest_catalog(self.base, **args)
+        published = a.publish_latest_catalog(source, **args)
+        self.assertNotEqual(published["sha256"], old["sha256"])
+        self.assertEqual(published["source_name"], source.name)
+        self.assertEqual(published["source_sha256"], result.file_hash)
+        self.assertTrue(a.manager.catalog_publication_status()["published"])
+        self.assertFalse(self.db.get_settings().get("horizon_catalog_pending"))
+        with self.db.connect() as connection:
+            after = [connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                     for table in ("imports", "price_history")]
+        self.assertEqual(before, after)
+        pending = b.pending_catalog()
+        CatalogImporter(other).import_file(b.catalog_source(pending))
+        b.mark_catalog_applied(pending)
+        self.assertEqual(self.product("DM001", other)["unit_price"], 8)
+        self.assertEqual(self.product("DM002", other)["unit_price"], 2)
+        self.assertIsNone(b.pending_catalog())
+
+    def test_recovered_publication_cannot_overwrite_a_different_newer_shared_catalog(self):
+        from cahpp_app.horizon.operations import Operations
+        from cahpp_app.collaboration import _read_json
+
+        other = Database(self.root / "other.db")
+        result = CatalogImporter(other).import_file(self.base)
+        shared = self.root / "shared"
+        b = CollaborationManager(other, "b", "B", shared)
+        b.initialize_workspace()
+        b.publish_catalog(self.base, result)
+        local = self.root / "novembre-local.xlsx"
+        create_monthly(local, [monthly_row(price=8)])
+        self.importer.import_file(local, options=self.options)
+        remote = self.root / "novembre-autre.xlsx"
+        create_monthly(remote, [monthly_row(price=5)])
+        result = CatalogImporter(other).import_file(remote, options=self.options)
+        published = b.publish_catalog(remote, result)
+        self.db.save_settings({"collaboration_enabled": "1", "shared_workspace_path": str(shared)})
+        a = Operations(self.db)
+        self.addCleanup(a.close)
+        status = a.manager.catalog_publication_status()
+        self.assertTrue(status["local_unpublished"])
+        self.assertFalse(status["can_publish"])
+        self.assertIsNotNone(a.manager.pending_catalog())
+        with self.assertRaises(CollaborationError):
+            a.publish_latest_catalog(local, cancel=threading.Event(), progress=lambda *args: None)
+        self.assertEqual(_read_json(a.manager.catalogs_dir / "catalogue-actuel.json")["sha256"], published["sha256"])
+        self.assertEqual(self.product("DM001")["unit_price"], 8)
 
     def test_stale_publication_and_overwriting_unpublished_deltas_are_refused(self):
         shared = self.root / "shared"
