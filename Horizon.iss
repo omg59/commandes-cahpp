@@ -1,5 +1,5 @@
 #define MyAppName "Commandes CAHPP Horizon"
-#define MyAppVersion "2.1.0a10"
+#define MyAppVersion "3.0.0"
 #define MyAppExeName "CommandesCAHPP-Horizon.exe"
 
 [Setup]
@@ -21,7 +21,7 @@ SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=assets\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion=2.1.0.10
+VersionInfoVersion=3.0.0.0
 CloseApplications=yes
 CloseApplicationsFilter=CommandesCAHPP-Horizon.exe
 RestartApplications=no

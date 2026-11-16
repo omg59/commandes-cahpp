@@ -1,4 +1,4 @@
 """Interface Qt, sur le moteur métier de Commandes CAHPP."""
 
-VERSION = "2.1.0a10"
+VERSION = "3.0.0"
 NAME = "Commandes CAHPP Horizon"

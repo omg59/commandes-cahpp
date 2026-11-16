@@ -3,6 +3,7 @@ name: Horizon — Windows et Linux
 on:
   push:
     branches: [main]
+    paths-ignore: [.github/releases/**]
   pull_request:
     branches: [main]
   workflow_dispatch:

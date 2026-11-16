@@ -14,7 +14,7 @@ import sys
 import tempfile
 import zipfile
 
-REPOSITORY = 'omg59/commandes-cahpp'
+REPOSITORY = 'omg59/horizon-pc'
 NAMES = {
     'CommandesCAHPP-Horizon-Linux-x86_64',
     'CommandesCAHPP-Horizon-Windows',
@@ -63,7 +63,7 @@ def validate_request(request, run, artifacts, source):
     if request['prerelease'] is not bool(re.search(r'a|b|rc', version)):
         raise ValueError('Statut préversion incohérent')
     if (run['id'] != request['run_id'] or run['head_sha'] != request['commit']
-            or run['head_branch'] != 'feature/horizon-ui'
+            or run['head_branch'] != 'main'
             or run['path'] != '.github/workflows/horizon.yml'
             or run['status'] != 'completed' or run['conclusion'] != 'success'
             or run['head_repository']['full_name'] != REPOSITORY):
@@ -112,6 +112,7 @@ def prepare_assets(request, folder):
         name = artifact['name']
         if name.endswith('Installer-Windows'):
             assets.append(extract_member(archive, f'CommandesCAHPP-Horizon-Setup-{version}.exe', output))
+            assets.append(extract_member(archive, f'CommandesCAHPP-Horizon-{version}-manifest.json', output))
         elif name.endswith('Linux-x86_64'):
             for suffix in ('.AppImage', '.tar.gz', '.json'):
                 assets.append(extract_member(archive, f'CommandesCAHPP-Horizon-{version}-x86_64{suffix}', output))
@@ -143,6 +144,9 @@ def main():
     if os.environ.get('GH_REPO') != REPOSITORY:
         raise ValueError('Dépôt de publication inattendu')
     request = json.loads(Path(sys.argv[1]).read_text())
+    if request.get('enabled') is False:
+        print('Publication désactivée : compilation et validation en cours.')
+        return
     run = api(f"actions/runs/{request['run_id']}")
     artifacts = api(f"actions/runs/{request['run_id']}/artifacts?per_page=100")['artifacts']
     source = api(f"contents/cahpp_app/horizon/__init__.py?ref={request['commit']}")
@@ -164,7 +168,8 @@ def main():
         gh('release', 'upload', tag, *assets, '--repo', REPOSITORY, '--clobber')
         verify_uploaded(find_release(tag), assets)
         gh('release', 'edit', tag, '--repo', REPOSITORY, '--draft=false',
-           f'--prerelease={str(request["prerelease"]).lower()}', '--latest=false')
+           f'--prerelease={str(request["prerelease"]).lower()}',
+           f'--latest={str(not request["prerelease"]).lower()}')
         final = find_release(tag)
         if final['draft'] or final['prerelease'] != request['prerelease']:
             raise ValueError('Publication non confirmée')

@@ -2,7 +2,7 @@ name: Publier une version Horizon validée
 
 on:
   push:
-    branches: [feature/horizon-ui]
+    branches: [main]
     paths: [.github/releases/horizon.json]
   workflow_dispatch:
 
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'omg59/commandes-cahpp' && github.ref == 'refs/heads/feature/horizon-ui'
+    if: github.repository == 'omg59/horizon-pc' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:

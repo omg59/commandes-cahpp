@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -57,6 +58,7 @@ def seed(profile):
             "cahpp_app._beta5_database", engine
         )
         module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         db = module.Database(profile / "data/commandes_cahpp.sqlite3")
     with db.session() as c:
@@ -114,7 +116,7 @@ def check(profile):
         assert c.execute("PRAGMA user_version").fetchone()[0] == 16
         assert c.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     print(
-        "Migration bêta 5 → RC1 : commandes, réception, réglages, PDF et pièces jointes conservés."
+        "Migration d’un profil bêta 5 vers Horizon : commandes, réception, réglages, PDF et pièces jointes conservés."
     )
 
 

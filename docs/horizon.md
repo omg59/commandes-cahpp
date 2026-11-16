@@ -1,22 +1,19 @@
-# Commandes CAHPP Horizon — 2.0.0rc2
+# Horizon 3.0.0 — guide utilisateur
 
-Horizon reprend les fonctions métier de Commandes CAHPP 1.6.0 dans une interface
-Qt/PySide6. Le développement reste sur la branche
-`feature/horizon-ui`. Le moteur issu de la version 1.6.0 utilise désormais le schéma 16 :
-la version stable et son installateur restent distincts.
+Horizon reprend les fonctions de Commandes CAHPP 1.6 dans une interface Qt,
+avec la collaboration entre postes et une extension Android facultative.
+La version officielle est sur `horizon-pc/main` ; la 1.6 reste dans `legacy`.
 
 ## Démarrer et installer
 
 ### Windows : installateur ou portable
 
-Sur la [page Actions Horizon](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
-ouvrir le dernier workflow réussi et sa section **Artifacts**. Il faut être
-connecté à GitHub pour télécharger les fichiers.
+Sur la [page de la version 3.0.0](https://github.com/omg59/horizon-pc/releases/tag/v3.0.0),
+télécharger directement l’un des fichiers suivants, sans compte GitHub :
 
-- **CommandesCAHPP-Horizon-Installer-Windows** : extraire le ZIP et lancer
-  `CommandesCAHPP-Horizon-Setup-2.0.0rc2.exe`, puis suivre l'installation.
-- **CommandesCAHPP-Horizon-Windows** : extraire tout le ZIP et lancer
-  `CommandesCAHPP-Horizon.exe`. Garder le dossier `_internal` à côté de l'EXE.
+- **Installateur** : lancer `CommandesCAHPP-Horizon-Setup-3.0.0.exe`.
+- **Portable** : extraire entièrement `CommandesCAHPP-Horizon-3.0.0-Windows-portable.zip`,
+  puis lancer `CommandesCAHPP-Horizon.exe`. Garder `_internal` à côté de l’EXE.
 
 Les paquets Windows sont destinés aux postes 64 bits et incluent Python et Qt.
 Au premier lancement, créer une base vide, importer une base 1.6 ou ouvrir un
@@ -38,21 +35,18 @@ sont conservés. La CI fournit le dossier portable Windows après validation.
 
 ### Linux : AppImage et portable
 
-Dans la [page Actions Horizon](https://github.com/omg59/commandes-cahpp/actions/workflows/horizon.yml),
-ouvrir le dernier run vert de la branche `feature/horizon-ui`, puis télécharger
-l'artefact **CommandesCAHPP-Horizon-Linux-x86_64**. GitHub demande d'être connecté
-pour télécharger les artefacts. Le ZIP contient :
+Sur la [page de la version 3.0.0](https://github.com/omg59/horizon-pc/releases/tag/v3.0.0),
+télécharger l’AppImage ou l’archive portable :
 
-- `CommandesCAHPP-Horizon-2.0.0rc2-x86_64.AppImage` : l'application en un fichier ;
-- `CommandesCAHPP-Horizon-2.0.0rc2-x86_64.tar.gz` : variante portable à décompresser ;
-- `SHA256SUMS` et le manifeste JSON de construction.
+- `CommandesCAHPP-Horizon-3.0.0-x86_64.AppImage` : application en un fichier ;
+- `CommandesCAHPP-Horizon-3.0.0-x86_64.tar.gz` : variante à décompresser ;
+- `SHA256SUMS` et les manifestes JSON : contrôle des téléchargements.
 
-Après extraction du ZIP, rendre l'AppImage exécutable dans les propriétés du
-fichier ou utiliser :
+Rendre l’AppImage exécutable dans les propriétés du fichier ou utiliser :
 
 ```bash
-chmod +x CommandesCAHPP-Horizon-2.0.0rc2-x86_64.AppImage
-./CommandesCAHPP-Horizon-2.0.0rc2-x86_64.AppImage
+chmod +x CommandesCAHPP-Horizon-3.0.0-x86_64.AppImage
+./CommandesCAHPP-Horizon-3.0.0-x86_64.AppImage
 ```
 
 Python et Qt sont inclus. Les données restent dans le même profil Linux que le
@@ -110,7 +104,7 @@ Le profil actuel reste accessible dans sa fenêtre ; son nom figure dans le titr
 
 Les profils de travail des versions alpha sont reconnus et proposés dans la liste.
 Les anciennes bases d'exemple restent sur disque et ne sont pas sélectionnées
-automatiquement lors du passage à la bêta. **Ouvrir un autre dossier…** permet de sélectionner explicitement un
+automatiquement lors de la mise à jour. **Ouvrir un autre dossier…** permet de sélectionner explicitement un
 ancien profil. Un profil déplacé ou inaccessible déclenche un nouveau choix,
 sans création silencieuse d'une base de remplacement.
 
@@ -129,8 +123,8 @@ l'application. Les documents accessibles sont dupliqués sans modifier la source
 La mise à jour entre versions Horizon utilise le même installateur Horizon et
 conserve les profils. Le passage depuis la 1.6.0 est actuellement une **migration
 par copie**, avec installation des deux applications côte à côte. L'installateur
-Horizon ne remplace pas une installation 1.6.0. Une mise à niveau directe de la
-version stable devra être préparée pour la diffusion finale de la 2.0.
+Horizon ne remplace pas une installation 1.6.0. Cette migration par copie reste la procédure de passage de la 1.6 à la 3.0.
+Mettre tous les postes à jour avant de reprendre le travail sur le partage.
 
 ## Commande et confort d'utilisation
 
@@ -149,9 +143,8 @@ Il faut choisir un résultat existant ; une saisie partielle n'est pas utilisée
 comme fournisseur d'une commande.
 
 Depuis le catalogue ou **Nouvelle commande**, l'ajout d'un article demande le
-**nombre de cartons à ajouter**, avec la quantité habituelle préremplie. Les
-fractions sont acceptées jusqu'à trois décimales ; un nouvel ajout cumule la
-quantité sur la ligne existante. **Annuler** conserve la commande en cours,
+**nombre de cartons à ajouter**, avec la quantité habituelle préremplie. La saisie initiale demande un entier et le dialogue garde une largeur
+suffisante pour son titre. Un nouvel ajout cumule la quantité sur la ligne existante. **Annuler** conserve la commande en cours,
 y compris si l'article choisi appartient à un autre fournisseur. Les quantités
 restent ensuite modifiables dans le panier.
 
@@ -237,7 +230,9 @@ un envoi effectué par l'utilisateur ; préparer un e-mail ne l'envoie jamais.
 ## Collaboration
 
 La base reste locale ; seul le dossier choisi est partagé. La synchronisation
-et le format de fichiers sont ceux de la 1.6.0. Une préparation existante conserve
+utilisent des fichiers d’échange, des révisions et des verrous. Tous les
+postes doivent utiliser la même version Horizon ; ne pas mélanger des versions
+1.6 et 3.0 sur un même espace de travail. Une préparation existante conserve
 son verrou jusqu'à sa fermeture ; un verrou perdu interdit l'enregistrement.
 Les écritures sont refusées si une synchronisation/maintenance est en cours.
 Un partage inaccessible laisse la consultation et le diagnostic disponibles ;
@@ -254,7 +249,9 @@ un nouveau catalogue.
 
 Horizon ne propose que les installateurs
 `CommandesCAHPP-Horizon-Setup-X.Y.Z[aN|bN|rcN].exe` déposés dans
-`mises-a-jour`. Les installateurs de la version stable sont ignorés.
+`mises-a-jour`. Les anciens installateurs 1.6 ne sont pas proposés. Sous Windows, déposer
+l’installateur Horizon 3.0.0 dans `mises-a-jour` permet de proposer la mise à jour
+aux autres postes. Sous Linux, remplacer l’AppImage ou le dossier portable.
 
 ## Diagnostics et débogage
 
@@ -287,13 +284,13 @@ La CI exécute les contrôles sous Linux et Windows, construit le dossier Window
 et l'AppImage Linux puis les démarre pour vérifier les ressources françaises.
 Elle vérifie aussi la conservation et la copie d'un profil depuis l'AppImage,
 le lancement de l'archive portable et les empreintes des livrables. La validation manuelle
-du poste Windows et du partage de l'établissement reste à effectuer avant un
-remplacement du logiciel utilisé au quotidien.
+du poste Windows et du partage de l’établissement complète ces contrôles ;
+la [checklist](validation.md) distingue les essais locaux des essais réels.
 
 ## Identité visuelle
 
-Le logo et les icônes d'application reprennent les fichiers de la version 1.6.0
-dans `assets`, sans retouche. La palette du logiciel est bleue et jaune.
+Le logo et les icônes d’application utilisent l’identité Horizon bleue et jaune
+fournie dans `assets`. La palette du logiciel est bleue et jaune.
 Les thèmes clair/sombre
 et les dialogues standard en français restent disponibles.
 
@@ -317,3 +314,35 @@ Les sauvegardes ZIP incluent les PDF, les pièces jointes et le logo référenc�
 même hors du profil. Un document manquant bloque la sauvegarde avec un message,
 sans écraser la sauvegarde précédente. Pour restaurer, extrayez l'archive puis
 choisissez la base du dossier `data` dans l'import par copie.
+
+
+## Catalogue partagé et évolutions tarifaires
+
+**Mise à jour CAHPP** distingue les imports locaux non publiés des catalogues
+à installer depuis le partage. Après une évolution mensuelle, l’instantané publié
+reconstitue le catalogue complet avec les tarifs déjà appliqués.
+
+Si un import local n’a pas été publié, **Publier le catalogue local** reprend cette
+étape sans appliquer les prix une deuxième fois. Si le fichier Excel est demandé,
+choisir exactement celui du dernier import : son empreinte est vérifiée.
+Un catalogue partagé plus récent n’est pas écrasé silencieusement.
+Voir [le guide de collaboration](collaboration.md) pour les reprises et conflits.
+
+## Android
+
+La consultation du catalogue, les brouillons, les commandes et les réceptions
+mobiles utilisent un relais HTTPS facultatif. La synchronisation PC peut être
+périodique, avec reprise après interruption. Un relais accueille l’équipe entière.
+La procédure et les limites des identités déclarées sont détaillées dans
+[Android et relais](android.md).
+
+## Passage à la version 3.0.0
+
+Depuis Horizon RC2 ou 2.1.0a10, installer la nouvelle version ou remplacer le
+paquet portable, puis rouvrir le même profil. L’identifiant d’installation, les
+emplacements des profils et le schéma 16 sont conservés. Faire une sauvegarde
+complète avant la mise à jour et mettre tous les postes du partage à jour.
+Depuis Commandes CAHPP 1.6, utiliser **Importer une base CAHPP 1.6…** : la migration
+travaille sur une copie, avec les réglages et documents accessibles.
+Pour revenir à une ancienne version, restaurer une sauvegarde correspondant à
+cette version plutôt que de rouvrir une base modifiée par un programme plus récent.

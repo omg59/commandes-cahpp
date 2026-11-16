@@ -1,5 +1,56 @@
 # Historique des versions
 
+## Horizon 3.0.0 — 16 novembre 2026
+
+Première version PC officielle de la nouvelle interface, issue de la 2.1.0a10
+validée. Les exécutables sont reconstruits avec le numéro 3.0.0.
+
+### Interface et commandes
+
+- Interface Qt/PySide6, identité Horizon bleue et jaune, modes clair/sombre.
+- Navigation Commandes avec Nouvelle commande, Suivi des commandes et À recommander ; fournisseurs dans les paramètres et page À propos.
+- Colonnes Référence et Désignation séparées ; colonne Fournisseur dédiée, triable et redimensionnable dans le catalogue.
+- Panier élargi, tableaux plus compacts, espace de suivi récupéré sur l’accueil ; graphique conservé dans les statistiques.
+- Quantité entière à l’ajout, dialogue assez large pour son titre, cumuls et modification des quantités du panier.
+- Préparation de l’e-mail au fournisseur immédiatement après génération du bon ; reprise de l’envoi et confirmation explicite de l’envoi réel.
+- Dates françaises dans les écrans, dates ISO pour les noms de fichiers et exports ; PDF `BC-AAAA-MM-JJ_Fournisseur.pdf` et suffixes sans écrasement.
+- Fonctionnalités métier conservées : favoris, articles personnalisés, réceptions partielles, documents, notes, archives, recommandations, statistiques et exports.
+- Suppression des mentions alpha, bêta et démonstration dans l’interface de travail.
+
+### Collaboration, import et fiabilité
+
+- Révisions communes, verrous, numérotation et conflits explicites ; préservation des changements locaux et contrôle des identités du partage.
+- PDF écrits de manière atomique, conservation des fichiers existants et sauvegardes complètes avec pièces jointes externes.
+- Contrôles d’intégrité SQLite et FTS5, reconstruction vérifiée de l’index, recherche et filtrage avant limitation des résultats.
+- Évolutions tarifaires publiées sous forme de catalogue complet reconstitué, avec contrôle de chronologie et d’intégrité.
+- Reprise d’une publication interrompue ou manquante sans réimport des tarifs ; choix contrôlé du dernier Excel par son empreinte.
+- Identification des bases communes lors de l’arrivée d’un autre poste ou de la copie d’un profil ; refus d’écraser silencieusement un catalogue partagé plus récent.
+- Diagnostics de publication, synchronisation, verrous, réseau et index sans contenu des commandes ni des documents.
+
+### Android et relais — série de développement 2.1.0a1 à a10 intégrée
+
+- Relais auto-hébergé facultatif ; un relais par établissement pour plusieurs postes et téléphones.
+- Réceptions partielles Android, photos de BL réunies en PDF, réception sans photo après confirmation et documents complémentaires.
+- Catalogue, commandes, suivi, notes et brouillons partagés ; prix et conditionnements vérifiés par le PC avant création du bon.
+- Modification d’un brouillon et finalisation avec le même numéro ; protections de révision et verrouillage du partage.
+- Attribution des actions au nom déclaré sur chaque téléphone ; clés d’équipe distinctes pour PC et mobile, sans comptes individuels.
+- Synchronisation automatique sur PC pendant l’ouverture de l’application, intervalle réglable et attente de la fin des saisies/imports.
+- Transfert du catalogue par blocs compressés, délai adapté et reprise après interruption ; réutilisation des générations existantes.
+- Connexion directe ou proxy système configurable, certificats HTTPS vérifiés et diagnostic des transports.
+- Historique technique mobile dans les réglages, nettoyage des demandes traitées ou refusées après confirmation.
+
+### Distribution et migration
+
+- Windows 64 bits : installateur et portable ; Linux x86_64 : AppImage et archive portable, Python inclus.
+- Contrôles Linux/Windows, lancement des paquets, ressources françaises et conservation d’un profil rempli lors de l’installation/mise à jour/désinstallation Windows.
+- Publication liée au commit compilé et aux empreintes des trois artefacts CI ; tag, manifestes et SHA-256 des fichiers livrés.
+- Dépôt officiel renommé `horizon-pc`, branche Horizon devenue `main`, ancienne `main` conservée dans `legacy` ; développement dans `horizon-pc-dev`, historiques réunis sans réécriture.
+- README raccourci, guides d’installation, collaboration, Android et développement séparés.
+- Profils Horizon et schéma 16 conservés ; reprise de la 1.6 par copie, avec sauvegarde préalable et mise à jour de tous les postes d’un partage.
+
+[Notes de version et procédure de mise à jour](docs/releases/3.0.0.md).
+
+
 ## Horizon 2.0.0rc2
 
 - Tableaux et panier plus compacts, surtitre de la vue d’ensemble supprimé.

@@ -9,15 +9,18 @@ import zipfile
 from unittest.mock import patch
 
 from tools.publish_horizon_release import (
-    REPOSITORY, extract_member, find_release, main, validate_request, verify_uploaded,
+    NAMES, REPOSITORY, extract_member, find_release, main, validate_request, verify_uploaded,
 )
 
 
 class HorizonReleaseTest(unittest.TestCase):
     def setUp(self):
-        self.request = json.loads((Path(__file__).resolve().parents[1] / '.github/releases/horizon.json').read_text())
+        self.request = dict(enabled=True, version='3.0.0', tag='v3.0.0', title='Horizon 3.0.0',
+                            prerelease=False, run_id=123, commit='1' * 40,
+                            artifacts=[dict(id=i, name=name, digest='sha256:' + 'a' * 64)
+                                       for i, name in enumerate(sorted(NAMES), 1)])
         r = self.request
-        self.run = dict(id=r['run_id'], head_sha=r['commit'], head_branch='feature/horizon-ui',
+        self.run = dict(id=r['run_id'], head_sha=r['commit'], head_branch='main',
                         path='.github/workflows/horizon.yml', status='completed', conclusion='success',
                         head_repository={'full_name': REPOSITORY})
         self.artifacts = [dict(a, expired=False) for a in r['artifacts']]
@@ -36,7 +39,7 @@ class HorizonReleaseTest(unittest.TestCase):
         self.validate()
 
     def test_failed_build_wrong_branch_or_commit_is_refused(self):
-        for field, value in [('conclusion', 'failure'), ('head_branch', 'main'), ('head_sha', '0' * 40)]:
+        for field, value in [('conclusion', 'failure'), ('head_branch', 'legacy'), ('head_sha', '0' * 40)]:
             with self.subTest(field=field):
                 original = self.run[field]
                 self.run[field] = value
@@ -56,12 +59,24 @@ class HorizonReleaseTest(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self.validate()
 
-    def test_validation_failure_never_calls_release_commands(self):
-        with patch.dict('os.environ', {'GH_REPO': REPOSITORY}), patch('sys.argv', ['publish', '.github/releases/horizon.json']), patch('tools.publish_horizon_release.api') as api, patch('tools.publish_horizon_release.gh') as gh:
-            api.side_effect = [dict(self.run, conclusion='failure'), {'artifacts': self.artifacts}, {'content': 'VkVSU0lPTiA9ICIxLjYuMCI='}]
-            with self.assertRaises(ValueError):
+    def test_disabled_request_never_contacts_github(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps({'enabled': False}))
+            with patch.dict('os.environ', {'GH_REPO': REPOSITORY}), patch('sys.argv', ['publish', str(request)]), patch('tools.publish_horizon_release.api') as api, patch('tools.publish_horizon_release.gh') as gh:
                 main()
-            gh.assert_not_called()
+                api.assert_not_called()
+                gh.assert_not_called()
+
+    def test_validation_failure_never_calls_release_commands(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request = Path(folder) / 'request.json'
+            request.write_text(json.dumps(self.request))
+            with patch.dict('os.environ', {'GH_REPO': REPOSITORY}), patch('sys.argv', ['publish', str(request)]), patch('tools.publish_horizon_release.api') as api, patch('tools.publish_horizon_release.gh') as gh:
+                api.side_effect = [dict(self.run, conclusion='failure'), {'artifacts': self.artifacts}, {'content': 'VkVSU0lPTiA9ICIxLjYuMCI='}]
+                with self.assertRaises(ValueError):
+                    main()
+                gh.assert_not_called()
 
     def test_missing_or_corrupt_upload_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:

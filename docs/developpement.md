@@ -1,7 +1,9 @@
 # Développement Horizon
 
-La branche `feature/horizon-ui` contient l'interface Qt et le moteur métier.
-La version stable historique reste sur `main`.
+La version officielle est dans **[horizon-pc](https://github.com/omg59/horizon-pc), branche `main`**.
+La branche `legacy` conserve la version 1.6. Le dépôt privé `horizon-pc-dev`
+accueille le développement. Les historiques RC2 et 2.1.0a10 sont réunis par fusion,
+sans réécrire leurs commits ni les tags déjà publiés.
 
 ## Organisation
 
@@ -15,7 +17,7 @@ La version stable historique reste sur `main`.
 L'ancienne interface Tkinter et ses scripts de compilation ont été retirés de
 cette branche. Le moteur conserve les migrations des bases 1.6 et leurs tests.
 La version historique reste consultable sur la
-[branche principale](https://github.com/omg59/commandes-cahpp/tree/main) et dans
+[branche legacy](https://github.com/omg59/horizon-pc/tree/legacy) et dans
 l'historique Git.
 
 ## Environnement et contrôles
@@ -58,15 +60,32 @@ les essais utilisateurs et réseau décrits dans [la validation](validation.md).
 Après validation utilisateur, renseigner `.github/releases/horizon.json` avec
 la version, le commit exact, l’identifiant du workflow réussi et les trois
 artefacts approuvés (identifiants et empreintes GitHub). Rédiger le changelog
-dans `docs/releases/<version>.md`, puis pousser la demande sur la branche Horizon.
+dans `docs/releases/<version>.md`, puis pousser la demande activée (`enabled: true`) sur `main` du dépôt officiel.
 
 Le workflow `horizon-release.yml` vérifie le build, récupère les artefacts sans
 recompilation, prépare les fichiers et leurs SHA-256, puis publie la release
 après contrôle des pièces jointes. Le tag vise le commit réellement compilé.
 Les versions alpha, bêta et RC sont publiées comme préversions. La dernière
-version stable reste inchangée. Une release déjà publiée n’est jamais remplacée
+version stable reste inchangée lors de la publication d’une préversion. Une
+version stable devient la release recommandée (`latest`). Une release déjà publiée n’est jamais remplacée
 automatiquement ; un brouillon du même commit peut être repris après un échec.
 
-Le fichier de demande constitue le déclencheur de publication : ne le modifier
-qu’une fois la version approuvée. Les tests automatiques des garde-fous peuvent
+Le fichier de demande constitue le déclencheur de publication. Pendant la
+préparation et la compilation, conserver `enabled: false` : aucun appel de
+publication n’est alors effectué. Activer uniquement après validation du build.
+Les commits limités à cette demande ne relancent pas la compilation. Les tests automatiques des garde-fous peuvent
 être lancés seuls avec `python -m unittest tests.test_horizon_release -v`.
+
+
+## Dépôts associés et migration GitHub
+
+- `horizon-pc` : ancien `commandes-cahpp`, dépôt public et releases officielles ;
+- `horizon-pc-dev` : ancien `horizon-pc`, développement privé ;
+- [horizon-mobile](https://github.com/omg59/horizon-mobile) : application Android ;
+- [horizon-server](https://github.com/omg59/horizon-server) : relais auto-hébergé.
+
+Mettre à jour les URL des remotes après le renommage. L’ancienne URL
+`omg59/horizon-pc` désigne maintenant le dépôt officiel : un ancien clone de
+développement doit donc explicitement viser `omg59/horizon-pc-dev`.
+Les versions des composants serveur et mobile ne sont pas alignées artificiellement
+sur le numéro 3.0.0 du PC. Leurs tests d’intégration se lancent avec les dépôts voisins.
