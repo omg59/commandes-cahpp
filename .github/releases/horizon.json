@@ -1,7 +1,26 @@
 {
-  "enabled": false,
+  "enabled": true,
   "version": "3.0.0",
   "tag": "v3.0.0",
   "title": "Horizon 3.0.0",
-  "prerelease": false
+  "prerelease": false,
+  "run_id": 43918006424,
+  "commit": "26d70faa6fa7b8c7d0711fb0ecb7e548d14d8f8a",
+  "artifacts": [
+    {
+      "id": 14253175277,
+      "name": "CommandesCAHPP-Horizon-Installer-Windows",
+      "digest": "sha256:ba4804c60e0a84b895cef39963549fa5090b650ff9f92c25e03ed53a63eb40cf"
+    },
+    {
+      "id": 14252117050,
+      "name": "CommandesCAHPP-Horizon-Windows",
+      "digest": "sha256:3b5d0001f472aabddc4bea49446e41b75a82937b4ba7231d2876b1428af647e6"
+    },
+    {
+      "id": 14250652557,
+      "name": "CommandesCAHPP-Horizon-Linux-x86_64",
+      "digest": "sha256:e4adc24f3ed3aecc7709d2baf55d6af3e979453a1c6cfcf70ecad22a8fc72edd"
+    }
+  ]
 }
