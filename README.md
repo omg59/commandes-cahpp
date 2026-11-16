@@ -2,7 +2,7 @@
 
 **Windows et Linux · Version 3.0.0**
 
-Je développe Horizon pour simplifier les commandes fournisseurs : rechercher dans
+Horizon permet pour simplifier les commandes fournisseurs : rechercher dans
 le catalogue CAHPP, préparer un bon de commande, puis suivre les livraisons.
 Je peux travailler sur un seul poste ou avec mes collègues via un dossier partagé.
 
