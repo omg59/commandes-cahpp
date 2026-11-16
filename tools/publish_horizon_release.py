@@ -112,7 +112,19 @@ def prepare_assets(request, folder):
         name = artifact['name']
         if name.endswith('Installer-Windows'):
             assets.append(extract_member(archive, f'CommandesCAHPP-Horizon-Setup-{version}.exe', output))
-            assets.append(extract_member(archive, f'CommandesCAHPP-Horizon-{version}-manifest.json', output))
+            installer = assets[-1]
+            manifest = output / f'CommandesCAHPP-Horizon-{version}-manifest.json'
+            manifest.write_text(json.dumps({
+                'version': version,
+                'file': installer.name,
+                'size_bytes': installer.stat().st_size,
+                'sha256': sha256(installer),
+                'source_commit': request['commit'],
+                'workflow_run_id': request['run_id'],
+                'artifact_id': artifact['id'],
+                'artifact_digest': artifact['digest'],
+            }, indent=2) + '\n', encoding='utf-8')
+            assets.append(manifest)
         elif name.endswith('Linux-x86_64'):
             for suffix in ('.AppImage', '.tar.gz', '.json'):
                 assets.append(extract_member(archive, f'CommandesCAHPP-Horizon-{version}-x86_64{suffix}', output))

@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ import zipfile
 from unittest.mock import patch
 
 from tools.publish_horizon_release import (
-    NAMES, REPOSITORY, extract_member, find_release, main, validate_request, verify_uploaded,
+    NAMES, REPOSITORY, extract_member, find_release, main, prepare_assets, validate_request, verify_uploaded,
 )
 
 
@@ -103,3 +104,30 @@ class HorizonReleaseTest(unittest.TestCase):
             self.assertEqual([p.name for p in output.iterdir()], ['setup.exe'])
             with self.assertRaises(ValueError):
                 extract_member(archive, 'missing.exe', output)
+
+
+    def test_installer_manifest_uses_the_verified_artifact(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            archive = root / 'installer.zip'
+            filename = 'CommandesCAHPP-Horizon-Setup-3.0.0.exe'
+            with zipfile.ZipFile(archive, 'w') as z:
+                z.writestr(filename, b'verified-installer')
+            artifact = dict(id=42, name='CommandesCAHPP-Horizon-Installer-Windows',
+                            digest='sha256:' + hashlib.sha256(archive.read_bytes()).hexdigest())
+            request = dict(self.request, artifacts=[artifact])
+            output = root / 'output'
+            output.mkdir()
+
+            def download(*args, stdout):
+                with archive.open('rb') as source:
+                    shutil.copyfileobj(source, stdout)
+
+            with patch('tools.publish_horizon_release.gh', side_effect=download):
+                assets = prepare_assets(request, output)
+            manifest = json.loads(next(p for p in assets if p.suffix == '.json').read_text())
+            self.assertEqual(manifest['file'], filename)
+            self.assertEqual(manifest['sha256'], hashlib.sha256(b'verified-installer').hexdigest())
+            self.assertEqual(manifest['source_commit'], request['commit'])
+            self.assertEqual(manifest['artifact_digest'], artifact['digest'])
+            self.assertEqual(len(assets), 3)
