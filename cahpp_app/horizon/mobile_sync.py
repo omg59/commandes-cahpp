@@ -312,6 +312,7 @@ def synchronize(op, relay):
         if op.editing_order is not None:
             raise ValueError("Fermez la commande en cours de modification avant la synchronisation mobile.")
         relay.connect_workspace(op.manager.workspace_id)
+        op.last_mobile_maintenance = relay.call("maintenance", {})
         op.manager.sync_team_state()
         op.manager.sync_orders()
         for item in relay.call("pending-actions"):

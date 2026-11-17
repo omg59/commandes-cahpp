@@ -1,6 +1,7 @@
 """Un relais, deux identités mobiles, deux postes et un brouillon partagé."""
 import importlib.util
 import os
+import sys
 import tempfile
 import threading
 import unittest
@@ -40,7 +41,8 @@ class MobileDraftTest(unittest.TestCase):
     def test_draft_round_trip_revision_conflict_lost_ack_and_two_users(self):
         spec = importlib.util.spec_from_file_location("draft_relay", RELAY)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        with patch.object(sys, "path", [str(RELAY.parent), *sys.path]):
+            spec.loader.exec_module(module)
         with ExitStack() as stack:
             root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
             http = make_server("127.0.0.1", 0, module.create_app(root / "relay.db", "p" * 32, "m" * 32))

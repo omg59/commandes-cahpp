@@ -6,6 +6,7 @@ import base64
 import importlib.util
 import io
 import os
+import sys
 import sqlite3
 import tempfile
 import threading
@@ -34,7 +35,8 @@ class MobileReceiptTest(unittest.TestCase):
     def test_compressed_publication_over_http_keeps_accented_search_working(self):
         spec = importlib.util.spec_from_file_location("horizon_test_relay_gzip", RELAY)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        with patch.object(sys, "path", [str(RELAY.parent), *sys.path]):
+            spec.loader.exec_module(module)
         with ExitStack() as cleanup:
             root = Path(cleanup.enter_context(tempfile.TemporaryDirectory()))
             http = make_server("127.0.0.1", 0, module.create_app(root / "relay.db", "p" * 32, "m" * 32))
@@ -58,7 +60,8 @@ class MobileReceiptTest(unittest.TestCase):
     def test_replay_after_lost_ack_two_workstations_and_two_pages(self):
         spec = importlib.util.spec_from_file_location("horizon_test_relay", RELAY)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        with patch.object(sys, "path", [str(RELAY.parent), *sys.path]):
+            spec.loader.exec_module(module)
         with ExitStack() as cleanup:
             root = Path(cleanup.enter_context(tempfile.TemporaryDirectory()))
             desk_key, phone_key = "p" * 32, "m" * 32
@@ -208,7 +211,8 @@ class MobileReceiptQueueTest(unittest.TestCase):
     def receipt_queue(self):
         spec = importlib.util.spec_from_file_location("receipt_queue_relay", RELAY)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        with patch.object(sys, "path", [str(RELAY.parent), *sys.path]):
+            spec.loader.exec_module(module)
         with ExitStack() as stack:
             root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
             http = make_server("127.0.0.1", 0, module.create_app(root / "relay.db", "p" * 32, "m" * 32))
