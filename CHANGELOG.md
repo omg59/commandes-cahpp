@@ -1,5 +1,12 @@
 # Historique des versions
 
+## Horizon 3.0.1a4 — développement, 17 novembre 2026
+
+- H05 : gestion des téléphones depuis le PC, clés propres à chaque appareil, révocation et renouvellement indépendants. Le relais attribue les nouvelles opérations à l’identité authentifiée.
+- Une base relais nouvellement rattachée et vide exige les clés individuelles. Pour les données historiques, migration progressive puis désactivation explicite de la clé commune.
+- H07 : clé PC mémorisée dans le coffre natif Windows, Secret Service ou KWallet ; migration de l’ancien réglage en clair, contrôle de relecture et repli uniquement en mémoire de session.
+- Paramètres et diagnostics ne contiennent aucune clé ; les copies de profils ne réutilisent pas l’entrée de coffre du profil d’origine.
+
 ## Horizon 3.0.1a3 — développement, 17 novembre 2026
 
 - H03 : le PC vérifie l’identité du partage et de l’instance du relais avant tout traitement mobile. Les opérations vers une autre base sont refusées sans consommer la file.

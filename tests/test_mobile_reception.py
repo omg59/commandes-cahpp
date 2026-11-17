@@ -23,6 +23,7 @@ from cahpp_app.database import Database
 from cahpp_app.horizon.mobile_sync import Relay, synchronize
 from cahpp_app.horizon.mobile_catalog import CatalogTransferPaused
 from cahpp_app.horizon.operations import Operations
+from cahpp_app.horizon.mobile_enrollment import enroll_device
 from cahpp_app.horizon.services import Cart
 
 RELAY = Path(os.environ.get("HORIZON_SERVER_SOURCE", Path(__file__).resolve().parents[2] / "horizon-server")) / "relay.py"
@@ -89,6 +90,7 @@ class MobileReceiptTest(unittest.TestCase):
             with a.locked_order(oid):
                 db.update_order_status(oid, "Envoyée")
             synchronize(a, pc)
+            phone.token = enroll_device(pc, "Téléphone test", "Téléphone test")["token"]
             phone.connect_workspace(a.manager.workspace_id)
             order, = phone.call("orders")
             line, = order["lines"]
@@ -233,6 +235,7 @@ class MobileReceiptQueueTest(unittest.TestCase):
             with op.locked_order(order_id):
                 db.update_order_status(order_id, "Envoyée")
             synchronize(op, pc)
+            phone.token = enroll_device(pc, "Téléphone test", "Téléphone test")["token"]
             phone.connect_workspace(op.manager.workspace_id)
             snapshot, = phone.call("orders")
             line, = snapshot["lines"]

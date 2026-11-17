@@ -16,6 +16,7 @@ from cahpp_app import local_services
 from cahpp_app.database import Database
 from cahpp_app.horizon.mobile_sync import Relay, synchronize
 from cahpp_app.horizon.operations import Operations
+from cahpp_app.horizon.mobile_enrollment import enroll_device
 from cahpp_app.horizon.services import Cart
 
 RELAY = Path(os.environ.get("HORIZON_SERVER_SOURCE", Path(__file__).resolve().parents[2] / "horizon-server")) / "relay.py"
@@ -65,6 +66,8 @@ class MobileDraftTest(unittest.TestCase):
             stack.callback(b.close)
             stack.enter_context(patch.object(local_services, "DOCUMENTS_DIR", root / "documents"))
             synchronize(a, pc)
+            alice_phone.token = enroll_device(pc, "Alice", "Téléphone Alice")["token"]
+            bob_phone.token = enroll_device(pc, "Bob", "Téléphone Bob")["token"]
             alice_phone.connect_workspace(a.manager.workspace_id)
             bob_phone.connect_workspace(a.manager.workspace_id)
             product = alice_phone.call("catalog?q=Article")["items"][0]

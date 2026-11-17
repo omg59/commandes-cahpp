@@ -25,7 +25,7 @@ reporté, car cette publication possède déjà l’exclusion native.
 ## Migration d’un partage existant
 
 Cette migration est manuelle. Le simple lancement d’un exécutable de
-développement ne modifie pas un partage au format 1.
+développement ne convertit pas un partage au format 1.
 
 1. Sauvegarder les profils PC et le dossier partagé. Installer la même nouvelle
    version sur **tous** les postes ; fermer tous les anciens exécutables.

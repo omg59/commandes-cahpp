@@ -70,6 +70,7 @@ class AboutPage(QWidget):
             ("LGPL v3", "ressources/horizon/LGPL-3.0.txt"),
             ("GPL v3", "ressources/horizon/GPL-3.0.txt"),
             ("DejaVu", "ressources/DEJAVU-LICENSE.txt"),
+            ("keyring (MIT)", "ressources/horizon/keyring-LICENSE.txt"),
         ]:
             text = QPlainTextEdit()
             text.setReadOnly(True)

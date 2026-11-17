@@ -67,6 +67,8 @@ def main():
                 process.return_value.startDetached.assert_called()
         # La connexion Android se configure et se recharge depuis le profil local.
         preferences = window.preferences
+        from tests.test_credentials import Vault
+        preferences.credentials.backend = Vault()
         preferences.mobile_auto.setChecked(False)
         preferences.mobile_url.setText("https://horizon.example.test")
         preferences.mobile_token.setText("cle-pc-de-test-" + "x" * 32)
@@ -79,10 +81,13 @@ def main():
         preferences.save_mobile()
         assert not window.settings.value("mobile/use_system_proxy", type=bool)
         assert window.settings.value("mobile/url") == "https://horizon.example.test"
-        assert window.settings.value("mobile/token") == preferences.mobile_token.text()
+        assert not window.settings.contains("mobile/token")
+        assert preferences.credentials.remembered
+        assert window.settings.contains("mobile/credential_id")
         restored = QSettings(str(profile / "interface.ini"), QSettings.Format.IniFormat)
         assert restored.value("mobile/url") == preferences.mobile_url.text()
-        assert restored.value("mobile/token") == preferences.mobile_token.text()
+        assert not restored.contains("mobile/token")
+        assert preferences.mobile_token.text() not in (profile / "interface.ini").read_text()
         preferences.mobile_remember.setChecked(False)
         preferences.save_mobile()
         assert not window.settings.contains("mobile/token")
@@ -146,10 +151,10 @@ def main():
         assert "Auteur : Damien Macq" in [w.text() for w in about.findChildren(QLabel)]
         notices = about.notices_dialog()
         texts = notices.findChild(QTabWidget)
-        assert texts.count() == 4
+        assert texts.count() == 5
         assert all(
             texts.widget(i).isReadOnly() and texts.widget(i).toPlainText()
-            for i in range(4)
+            for i in range(5)
         )
         assert "GNU LESSER GENERAL PUBLIC LICENSE" in texts.widget(1).toPlainText()
         notices.reject()

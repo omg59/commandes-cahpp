@@ -785,6 +785,7 @@ def run(profile, info):
                     (resource_root() / path).is_file()
                     for path in (
                         "ressources/horizon/NOTICE.txt",
+                        "ressources/horizon/keyring-LICENSE.txt",
                         "ressources/horizon/LGPL-3.0.txt",
                         "ressources/horizon/GPL-3.0.txt",
                         "ressources/DEJAVU-LICENSE.txt",
@@ -798,6 +799,7 @@ def run(profile, info):
                             "version": VERSION,
                             "profile": info["mode"],
                             "qt_translated": bool(app.horizon_translator.filePath()),
+                            "credential_backend": window.preferences.credentials.diagnostic()["backend"],
                         }
                     ),
                     encoding="utf-8",

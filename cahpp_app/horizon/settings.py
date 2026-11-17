@@ -43,6 +43,8 @@ from .dates import format_datetime
 from .about import AboutPage
 from .mobile_sync import Relay, synchronize
 from .mobile_space import WorkspaceBindingRequired
+from .credentials import Credentials
+from .mobile_devices import MobileDevicesDialog
 
 
 class DiagnosticDialog(QDialog):
@@ -100,7 +102,7 @@ class DiagnosticDialog(QDialog):
             )
             return (
                 report
-                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\nRéceptions Android : {self.mobile_result}\n"
+                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\nRéceptions Android : {self.mobile_result}\nCoffre PC : {self.credential_info['backend']} · mémorisation : {self.credential_info['remembered']}\n"
             )
 
     def busy(self, value, message=""):
@@ -111,6 +113,7 @@ class DiagnosticDialog(QDialog):
         self.export_button.setEnabled(bool(self.report))
 
     def run(self):
+        self.credential_info = self.window.preferences.credentials.diagnostic()
         self.mobile_result = self.window.preferences.mobile_status.text() or "Aucun échange pendant cette session."
         self.task_count = len(self.window.jobs.tasks)
         self.import_running = self.window.import_busy
@@ -357,11 +360,10 @@ class SettingsPage(QWidget):
         self.mobile_url.setText(window.settings.value(
             "mobile/url", os.environ.get("HORIZON_RELAY_URL", ""), type=str,
         ))
-        self.mobile_token.setText(window.settings.value(
-            "mobile/token", os.environ.get("HORIZON_PC_TOKEN", ""), type=str,
-        ))
-        self.mobile_remember = QCheckBox("Mémoriser la clé dans le fichier local de ce profil")
-        self.mobile_remember.setChecked(window.settings.contains("mobile/token"))
+        self.credentials = Credentials(window.profile, window.settings)
+        self.mobile_token.setText(self.credentials.load(fallback=os.environ.get("HORIZON_PC_TOKEN", "")))
+        self.mobile_remember = QCheckBox("Mémoriser la clé dans le coffre sécurisé du système")
+        self.mobile_remember.setChecked(self.credentials.remembered)
         body.addWidget(self.mobile_remember)
         self.mobile_proxy = QCheckBox("Utiliser le proxy système pour joindre le relais")
         self.mobile_proxy.setChecked(window.settings.value("mobile/use_system_proxy", False, type=bool))
@@ -380,7 +382,8 @@ class SettingsPage(QWidget):
         row.addWidget(self.mobile_button)
         body.addLayout(row)
         body.addWidget(button("Rattacher le relais à cette base…", self.bind_mobile_workspace))
-        self.mobile_status = label("", "muted", True)
+        body.addWidget(button("Gérer les téléphones autorisés…", self.manage_mobile_devices))
+        self.mobile_status = label(self.credentials.warning, "muted", True)
         body.addWidget(self.mobile_status)
         body.addStretch()
         self.tabs.addTab(mobile, "Android")
@@ -434,17 +437,23 @@ class SettingsPage(QWidget):
         Relay(url, token, use_system_proxy=self.mobile_proxy.isChecked())
         self.window.settings.setValue("mobile/use_system_proxy", self.mobile_proxy.isChecked())
         self.window.settings.setValue("mobile/url", url)
-        if self.mobile_remember.isChecked():
-            self.window.settings.setValue("mobile/token", token)
-        else:
-            self.window.settings.remove("mobile/token")
+        self.credentials.store(token, url, remember=self.mobile_remember.isChecked())
+        self.mobile_remember.setChecked(self.credentials.remembered)
         self.window.settings.setValue("mobile/automatic", self.mobile_auto.isChecked())
         self.window.settings.setValue("mobile/interval", self.mobile_interval.value())
         self.window.settings.sync()
         self.mobile_config = (url, token, self.mobile_proxy.isChecked())
         self.configure_mobile_timer()
-        self.mobile_status.setText("Connexion enregistrée. Vous pouvez synchroniser avec Android.")
+        self.mobile_status.setText(self.credentials.warning or "Connexion enregistrée. Vous pouvez synchroniser avec Android.")
         return url, token
+
+    @action
+    def manage_mobile_devices(self):
+        if not self.window.operations.manager:
+            raise ValueError("Connectez d’abord le partage de cette base.")
+        if self.save_mobile():
+            dialog = MobileDevicesDialog(self.window, self.mobile_config)
+            dialog.exec()
 
     def configure_mobile_timer(self):
         self.mobile_next_due = 0
