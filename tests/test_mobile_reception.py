@@ -89,6 +89,7 @@ class MobileReceiptTest(unittest.TestCase):
             with a.locked_order(oid):
                 db.update_order_status(oid, "Envoyée")
             synchronize(a, pc)
+            phone.connect_workspace(a.manager.workspace_id)
             order, = phone.call("orders")
             line, = order["lines"]
             self.assertEqual(line["remaining"], 10)
@@ -232,6 +233,7 @@ class MobileReceiptQueueTest(unittest.TestCase):
             with op.locked_order(order_id):
                 db.update_order_status(order_id, "Envoyée")
             synchronize(op, pc)
+            phone.connect_workspace(op.manager.workspace_id)
             snapshot, = phone.call("orders")
             line, = snapshot["lines"]
             # Le téléphone a chargé 10 unités ; un autre poste en réceptionne déjà 8.
@@ -264,6 +266,39 @@ class MobileReceiptQueueTest(unittest.TestCase):
             with db.connect() as connection:
                 self.assertIsNone(connection.execute("SELECT id FROM order_receipts WHERE receipt_uid=?",
                                                      (str(UUID(int=1)),)).fetchone())
+
+    def test_other_workspace_cannot_consume_a_pending_receipt(self):
+        with self.receipt_queue() as (db, op, pc, phone, order_id, line, body):
+            route = "receipts/" + str(uuid4())
+            phone.call(route, body)
+            other_path = db.path.parent / "other.sqlite3"
+            db.backup(other_path)
+            other = Database(other_path)
+            other.save_settings({"collaboration_workspace_id": "", "shared_workspace_path": str(other_path.parent / "other-share")})
+            second = Operations(other)
+            try:
+                before = other.receipt_summary(order_id)["lines"][0]["received_units"]
+                with self.assertRaisesRegex(ValueError, "autre base"):
+                    synchronize(second, Relay(pc.url, "p" * 32))
+                self.assertEqual(other.receipt_summary(order_id)["lines"][0]["received_units"], before)
+                self.assertEqual(phone.call(route)["state"], "pending")
+                synchronize(op, pc)
+                self.assertEqual(phone.call(route)["state"], "archived")
+            finally:
+                second.close()
+
+    def test_wrong_instance_is_rejected_before_receipt_or_order_modification(self):
+        with self.receipt_queue() as (db, op, pc, phone, order_id, line, body):
+            original = phone.instance_id
+            phone.instance_id = str(uuid4())
+            route = "receipts/" + str(uuid4())
+            with self.assertRaisesRegex(ValueError, "HTTP 412"):
+                phone.call(route, body)
+            self.assertEqual(pc.call("pending"), [])
+            phone.instance_id = original
+            self.assertEqual(phone.call(route, body)["state"], "pending")
+            synchronize(op, pc)
+            self.assertEqual(phone.call(route)["state"], "archived")
 
     def test_storage_failures_stay_pending_and_can_be_retried(self):
         for error in (sqlite3.OperationalError("disk I/O error"), OSError("espace disque indisponible")):

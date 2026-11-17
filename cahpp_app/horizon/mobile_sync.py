@@ -28,6 +28,7 @@ from ..local_services import portable_path, resolve_portable_path, order_mail_co
 from .mobile_catalog import CatalogTransferPaused, publish_catalog
 from .mobile_commands import apply_action
 from .mobile_identity import mobile_actor
+from .mobile_space import connect_workspace
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -58,6 +59,7 @@ class RelayHTTPError(ValueError):
         content_type = error.headers.get("Content-Type", "")
         self.http_origin = "html" if "text/html" in content_type else "unknown"
         messages = {
+            "Identité d’espace incompatible. Reconnectez cette base depuis les réglages.": "Le relais ou sa base a changé. Les données de cet espace sont conservées ; reconnectez le bon espace dans les réglages.",
             "Clé invalide.": "La clé PC est refusée. Vérifiez HORIZON_PC_TOKEN dans Portainer.",
             "Action non autorisée.": "Cette clé ne permet pas une synchronisation PC. Utilisez HORIZON_PC_TOKEN.",
             "Ressource inconnue.": "La route demandée est indisponible. Vérifiez l’adresse du relais et sa version.",
@@ -96,6 +98,8 @@ class Relay:
             raise ValueError("La clé PC du relais est manquante.")
         self.token = token
         self.catalog_gzip = False
+        self.instance_id = ""
+        self.workspace_id = ""
         context = ssl.create_default_context()
         context.load_verify_locations(cafile=certifi.where())
         self.use_system_proxy = use_system_proxy
@@ -103,6 +107,9 @@ class Relay:
             ProxyHandler() if use_system_proxy else ProxyHandler({}),
             NoRedirect(), HTTPSHandler(context=context),
         )
+
+    def connect_workspace(self, workspace_id, *, adopt_existing=False):
+        return connect_workspace(self, workspace_id, adopt_existing=adopt_existing)
 
     def call(self, route, body=None):
         data = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
@@ -121,6 +128,9 @@ class Relay:
         )
         headers = {"Authorization": "Bearer " + self.token, "Content-Type": "application/json",
                    "X-Horizon-Mobile-Protocol": "3"}
+        if self.workspace_id:
+            headers["X-Horizon-Workspace"] = self.workspace_id
+            headers["X-Horizon-Instance"] = self.instance_id
         if compressed:
             headers["Content-Encoding"] = "gzip"
         req = Request(f"{self.url}/v1/{route}", data=data, method="GET" if data is None else "PUT",
@@ -301,6 +311,7 @@ def synchronize(op, relay):
     with op.write():
         if op.editing_order is not None:
             raise ValueError("Fermez la commande en cours de modification avant la synchronisation mobile.")
+        relay.connect_workspace(op.manager.workspace_id)
         op.manager.sync_team_state()
         op.manager.sync_orders()
         for item in relay.call("pending-actions"):

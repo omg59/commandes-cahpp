@@ -65,6 +65,8 @@ class MobileDraftTest(unittest.TestCase):
             stack.callback(b.close)
             stack.enter_context(patch.object(local_services, "DOCUMENTS_DIR", root / "documents"))
             synchronize(a, pc)
+            alice_phone.connect_workspace(a.manager.workspace_id)
+            bob_phone.connect_workspace(a.manager.workspace_id)
             product = alice_phone.call("catalog?q=Article")["items"][0]
             draft_body = {"kind": "save_draft", "actor": alice, "lines": [{"code": product["code"],
                           "fingerprint": product["fingerprint"], "cartons": 2}], "notes": "À compléter", "service": "Soins"}

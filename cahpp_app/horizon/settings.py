@@ -42,6 +42,7 @@ from .widgets import button, label
 from .dates import format_datetime
 from .about import AboutPage
 from .mobile_sync import Relay, synchronize
+from .mobile_space import WorkspaceBindingRequired
 
 
 class DiagnosticDialog(QDialog):
@@ -378,6 +379,7 @@ class SettingsPage(QWidget):
         self.mobile_button = button("Synchroniser avec Android", self.sync_mobile)
         row.addWidget(self.mobile_button)
         body.addLayout(row)
+        body.addWidget(button("Rattacher le relais à cette base…", self.bind_mobile_workspace))
         self.mobile_status = label("", "muted", True)
         body.addWidget(self.mobile_status)
         body.addStretch()
@@ -450,6 +452,57 @@ class SettingsPage(QWidget):
             self.mobile_timer.start(self.window.settings.value("mobile/interval", 60, type=int) * 1000)
         else:
             self.mobile_timer.stop()
+
+    @action
+    def bind_mobile_workspace(self):
+        if not self.window.operations.manager:
+            raise ValueError("Connectez d’abord le dossier partagé de cette base.")
+        if not self.save_mobile():
+            return
+        url, token, proxy = self.mobile_config
+        expected = self.window.operations.manager.workspace_id
+        relay = Relay(url, token, use_system_proxy=proxy)
+
+        def work(*, cancel, progress):
+            try:
+                relay.connect_workspace(expected)
+            except WorkspaceBindingRequired as exc:
+                return exc.counts
+            return None
+
+        def done(counts, error):
+            if error:
+                self.window.report_error(error)
+                return
+            if counts is None:
+                self.mobile_status.setText("Le relais est rattaché à cette base.")
+                return
+            answer = QMessageBox.question(
+                self, "Rattacher les données existantes",
+                f"Le relais contient {counts.get('orders', 0)} référence(s) de commandes, "
+                f"{counts.get('receipts', 0)} réception(s) et {counts.get('mobile_actions', 0)} demande(s).\n\n"
+                "Confirmez que ces données proviennent bien de cette base. Après rattachement, "
+                "tous les postes et téléphones devront utiliser les nouvelles versions compatibles. "
+                "Les téléphones conserveront séparément leurs anciennes données locales.\n\n"
+                "Rattacher ce relais à cette base ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            def bind(*, cancel, progress):
+                relay.connect_workspace(expected, adopt_existing=True)
+
+            def bound(result, error):
+                if error:
+                    self.window.report_error(error)
+                else:
+                    self.mobile_status.setText("Relais rattaché. Reconnectez les téléphones dans leurs réglages.")
+
+            self.window.jobs.submit("mobile-binding", bind, bound)
+
+        self.window.jobs.submit("mobile-binding", work, done)
 
     @action
     def sync_mobile(self, automatic=False):

@@ -1,5 +1,12 @@
 # Historique des versions
 
+## Horizon 3.0.1a3 — développement, 17 novembre 2026
+
+- H03 : le PC vérifie l’identité du partage et de l’instance du relais avant tout traitement mobile. Les opérations vers une autre base sont refusées sans consommer la file.
+- Rattachement automatique d’un relais vide ; confirmation explicite pour adopter les données d’un relais existant. Un relais déjà rattaché ne peut pas être réaffecté à une autre base par l’API.
+- Entêtes d’identité vérifiés côté relais dans la transaction de chaque opération ; mise à jour coordonnée du relais et de l’application Android requise.
+- Tests HTTP d’une réception en attente face à une mauvaise base ou à une identité d’instance différente.
+
 ## Horizon 3.0.1a2 — développement, 17 novembre 2026
 
 - H02 : exclusion native par plages d’octets sur des sentinelles permanentes ; renouvellement, reprise et publication sérialisés par ressource. Un ancien propriétaire ne peut plus publier après reprise de son bail.
