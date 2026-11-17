@@ -1,3 +1,6 @@
+> **Branche de développement — 3.0.1a1.** Correctifs de stabilisation en cours de validation.
+> La [version officielle](https://github.com/omg59/horizon-pc/releases/latest) reste diffusée depuis `main`.
+
 # Horizon — Commandes CAHPP
 
 **Windows et Linux · Version 3.0.0**

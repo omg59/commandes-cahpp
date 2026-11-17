@@ -6,13 +6,15 @@ import base64
 import importlib.util
 import io
 import os
+import sqlite3
 import tempfile
 import threading
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 from wsgiref.simple_server import make_server
 
 from PIL import Image
@@ -195,3 +197,103 @@ class MobileReceiptTest(unittest.TestCase):
                 synchronize(a, pc)
                 self.assertEqual(phone.call(outdated)["state"], "rejected")
                 self.assertEqual(len(db.list_orders(include_archived=True)), 2)
+
+
+@unittest.skipUnless(RELAY.is_file(), "Cloner horizon-server pour les scénarios de file de réceptions")
+class MobileReceiptQueueTest(unittest.TestCase):
+    @contextmanager
+    def receipt_queue(self):
+        spec = importlib.util.spec_from_file_location("receipt_queue_relay", RELAY)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with ExitStack() as stack:
+            root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            http = make_server("127.0.0.1", 0, module.create_app(root / "relay.db", "p" * 32, "m" * 32))
+            worker = threading.Thread(target=http.serve_forever, daemon=True)
+            worker.start()
+            stack.callback(http.server_close)
+            stack.callback(worker.join)
+            stack.callback(http.shutdown)
+            url = f"http://127.0.0.1:{http.server_port}"
+            pc, phone = Relay(url, "p" * 32), Relay(url, "m" * 32)
+            db = Database(root / "data/db.sqlite3")
+            with db.session() as connection:
+                supplier = connection.execute("INSERT INTO suppliers(name) VALUES ('Fournisseur test')").lastrowid
+            product = db.create_manual_product(supplier, "QUEUE-1", "Article de test", 10, 2, 20)
+            db.save_settings({"user_id": "poste-test", "user_name": "Poste test", "collaboration_enabled": "1",
+                              "shared_workspace_path": str(root / "shared")})
+            op = Operations(db)
+            stack.callback(op.close)
+            stack.enter_context(patch.object(local_services, "DOCUMENTS_DIR", root / "documents"))
+            cart = Cart()
+            cart.add(db.get_product(product), quantity=1)
+            order_id = op.save_cart(cart)
+            op.release_order()
+            with op.locked_order(order_id):
+                db.update_order_status(order_id, "Envoyée")
+            synchronize(op, pc)
+            snapshot, = phone.call("orders")
+            line, = snapshot["lines"]
+            # Le téléphone a chargé 10 unités ; un autre poste en réceptionne déjà 8.
+            with op.locked_order(order_id):
+                db.add_receipt(order_id, date(2026, 11, 17), {line["id"]: 8})
+            body = {"order_id": snapshot["id"], "date": "2026-11-17", "pages": [],
+                    "without_document": True, "quantities": {line["id"]: 2}}
+            yield db, op, pc, phone, order_id, line["id"], body
+
+    def test_invalid_without_photo_is_rejected_once_and_next_receipt_is_processed(self):
+        with self.receipt_queue() as (db, op, pc, phone, order_id, line, body):
+            invalid, valid = "receipts/" + str(UUID(int=1)), "receipts/" + str(UUID(int=2))
+            phone.call(invalid, dict(body, quantities={line: 6}))
+            phone.call(valid, body)
+            self.assertEqual(pc.call("pending"), [str(UUID(int=1)), str(UUID(int=2))])
+            with patch.object(pc, "call", wraps=pc.call) as calls:
+                status = synchronize(op, pc)
+                self.assertIn("1 opération(s) archivée(s), 1 à corriger", status)
+                self.assertEqual(phone.call(invalid)["state"], "rejected")
+                self.assertIn("reliquat", phone.call(invalid)["reason"])
+                self.assertEqual(phone.call(valid)["state"], "archived")
+                self.assertEqual(pc.call("pending"), [])
+                synchronize(op, pc)
+                rejects = [c for c in calls.call_args_list if c.args[0] == invalid + "/result"]
+                self.assertEqual(len(rejects), 1)
+            summary = db.receipt_summary(order_id)
+            self.assertEqual(len(summary["receipts"]), 2)  # 8 puis 2, jamais les 6 refusées.
+            self.assertEqual(summary["lines"][0]["remaining_units"], 0)
+            self.assertEqual(db.list_order_attachments(order_id), [])
+            with db.connect() as connection:
+                self.assertIsNone(connection.execute("SELECT id FROM order_receipts WHERE receipt_uid=?",
+                                                     (str(UUID(int=1)),)).fetchone())
+
+    def test_storage_failures_stay_pending_and_can_be_retried(self):
+        for error in (sqlite3.OperationalError("disk I/O error"), OSError("espace disque indisponible")):
+            with self.subTest(error=type(error).__name__), self.receipt_queue() as (db, op, pc, phone, order_id, _, body):
+                route = "receipts/" + str(uuid4())
+                phone.call(route, body)
+                with patch.object(db, "add_receipt", side_effect=error), patch.object(pc, "call", wraps=pc.call) as calls:
+                    with self.assertRaises(type(error)):
+                        synchronize(op, pc)
+                    self.assertFalse(any(c.args[0] == route + "/result" for c in calls.call_args_list))
+                self.assertEqual(phone.call(route)["state"], "pending")
+                self.assertEqual(len(db.receipt_summary(order_id)["receipts"]), 1)
+                synchronize(op, pc)
+                self.assertEqual(phone.call(route)["state"], "archived")
+                self.assertEqual(len(db.receipt_summary(order_id)["receipts"]), 2)
+
+    def test_without_photo_replay_after_lost_ack_does_not_duplicate_the_receipt(self):
+        with self.receipt_queue() as (db, op, pc, phone, order_id, _, body):
+            route = "receipts/" + str(uuid4())
+            phone.call(route, body)
+            original_call = pc.call
+            def lose_ack(endpoint, payload=None):
+                if endpoint == route + "/result":
+                    raise ConnectionError("Accusé interrompu")
+                return original_call(endpoint, payload)
+            with patch.object(pc, "call", side_effect=lose_ack), self.assertRaises(ConnectionError):
+                synchronize(op, pc)
+            self.assertEqual(phone.call(route)["state"], "pending")
+            self.assertEqual(len(db.receipt_summary(order_id)["receipts"]), 2)
+            synchronize(op, pc)
+            self.assertEqual(phone.call(route)["state"], "archived")
+            self.assertEqual(len(db.receipt_summary(order_id)["receipts"]), 2)
+            self.assertEqual(db.list_order_attachments(order_id), [])

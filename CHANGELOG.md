@@ -1,5 +1,13 @@
 # Historique des versions
 
+## Horizon 3.0.1a1 — développement, 17 novembre 2026
+
+- H01 : une réception sans photo refusée pour un reliquat dépassé est rejetée sur le relais ; les réceptions suivantes continuent à être traitées.
+- Les erreurs disque et les interruptions réseau restent récupérables, avec contrôle des retransmissions sans doublon.
+- H08 : parcours PC/relais obligatoires dans la CI privée du relais, versions figées et rapport des deux commits testés.
+- Développement dans les branches `dev` des trois dépôts ; l’ancien dépôt PC de développement est conservé comme historique.
+
+
 ## Horizon 3.0.0 — 16 novembre 2026
 
 Première version PC officielle de la nouvelle interface, issue de la 2.1.0a10
@@ -670,56 +678,7 @@ La branche reste `feature/horizon-ui` ; version moteur et schéma inchangés.
   visuel temporaire directement sur le bouton concerné ;
 - confirmation non bloquante pour les paramètres, les fournisseurs, les
   brouillons, la génération ou régénération des PDF et les sauvegardes ;
-- affichage permanent de la section active dans la navigation latérale avec
-  fond renforcé, texte en gras et liseré coloré ;
-- conservation des fenêtres uniquement pour les erreurs, avertissements,
-  décisions importantes et bilans détaillés.
+- affichage permanent de la s…996 tokens truncated…escription: "Créer un raccourci Horizon sur le Bureau"; Flags: checkedonce
 
-## 0.6.1
-
-- correction de la fenêtre des documents liés : la barre d'actions reste
-  visible avec la mise à l'échelle de Windows et la hauteur s'adapte désormais
-  au contenu et à l'écran.
-
-## 0.6.0
-
-- préparation locale des messages dans Gmail avec destinataire, objet et corps
-  configurables ;
-- regroupement automatique du PDF et des pièces jointes dans un dossier d'envoi ;
-- duplication d'une ancienne commande en nouveau brouillon ;
-- recherche dans l'historique par numéro, fournisseur, note, référence, code CAHPP
-  ou désignation ;
-- rattachement de bons de livraison et d'autres documents aux commandes ;
-- intégration des documents liés dans la sauvegarde complète ZIP ;
-- alerte après import pour les changements de prix ou de conditionnement
-  concernant des articles déjà commandés ;
-- coordonnées fournisseur enrichies, minimum de commande et franco ;
-- contrôle des nombres de cartons non entiers et des seuils avant enregistrement ;
-- affichage enrichi du conditionnement et favoris proposés par fournisseur ;
-- migration automatique des bases créées avec les versions précédentes.
-
-## 0.4.0
-
-- nouveau nom PDF : `BC-AAAA-MM-JJ_Fournisseur.pdf` ;
-- incrément journalier par fournisseur à partir de la deuxième commande.
-
-## 0.3.0
-
-- recherche par saisie dans la liste des fournisseurs ;
-- création d'une commande directement depuis un article du catalogue ;
-- choix du nom et de la destination lors de chaque génération PDF ;
-- dossier PDF par défaut configurable.
-
-## 0.2.0
-
-- ajout de la modification des brouillons depuis l'historique ;
-- conservation du numéro et de la date lors de la réédition ;
-- titre du PDF personnalisable ;
-- texte du pied de page personnalisable et vide par défaut ;
-- affichage du numéro de page désactivable.
-
-## 0.1.0
-
-- import et mise à jour du catalogue CAHPP ;
-- recherche, favoris, commandes et fournisseurs ;
-- génération PDF et base SQLite portable.
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "Lancer Horizon"; Flags: nowait postinstall skipifsilent

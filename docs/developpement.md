@@ -1,8 +1,9 @@
 # Développement Horizon
 
 La version officielle est dans **[horizon-pc](https://github.com/omg59/horizon-pc), branche `main`**.
-La branche `legacy` conserve la version 1.6. Le dépôt privé `horizon-pc-dev`
-accueille le développement. Les historiques RC2 et 2.1.0a10 sont réunis par fusion,
+La branche `legacy` conserve la version 1.6. Le développement se fait désormais
+dans `dev`, à partir de la version officielle courante. L’ancien dépôt privé
+`horizon-pc-dev` reste conservé pour son historique. Les historiques RC2 et 2.1.0a10 sont réunis par fusion,
 sans réécrire leurs commits ni les tags déjà publiés.
 
 ## Organisation
@@ -80,7 +81,7 @@ Les commits limités à cette demande ne relancent pas la compilation. Les tests
 ## Dépôts associés et migration GitHub
 
 - `horizon-pc` : ancien `commandes-cahpp`, dépôt public et releases officielles ;
-- `horizon-pc-dev` : ancien `horizon-pc`, développement privé ;
+- `horizon-pc-dev` : ancien dépôt privé de développement, conservé comme historique ;
 - [horizon-mobile](https://github.com/omg59/horizon-mobile) : application Android ;
 - [horizon-server](https://github.com/omg59/horizon-server) : relais auto-hébergé.
 
@@ -89,3 +90,28 @@ Mettre à jour les URL des remotes après le renommage. L’ancienne URL
 développement doit donc explicitement viser `omg59/horizon-pc-dev`.
 Les versions des composants serveur et mobile ne sont pas alignées artificiellement
 sur le numéro 3.0.0 du PC. Leurs tests d’intégration se lancent avec les dépôts voisins.
+
+
+## Stabilisation après l’audit du 17 novembre 2026
+
+Les trois dépôts utilisent `dev` pour les évolutions. `main` et les tags publiés
+restent les références diffusées. Préparer les correctifs PC dans `horizon-pc/dev`,
+les tests et changements du relais dans `horizon-server/dev`, et Android dans
+`horizon-mobile/dev`.
+
+Les parcours HTTP avec le relais sont obligatoires dans la CI du dépôt privé
+`horizon-server`. Cette CI récupère le PC public à un **SHA complet** défini dans
+`.github/compatibility/pc.json`, puis exécute les vrais tests de réception et de
+brouillons. Le programme de contrôle refuse les sources absentes, une mauvaise
+révision, une suite vide ou un test ignoré. Un rapport JSON identifie les deux
+commits et les tests exécutés. Aucun accès inter-dépôts privé n’est nécessaire.
+
+Après un changement de protocole ou de traitement mobile sur PC, mettre à jour
+le SHA candidat dans ce manifeste du relais : ce commit déclenche les contrôles
+du couple exact. Vérifier ce rapport avant une fusion ou une diffusion. Les tests
+unitaires et graphiques PC restent exécutés sous Windows et Linux dans leur propre
+workflow ; un succès de ce workflow seul ne remplace pas la validation du couple.
+
+Les contrôles périodiques du relais ne deviendront actifs qu’après promotion de
+leur workflow sur sa branche par défaut. Pendant le travail dans `dev`, les
+contrôles sont déclenchés par les commits de cette branche.

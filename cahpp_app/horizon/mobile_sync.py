@@ -200,9 +200,14 @@ def apply_receipt(op, key, receipt):
             if not pages:
                 if receipt.get("without_document") is not True:
                     raise ReceiptConflict("Confirmez la réception sans bon de livraison.")
-                db.add_receipt(order["id"], date.fromisoformat(receipt["date"]), receipt["quantities"],
-                               reference=receipt.get("reference", ""), receipt_uid=key,
-                               notes="Saisie depuis Horizon Mobile — bon de livraison non fourni")
+                try:
+                    db.add_receipt(order["id"], date.fromisoformat(receipt["date"]), receipt["quantities"],
+                                   reference=receipt.get("reference", ""), receipt_uid=key,
+                                   notes="Saisie depuis Horizon Mobile — bon de livraison non fourni")
+                except ValueError as exc:
+                    # Un refus métier ne doit pas bloquer les réceptions suivantes.
+                    # Les erreurs de stockage restent récupérables au prochain cycle.
+                    raise ReceiptConflict(str(exc)) from exc
                 return
             root = db.path.parent.parent / "documents" / "receptions-mobile" / uid
             root.mkdir(parents=True, exist_ok=True)
