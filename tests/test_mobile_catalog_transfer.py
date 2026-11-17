@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import URLError
 
@@ -85,11 +86,11 @@ class CatalogTransferTest(unittest.TestCase):
             remote = Remote()
             with patch("cahpp_app.horizon.mobile_catalog.catalog_cache", return_value=(root, manifest)):
                 with self.assertRaisesRegex(CatalogTransferPaused, "0/2 blocs confirmés"):
-                    publish_catalog(None, remote)
-                self.assertIn("publié", publish_catalog(None, remote))
+                    publish_catalog(SimpleNamespace(path=root / "db"), remote)
+                self.assertIn("publié", publish_catalog(SimpleNamespace(path=root / "db"), remote))
                 self.assertEqual(remote.sent, [0, 1])
                 self.assertTrue(remote.catalog_gzip)
-                self.assertEqual(publish_catalog(None, remote), "")
+                self.assertEqual(publish_catalog(SimpleNamespace(path=root / "db"), remote), "")
 
     def test_slow_transfer_yields_between_blocks_without_restarting(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -101,7 +102,7 @@ class CatalogTransferTest(unittest.TestCase):
             relay.call.side_effect = [{"catalog": ""}, {"parts": []}, {}, {}]
             with patch("cahpp_app.horizon.mobile_catalog.catalog_cache", return_value=(root, manifest)), patch(
                     "cahpp_app.horizon.mobile_catalog.time.monotonic", side_effect=[0, 21]):
-                self.assertIn("1/2 blocs", publish_catalog(None, relay))
+                self.assertIn("1/2 blocs", publish_catalog(SimpleNamespace(path=root / "db"), relay))
             self.assertEqual(relay.call.call_count, 4)
 
 

@@ -73,6 +73,8 @@ class RelayHTTPError(ValueError):
             message = None
         finally:
             error.close()
+        if not message and error.code in (429, 503, 507):
+            message = "Le relais est temporairement indisponible ou a atteint sa capacité. Les données à envoyer restent conservées et seront réessayées."
         if message:
             self.http_origin = "relay"
         elif error.headers.get("cf-mitigated", "").lower() == "challenge":
@@ -250,11 +252,16 @@ def publish_orders(op, relay):
     state = relay.call("mobile-state")
     versions = state["orders"]
     documents = set(state["documents"])
+    missing_documents = set(state.get("orders_missing_documents", []))
     with db.connect() as c:
         orders = list(c.execute("SELECT id, shared_uid, shared_revision FROM orders WHERE sync_state='Synchronisée'"))
+    published = 0
+    deadline = time.monotonic() + 20
     for row in orders:
+        if published >= 50 or (published and time.monotonic() >= deadline):
+            break
         uid = row["shared_uid"]
-        if not uid or versions.get(uid, [-1, 0]) >= [row["shared_revision"], 3]:
+        if not uid or (uid not in missing_documents and versions.get(uid, [-1, 0]) >= [row["shared_revision"], 3]):
             continue
         summary = db.receipt_summary(row["id"])
         order = summary["order"]
@@ -302,6 +309,8 @@ def publish_orders(op, relay):
                 snapshot["documents"].append({"id": digest, "name": item["display_name"], "kind": item["kind"],
                                               "main": item["main"], "mime": mime})
         relay.call("orders/" + uid, {"revision": row["shared_revision"], "order": snapshot})
+        published += 1
+    return published
 
 
 def synchronize(op, relay):

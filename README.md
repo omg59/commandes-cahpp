@@ -1,6 +1,6 @@
 > **Branche de développement — 3.0.1a1.** Correctifs de stabilisation en cours de validation.
 > La [version officielle](https://github.com/omg59/horizon-pc/releases/latest) reste diffusée depuis `main`.
-Lot actuel de développement : **3.0.1a4** — [verrous](docs/verrouillage-partage.md), [espaces mobiles](docs/isolation-espaces-mobiles.md), [téléphones et coffre PC](docs/acces-mobiles.md).
+Lot de développement **3.0.1a6** : [corrections de l’audit et migration](docs/audit-consolidation.md). Les versions publiées restent inchangées.
 
 # Horizon — Commandes CAHPP
 

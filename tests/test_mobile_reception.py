@@ -21,7 +21,7 @@ from wsgiref.simple_server import make_server
 from PIL import Image
 from cahpp_app import local_services
 from cahpp_app.database import Database
-from cahpp_app.horizon.mobile_sync import Relay, synchronize
+from cahpp_app.horizon.mobile_sync import Relay, publish_orders, synchronize
 from cahpp_app.horizon.mobile_catalog import CatalogTransferPaused
 from cahpp_app.horizon.operations import Operations
 from cahpp_app.horizon.mobile_enrollment import enroll_device
@@ -203,6 +203,13 @@ class MobileReceiptTest(unittest.TestCase):
                 synchronize(a, pc)
                 self.assertEqual(phone.call(outdated)["state"], "rejected")
                 self.assertEqual(len(db.list_orders(include_archived=True)), 2)
+                # Une projection documentaire absente doit être réparée même
+                # lorsque la révision métier n'a pas changé.
+                with sqlite3.connect(root / "relay.db") as damaged:
+                    damaged.execute("DELETE FROM mobile_documents WHERE id=?", (document["id"],))
+                synchronize(a, pc)
+                self.assertTrue(base64.b64decode(phone.call("documents/" + document["id"])["data"]).startswith(b"%PDF"))
+
 
 
 @unittest.skipUnless(RELAY.is_file(), "Cloner horizon-server pour les scénarios de file de réceptions")
@@ -249,6 +256,23 @@ class MobileReceiptQueueTest(unittest.TestCase):
             body = {"order_id": snapshot["id"], "date": "2026-11-17", "pages": [],
                     "without_document": True, "quantities": {line["id"]: 2}}
             yield db, op, pc, phone, order_id, line["id"], body
+
+    def test_publication_continues_across_bounded_batches_without_replaying_orders(self):
+        with self.receipt_queue() as (db, op, pc, phone, _, _, _):
+            publish_orders(op, pc)
+            with db.connect() as connection:
+                product_id = connection.execute("SELECT id FROM products LIMIT 1").fetchone()[0]
+            for _ in range(54):
+                cart = Cart()
+                cart.add(db.get_product(product_id), quantity=1)
+                op.save_cart(cart)
+                op.release_order()
+            self.assertEqual(publish_orders(op, pc), 50)
+            self.assertEqual(publish_orders(op, pc), 4)
+            self.assertEqual(publish_orders(op, pc), 0)
+            page = phone.call("order-changes?limit=200")
+            self.assertEqual(len(page["items"]), 55)
+            self.assertFalse(page["more"])
 
     def test_invalid_without_photo_is_rejected_once_and_next_receipt_is_processed(self):
         with self.receipt_queue() as (db, op, pc, phone, order_id, line, body):

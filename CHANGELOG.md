@@ -1,5 +1,13 @@
 # Historique des versions
 
+## Horizon 3.0.1a6 — développement, 17 novembre 2026
+
+- H04 : maintenance bornée des documents orphelins et réparation d’une projection manquante, même à révision métier inchangée.
+- H06 : lots de publication, réponses de capacité explicites, rotation du cache catalogue sous verrou et diagnostic des volumes du relais.
+- Construction : dépendances directes fixées, verrou universel avec empreintes pour Windows/Linux, image relais et actions GitHub figées. Notices des dépendances livrées.
+- Tests : reprise après interruption, absence de suppression d’un cache utilisé, conservation du manifeste après panne et réparation documentaire.
+- Lot coordonné avec Horizon Server 0.5.0-dev4 et Horizon Mobile 0.6.0-dev4 ; migration documentée et maintien des versions principales.
+
 ## Horizon 3.0.1a4 — développement, 17 novembre 2026
 
 - H05 : gestion des téléphones depuis le PC, clés propres à chaque appareil, révocation et renouvellement indépendants. Le relais attribue les nouvelles opérations à l’identité authentifiée.

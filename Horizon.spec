@@ -1,11 +1,29 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from importlib.metadata import distribution
+from packaging.requirements import Requirement
 from PySide6.QtCore import QLibraryInfo
 import PySide6
 
 datas=collect_data_files("reportlab")
 datas += collect_data_files("certifi")
+# Livrer les notices des dépendances réellement installées pour cette plateforme.
+pending = ["openpyxl", "reportlab", "Pillow", "PySide6-Essentials", "certifi", "keyring"]
+seen = set()
+while pending:
+    package = pending.pop()
+    dist = distribution(package)
+    name = dist.metadata["Name"]
+    if name.casefold() in seen:
+        continue
+    seen.add(name.casefold())
+    datas += copy_metadata(name)
+    for dependency in dist.requires or []:
+        requirement = Requirement(dependency)
+        if requirement.marker is None or requirement.marker.evaluate({"extra": ""}):
+            pending.append(requirement.name)
+
 datas += [("ressources/horizon", "ressources/horizon"),
           ("assets/app_icon.png", "assets"),
           ("assets/app_icon.ico", "assets"),

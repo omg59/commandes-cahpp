@@ -102,7 +102,7 @@ class DiagnosticDialog(QDialog):
             )
             return (
                 report
-                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\nRéceptions Android : {self.mobile_result}\nCoffre PC : {self.credential_info['backend']} · mémorisation : {self.credential_info['remembered']}\n"
+                + f"\n\nHORIZON\n-------\nProfil : {self.window.profile}\nMode : {self.window.info.get('mode', '')}\nTâches au déclenchement : {self.task_count}\nImport en cours : {self.import_running}\nRéceptions Android : {self.mobile_result}\nCoffre PC : {self.credential_info['backend']} · mémorisation : {self.credential_info['remembered']}\nCapacité relais : {self.relay_capacity_info}\n"
             )
 
     def busy(self, value, message=""):
@@ -113,6 +113,13 @@ class DiagnosticDialog(QDialog):
         self.export_button.setEnabled(bool(self.report))
 
     def run(self):
+        self.relay_metrics = dict(getattr(self.window.operations, "last_mobile_maintenance", {}))
+        m = self.relay_metrics
+        self.relay_capacity_info = (
+            f"{m['pending_items']} demande(s), {m['pending_bytes']} octets en attente ; "
+            f"{m['documents']} document(s), {m['document_bytes']} octets, {m['orphan_documents']} orphelin(s)."
+            if 'pending_items' in m else "Non contrôlée pendant cette session."
+        )
         self.credential_info = self.window.preferences.credentials.diagnostic()
         self.mobile_result = self.window.preferences.mobile_status.text() or "Aucun échange pendant cette session."
         self.task_count = len(self.window.jobs.tasks)

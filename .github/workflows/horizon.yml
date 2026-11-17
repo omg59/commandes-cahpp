@@ -22,10 +22,10 @@ jobs:
     env:
       CAHPP_REQUIRE_HORIZON_GUI: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.15"
           architecture: "x64"
@@ -34,7 +34,8 @@ jobs:
             requirements.txt
             requirements-dev.txt
             requirements-horizon.txt
-      - run: python -m pip install -r requirements-horizon.txt -r requirements-dev.txt
+            requirements-build.lock
+      - run: python -m pip install --require-hashes -r requirements-build.lock
       - run: python -m ruff check .
       - run: python tools/release_checks.py
       - name: Vérifier la migration d’un profil bêta rempli
@@ -53,7 +54,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Réutiliser les outils AppImage vérifiés
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .cache-horizon-build
           key: horizon-appimage-tools-${{ runner.os }}-${{ hashFiles('tools/build_horizon_linux.py') }}
@@ -65,7 +66,7 @@ jobs:
         run: xvfb-run -a python -m tools.check_horizon_linux --platform xcb
       - name: Mettre les paquets Linux à disposition
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: CommandesCAHPP-Horizon-Linux-x86_64
           path: |
@@ -103,7 +104,7 @@ jobs:
               assert (Path(profile)/'startup-ok.json').is_file()
       - name: Mettre le dossier Windows à disposition
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: CommandesCAHPP-Horizon-Windows
           path: dist/CommandesCAHPP-Horizon-portable/
@@ -142,7 +143,7 @@ jobs:
               assert marker.read_text(encoding='utf-8') == 'conserver'
       - name: Mettre l'installeur Windows à disposition
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: CommandesCAHPP-Horizon-Installer-Windows
           path: |

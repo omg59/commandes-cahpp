@@ -792,6 +792,9 @@ def run(profile, info):
                     )
                 )
             )
+            if ready and sys.platform.startswith("linux"):
+                from keyring.backends import SecretService
+                ready = hasattr(SecretService, "secretstorage")
             if ready:
                 (profile / "startup-ok.json").write_text(
                     json.dumps(

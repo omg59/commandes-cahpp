@@ -12,6 +12,8 @@ from pathlib import Path
 from urllib.error import URLError
 
 from ..database import PRODUCT_SELECT
+from ..file_lock import FileLockBusy, exclusive_file
+import re
 
 
 class CatalogTransferPaused(ValueError):
@@ -45,7 +47,32 @@ def product_snapshot(db, product, supplier):
     return record
 
 
+def _cache_guard(db):
+    return exclusive_file(db.path.parent / "mobile-catalog" / ".cache.guard")
+
+
+def prune_catalog_cache(root, active):
+    generations = sorted((p for p in root.iterdir() if p.is_dir() and not p.is_symlink()
+                          and re.fullmatch("[a-f0-9]{64}", p.name)), key=lambda p: p.stat().st_mtime, reverse=True)
+    keep = {active}
+    previous = next((p.name for p in generations if p.name != active), None)
+    if previous:
+        keep.add(previous)
+    for path in generations:
+        if path.name not in keep:
+            shutil.rmtree(path)
+    cutoff = time.time() - 86400
+    for path in root.glob("incoming-*"):
+        if path.is_dir() and not path.is_symlink() and path.stat().st_mtime < cutoff:
+            shutil.rmtree(path)
+
+
 def catalog_cache(db):
+    with _cache_guard(db):
+        return _catalog_cache(db)
+
+
+def _catalog_cache(db):
     root = db.path.parent / "mobile-catalog"
     root.mkdir(parents=True, exist_ok=True)
     meta = root / "manifest.json"
@@ -55,6 +82,7 @@ def catalog_cache(db):
         if meta.is_file():
             current = json.loads(meta.read_text())
             if current["revision"] == revision and (root / current["generation"]).is_dir():
+                prune_catalog_cache(root, current["generation"])
                 return root / current["generation"], current
         suppliers = {r["id"]: dict(r) for r in c.execute("SELECT * FROM suppliers")}
         public_suppliers = [{
@@ -62,6 +90,7 @@ def catalog_cache(db):
                               "website", "franco_ht", "minimum_order_ht", "notes")
         } | {"id": supplier_key(s), "franco_ht": numeric(s["franco_ht"]), "minimum_order_ht": numeric(s["minimum_order_ht"])} for s in sorted(suppliers.values(), key=lambda s: supplier_key(s))]
         incoming = Path(tempfile.mkdtemp(prefix="incoming-", dir=root))
+        index = None
         try:
             digest = hashlib.sha256(json.dumps(public_suppliers, sort_keys=True).encode())
             batch, count, parts = [], 0, 0
@@ -97,13 +126,24 @@ def catalog_cache(db):
                 json.dump(current, stream)
                 index = Path(stream.name)
             os.replace(index, meta)
+            prune_catalog_cache(root, current["generation"])
             return destination, current
         finally:
+            if index is not None:
+                index.unlink(missing_ok=True)
             if incoming.exists():
                 shutil.rmtree(incoming)
 
 
 def publish_catalog(db, relay):
+    try:
+        with _cache_guard(db):
+            return _publish_catalog(db, relay)
+    except FileLockBusy as exc:
+        raise CatalogTransferPaused("Une autre publication utilise le cache du catalogue. Reprise au prochain cycle.") from exc
+
+
+def _publish_catalog(db, relay):
     state = relay.call("mobile-state")
     relay.catalog_gzip = state.get("catalog_gzip", False) is True
     root, manifest = catalog_cache(db)
@@ -124,7 +164,7 @@ def publish_catalog(db, relay):
         except (URLError, TimeoutError, ConnectionError) as exc:
             raise CatalogTransferPaused(paused_message("Publication du catalogue mobile interrompue")) from exc
         except ValueError as exc:
-            if getattr(exc, "http_status", None) not in {408, 429, 500, 502, 503, 504}:
+            if getattr(exc, "http_status", None) not in {408, 429, 500, 502, 503, 504, 507}:
                 raise
             raise CatalogTransferPaused(paused_message("Relais temporairement indisponible")) from exc
     # La lecture des accusés précède le manifeste : même un échec d’envoi garde une progression exacte.
