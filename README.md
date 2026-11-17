@@ -1,4 +1,4 @@
-> **Branche de développement — 3.0.1a1.** Correctifs de stabilisation en cours de validation.
+> **Branche de développement.** Correctifs de stabilisation en cours de validation.
 > La [version officielle](https://github.com/omg59/horizon-pc/releases/latest) reste diffusée depuis `main`.
 Lot de développement **3.0.1a6** : [corrections de l’audit et migration](docs/audit-consolidation.md). Les versions publiées restent inchangées.
 
