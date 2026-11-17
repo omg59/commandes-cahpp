@@ -188,6 +188,7 @@ def build_diagnostic_report(
                     f"Lecture : {_yes_no(shared.get('readable'))}",
                     f"Écriture : {_yes_no(shared.get('writable'))}",
                     f"Renommage atomique : {_yes_no(shared.get('atomic_rename'))}",
+                    f"Protocole de verrouillage : {shared.get('lock_protocol', 0)} (plages d’octets)",
                     f"Identifiant : {shared.get('workspace_id', '')}",
                     "Identifiant cohérent : "
                     f"{_yes_no(shared.get('workspace_matches'))}",

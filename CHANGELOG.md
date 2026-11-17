@@ -1,5 +1,13 @@
 # Historique des versions
 
+## Horizon 3.0.1a2 — développement, 17 novembre 2026
+
+- H02 : exclusion native par plages d’octets sur des sentinelles permanentes ; renouvellement, reprise et publication sérialisés par ressource. Un ancien propriétaire ne peut plus publier après reprise de son bail.
+- Renouvellement indépendant des travaux réseau, avec un worker réservé.
+- Protocole de partage 2, migration explicite après fermeture de tous les anciens postes, copie du manifeste précédent et conservation de l’identité du partage.
+- Tests à deux processus, arrêt forcé, renouvellement, reprise et refus d’une publication périmée. Outil de vérification à deux postes dans Collaboration.
+- Validation du partage SMB/NFS réel requise avant déploiement ; aucun serveur central supplémentaire.
+
 ## Horizon 3.0.1a1 — développement, 17 novembre 2026
 
 - H01 : une réception sans photo refusée pour un reliquat dépassé est rejetée sur le relais ; les réceptions suivantes continuent à être traitées.

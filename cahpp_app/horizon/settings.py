@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..collaboration import CollaborationManager
+from ..file_lock import FileLockBusy, exclusive_file
 from ..diagnostics import build_diagnostic_report
 from ..local_services import (
     MAIL_TEMPLATE_VARIABLES,
@@ -297,8 +298,13 @@ class SettingsPage(QWidget):
                     ("Tester l'accès", self.test_share),
                     ("Synchroniser maintenant", self.sync),
                     ("Ouvrir le partage", self.open_share),
+                    ("Mettre à niveau le partage…", self.upgrade_share),
                 ]:
                     row.addWidget(button(text, callback))
+                body.addLayout(row)
+                row = QHBoxLayout()
+                row.addWidget(button("Test à deux postes : réserver (30 s)", partial(self.check_share_lock, True)))
+                row.addWidget(button("Test à deux postes : vérifier", partial(self.check_share_lock, False)))
                 body.addLayout(row)
                 body.addWidget(
                     label(
@@ -393,6 +399,7 @@ class SettingsPage(QWidget):
         row.addStretch()
         layout.addLayout(row)
         self.status = label("", "muted", True)
+        self.window.jobs.progress.connect(self.share_lock_progress)
         layout.addWidget(self.status)
         self.tabs.currentChanged.connect(self.tab_changed)
 
@@ -611,6 +618,66 @@ class SettingsPage(QWidget):
             )
 
         self.window.jobs.submit("test-share", work, done)
+
+    def share_lock_progress(self, key, percent, text):
+        if key == "shared-lock-check":
+            self.status.setText(text)
+
+    def check_share_lock(self, hold):
+        path = self.widget("shared_workspace_path").text().strip()
+        if not path or not Path(path).is_dir():
+            self.status.setText("Choisissez d'abord un dossier partagé existant.")
+            return
+        sentinel = Path(path) / "verrous" / ".verification.guard"
+
+        def work(*, cancel, progress):
+            try:
+                with exclusive_file(sentinel):
+                    if not hold:
+                        return "Aucune réservation détectée. Démarrez d’abord le test de 30 secondes sur l’autre poste ; si celui-ci est déjà prêt, le partage ne respecte pas l’exclusion."
+                    for remaining in range(30, 0, -1):
+                        progress(30 - remaining, 30, f"Verrou de test détenu : {remaining} s. Cliquez sur « vérifier » sur l’autre poste.")
+                        if cancel.wait(1):
+                            return "Test arrêté."
+                    return "Réservation de test libérée. Vérifiez maintenant que l’autre poste peut réserver."
+            except FileLockBusy:
+                return "Exclusion observée : le verrou de test est détenu par l’autre poste. Refaites le test en inversant les postes."
+
+        def done(result, error):
+            self.status.setText(str(error) if error else result)
+
+        self.window.jobs.submit("shared-lock-check", work, done)
+
+    @action
+    def upgrade_share(self):
+        path = self.widget("shared_workspace_path").text().strip()
+        if not path:
+            raise ValueError("Choisissez d'abord le dossier partagé.")
+        if self.window.prepare.cart.lines or self.window.operations.editing_order:
+            raise ValueError("Enregistrez puis fermez la commande en préparation avant cette opération.")
+        answer = QMessageBox.question(
+            self, "Mettre à niveau le partage",
+            "Fermez Horizon sur tous les autres postes avant de continuer. "
+            "La mise à niveau exige ensuite cette nouvelle version sur tous les postes. "
+            "L’identité du partage, les commandes et le catalogue sont conservés.\n\n"
+            "Confirmez-vous que les autres applications Horizon sont fermées ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        def work(*, cancel, progress):
+            with self.window.operations.guard:
+                CollaborationManager.upgrade_workspace(path)
+
+        def done(result, error):
+            if error:
+                self.window.report_error(error)
+                return
+            self.status.setText("Partage mis à niveau. Enregistrez les paramètres pour le connecter.")
+
+        self.window.jobs.submit("upgrade-share", work, done)
 
     def maintenance(self, key, function, done):
         def work(*, cancel, progress):

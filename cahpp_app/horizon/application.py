@@ -697,9 +697,9 @@ class HorizonWindow(QMainWindow):
             return
 
         def work(*, cancel, progress):
-            with self.operations.guard:
-                if self.operations.manager:
-                    self.operations.manager.refresh_active_locks()
+            manager = self.operations.manager
+            if manager:
+                manager.refresh_active_locks()
 
         self.jobs.submit(
             "heartbeat",

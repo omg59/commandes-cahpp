@@ -112,17 +112,18 @@ class Operations:
                     handle = self.manager.acquire_lock(kind, str(key))
                     self.held_resources[resource] = handle
             try:
-                if self.manager and kind == "commande":
-                    self.manager.refresh_order(str(key))
-                yield
-                if self.manager and kind == "commande":
-                    with self.database.connect() as c:
-                        row = c.execute(
-                            "SELECT id FROM orders WHERE shared_uid=? AND sync_state<>'Synchronisée'",
-                            (str(key),),
-                        ).fetchone()
-                    if row:
-                        self.manager.publish_order(row["id"])
+                with (handle or retained).fenced() if self.manager else nullcontext():
+                    if self.manager and kind == "commande":
+                        self.manager.refresh_order(str(key))
+                    yield
+                    if self.manager and kind == "commande":
+                        with self.database.connect() as c:
+                            row = c.execute(
+                                "SELECT id FROM orders WHERE shared_uid=? AND sync_state<>'Synchronisée'",
+                                (str(key),),
+                            ).fetchone()
+                        if row:
+                            self.manager.publish_order(row["id"])
             finally:
                 if handle:
                     try:
@@ -198,26 +199,27 @@ class Operations:
                         "La commande n'est plus réservée. Reprenez-la depuis l'historique."
                     )
                 self.order_lock.refresh()
-            number = (
-                self.manager.reserve_order_number(selected_date)
-                if self.manager and not cart.order_id
-                else None
-            )
-            oid = self.database.save_order(
-                cart.supplier_id,
-                [line.as_mapping() for line in cart.lines],
-                notes=notes,
-                order_id=cart.order_id,
-                requester_service=service,
-                selected_date=selected_date,
-                order_number=number,
-            )
-            cart.order_id = oid
-            cart.dirty = False
-            self.hold_order(oid)
-            if self.manager:
-                self.manager.publish_order(oid)
-            return oid
+            with self.order_lock.fenced() if cart.order_id and self.manager else nullcontext():
+                number = (
+                    self.manager.reserve_order_number(selected_date)
+                    if self.manager and not cart.order_id
+                    else None
+                )
+                oid = self.database.save_order(
+                    cart.supplier_id,
+                    [line.as_mapping() for line in cart.lines],
+                    notes=notes,
+                    order_id=cart.order_id,
+                    requester_service=service,
+                    selected_date=selected_date,
+                    order_number=number,
+                )
+                cart.order_id = oid
+                cart.dirty = False
+                self.hold_order(oid)
+                if self.manager:
+                    self.manager.publish_order(oid)
+                return oid
 
     def duplicate(self, order_id, line_uids=None):
         with self.locked_order(order_id):

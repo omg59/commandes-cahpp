@@ -8,19 +8,20 @@ import re
 import shutil
 import tempfile
 import uuid
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Mapping
 
 from .database import Database
+from .file_lock import FileLockBusy, exclusive_file
 from .app_logging import log_failure
 
 logger = logging.getLogger(__name__)
 
 
-WORKSPACE_FORMAT = 1
+WORKSPACE_FORMAT = 2
 TEAM_STATE_FORMAT = 1
 ORDER_FORMAT = 1
 LOCK_TTL_SECONDS = 180
@@ -85,6 +86,15 @@ def _atomic_json(path: Path, value: object) -> None:
             log_failure(logger, "partage_nettoyage_temporaire_echec", exc)
 
 
+def _lease_expired(payload, now):
+    if not isinstance(payload, dict):
+        return True
+    try:
+        return datetime.fromisoformat(str(payload.get("expires_at") or "")) < now
+    except (ValueError, TypeError):
+        return True
+
+
 def _record_key(record: Mapping[str, object] | None) -> tuple[str, str]:
     if not record:
         return "", ""
@@ -130,29 +140,42 @@ class ResourceLock:
         self.released = False
         self.ttl_seconds = ttl_seconds
 
-    def refresh(self) -> None:
-        if self.released:
-            return
+    def assert_owned(self) -> None:
+        self.manager.assert_workspace()
         payload = _read_json(self.path, {})
-        if not isinstance(payload, dict) or payload.get("token") != self.token:
+        if self.released or not isinstance(payload, dict) or payload.get("token") != self.token:
             self.released = True
             raise ResourceLockedError(self.resource, "", "")
-        payload["heartbeat_at"] = _now()
-        payload["expires_at"] = (
-            datetime.now() + timedelta(seconds=self.ttl_seconds)
-        ).isoformat(timespec="seconds")
-        _atomic_json(self.path, payload)
+
+    @contextmanager
+    def fenced(self):
+        # Le contrôle et la publication utilisent la MÊME section critique.
+        # Un repreneur ne peut changer le jeton entre ces deux opérations.
+        with exclusive_file(self.path.with_suffix(".guard"), owner=self.manager):
+            self.assert_owned()
+            yield self
+
+    def refresh(self) -> None:
+        with self.fenced():
+            payload = _read_json(self.path, {})
+            payload["heartbeat_at"] = _now()
+            payload["expires_at"] = (
+                datetime.now() + timedelta(seconds=self.ttl_seconds)
+            ).isoformat(timespec="seconds")
+            _atomic_json(self.path, payload)
 
     def release(self) -> None:
         if self.released:
             return
         try:
-            payload = _read_json(self.path, {})
-            if isinstance(payload, dict) and payload.get("token") == self.token:
-                self.path.unlink(missing_ok=True)
+            with exclusive_file(self.path.with_suffix(".guard"), owner=self.manager):
+                payload = _read_json(self.path, {})
+                if isinstance(payload, dict) and payload.get("token") == self.token:
+                    self.path.unlink(missing_ok=True)
         finally:
             self.released = True
-            self.manager._active_locks.pop(self.resource, None)
+            if self.manager._active_locks.get(self.resource) is self:
+                self.manager._active_locks.pop(self.resource, None)
 
     def __enter__(self) -> "ResourceLock":
         return self
@@ -234,7 +257,18 @@ class CollaborationManager:
             ),
         )
 
+    def assert_workspace(self):
+        manifest = _read_json(self._required_root() / "espace-collaboratif.json", {})
+        if (not isinstance(manifest, dict)
+                or manifest.get("format") != WORKSPACE_FORMAT
+                or manifest.get("workspace_id") != self.workspace_id):
+            raise CollaborationError("L’identité ou le protocole du partage a changé. Aucune écriture partagée n’a été effectuée.")
+
     def initialize_workspace(self) -> str:
+        with exclusive_file(self._required_root() / "verrous" / ".workspace.guard"):
+            return self._initialize_workspace()
+
+    def _initialize_workspace(self) -> str:
         root = self._required_root()
         tested = self.test_path(root)
         if not tested.ok:
@@ -260,9 +294,9 @@ class CollaborationManager:
                 "created_by": self.user_name,
             }
             _atomic_json(manifest_path, manifest)
-        if not isinstance(manifest, dict) or int(manifest.get("format", 0)) != 1:
+        if not isinstance(manifest, dict) or int(manifest.get("format", 0)) != WORKSPACE_FORMAT:
             raise CollaborationError(
-                "Ce dossier ne contient pas un espace collaboratif compatible."
+                "Ce partage utilise un ancien protocole. Fermez Horizon sur tous les autres postes, puis utilisez « Mettre à niveau le partage » dans Collaboration. Tous les postes devront utiliser cette nouvelle version."
             )
         self.workspace_id = str(manifest.get("workspace_id") or "")
         for directory in (
@@ -282,115 +316,90 @@ class CollaborationManager:
         )
         return self.workspace_id
 
+    @staticmethod
+    def upgrade_workspace(path: str | Path) -> None:
+        """Migration explicite, après fermeture de TOUS les anciens clients.
+
+        La sentinelle ne protège pas contre un ancien exécutable déjà lancé,
+        qui ignore ce protocole. Le manifeste format 2 bloque son redémarrage.
+        """
+        root = Path(path).expanduser().resolve()
+        with exclusive_file(root / "verrous" / ".workspace.guard"):
+            target = root / "espace-collaboratif.json"
+            manifest = _read_json(target, {})
+            if not isinstance(manifest, dict) or not manifest.get("workspace_id"):
+                raise CollaborationError("Le manifeste du partage est absent ou invalide.")
+            if manifest.get("format") == WORKSPACE_FORMAT:
+                return
+            if manifest.get("format") != 1:
+                raise CollaborationError("Protocole de partage non reconnu.")
+            now = datetime.now()
+            for path in (root / "verrous").glob("*/*.lock"):
+                record = _read_json(path, {})
+                if not _lease_expired(record, now):
+                    raise CollaborationError("Des réservations sont encore actives. Fermez Horizon sur tous les postes et attendez leur expiration.")
+            backup = root / "espace-collaboratif.format-1.json"
+            if not backup.exists():
+                _atomic_json(backup, manifest)
+            _atomic_json(target, dict(manifest, format=WORKSPACE_FORMAT, upgraded_at=_now()))
+
     def acquire_lock(
         self, kind: str, key: str, ttl_seconds: int = LOCK_TTL_SECONDS
     ) -> ResourceLock:
         resource = f"{kind}:{key}"
-        active = self._active_locks.get(resource)
-        if active and not active.released:
-            return active
-        lock_path = (
-            self._required_root() / "verrous" / kind / f"{_safe_component(key)}.lock"
-        )
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        token = str(uuid.uuid4())
-        expires = datetime.now() + timedelta(seconds=ttl_seconds)
-        payload = {
-            "format": 1,
-            "resource": resource,
-            "token": token,
-            "user_id": self.user_id,
-            "user_name": self.user_name,
-            "created_at": _now(),
-            "heartbeat_at": _now(),
-            "expires_at": expires.isoformat(timespec="seconds"),
-        }
-        for _ in range(2):
-            try:
-                descriptor = os.open(
-                    lock_path,
-                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                )
-                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                    json.dump(payload, stream, ensure_ascii=False, indent=2)
+        lock_path = self._required_root() / "verrous" / kind / f"{_safe_component(key)}.lock"
+        try:
+            with exclusive_file(lock_path.with_suffix(".guard"), owner=self):
+                self.assert_workspace()
+                active = self._active_locks.get(resource)
+                if active and not active.released:
+                    active.assert_owned()
+                    return active
+                existing = _read_json(lock_path, {})
+                if existing and not _lease_expired(existing, datetime.now()):
+                    raise ResourceLockedError(resource, str(existing.get("user_name") or ""), str(existing.get("expires_at") or ""))
+                token = str(uuid.uuid4())
+                payload = {
+                    "format": 2, "resource": resource, "token": token,
+                    "user_id": self.user_id, "user_name": self.user_name,
+                    "created_at": _now(), "heartbeat_at": _now(),
+                    "expires_at": (datetime.now() + timedelta(seconds=ttl_seconds)).isoformat(timespec="seconds"),
+                }
+                _atomic_json(lock_path, payload)
                 handle = ResourceLock(self, resource, lock_path, token, ttl_seconds)
                 self._active_locks[resource] = handle
                 return handle
-            except FileExistsError:
-                existing = _read_json(lock_path, {})
-                expires_at = str(
-                    existing.get("expires_at") or ""
-                    if isinstance(existing, dict)
-                    else ""
-                )
-                try:
-                    expired = (
-                        not expires_at
-                        or datetime.fromisoformat(expires_at) < datetime.now()
-                    )
-                except ValueError:
-                    expired = True
-                if expired:
-                    lock_path.unlink(missing_ok=True)
-                    continue
-                owner = (
-                    str(existing.get("user_name") or "")
-                    if isinstance(existing, dict)
-                    else ""
-                )
-                raise ResourceLockedError(resource, owner, expires_at)
-        raise CollaborationError("Le verrou partagé n'a pas pu être créé.")
+        except FileLockBusy as exc:
+            raise ResourceLockedError(resource, "un autre poste", "") from exc
 
     def refresh_active_locks(self) -> None:
         for handle in list(self._active_locks.values()):
             try:
                 handle.refresh()
+            except FileLockBusy:
+                # Une publication protégée est en cours ; renouveler au cycle suivant.
+                continue
             except (CollaborationError, OSError) as exc:
                 log_failure(logger, "verrou_renouvellement_echec", exc)
                 handle.released = True
-                self._active_locks.pop(handle.resource, None)
+                if self._active_locks.get(handle.resource) is handle:
+                    self._active_locks.pop(handle.resource, None)
 
     def release_all_locks(self) -> None:
         for handle in list(self._active_locks.values()):
             handle.release()
 
     def cleanup_expired_locks(self) -> int:
-        root = self._required_root() / "verrous"
-        if not root.is_dir():
-            return 0
+        self.assert_workspace()
         removed = 0
-        now = datetime.now()
-        for path in root.glob("*/*.lock"):
-            payload = _read_json(path, {})
-            expires_at = (
-                str(payload.get("expires_at") or "")
-                if isinstance(payload, dict)
-                else ""
-            )
+        for path in (self._required_root() / "verrous").glob("*/*.lock"):
             try:
-                expired = not expires_at or datetime.fromisoformat(expires_at) < now
-            except ValueError:
-                expired = True
-            if not expired:
+                with exclusive_file(path.with_suffix(".guard"), owner=self):
+                    if path.exists() and _lease_expired(_read_json(path, {}), datetime.now()):
+                        path.unlink()
+                        removed += 1
+            except FileLockBusy:
                 continue
-            # Relire juste avant la suppression : un poste a pu renouveler le
-            # verrou depuis la première lecture.
-            current = _read_json(path, {})
-            current_expiry = (
-                str(current.get("expires_at") or "")
-                if isinstance(current, dict)
-                else ""
-            )
-            try:
-                still_expired = (
-                    not current_expiry
-                    or datetime.fromisoformat(current_expiry) < datetime.now()
-                )
-            except ValueError:
-                still_expired = True
-            if still_expired:
-                path.unlink(missing_ok=True)
-                removed += 1
         return removed
 
     def _merge_team_states(
@@ -448,7 +457,7 @@ class CollaborationManager:
     def sync_team_state(self) -> dict[str, int]:
         if not self.enabled:
             return {}
-        with self.acquire_lock("systeme", "donnees-equipe", ttl_seconds=60):
+        with self.acquire_lock("systeme", "donnees-equipe", ttl_seconds=60) as handle, handle.fenced():
             state_path = self._required_root() / "equipe" / "etat.json"
             remote = _read_json(state_path, {})
             if not isinstance(remote, dict):
@@ -481,7 +490,7 @@ class CollaborationManager:
     def reserve_order_number(self, selected_date: date | None = None) -> str:
         selected_date = selected_date or date.today()
         year = str(selected_date.year)
-        with self.acquire_lock("systeme", "numerotation", ttl_seconds=60):
+        with self.acquire_lock("systeme", "numerotation", ttl_seconds=60) as handle, handle.fenced():
             state_path = self._required_root() / "commandes" / "numerotation.json"
             state = _read_json(state_path, {})
             if not isinstance(state, dict):
@@ -673,107 +682,108 @@ class CollaborationManager:
             else self._active_locks[resource]
         )
         try:
-            order_dir = self._order_dir(shared_uid)
-            order_dir.mkdir(parents=True, exist_ok=True)
-            current_path = order_dir / "commande.json"
-            remote = _read_json(current_path, {})
-            if isinstance(remote, dict) and remote:
-                remote_order = dict(remote.get("order") or {})
-                remote_revision = int(remote_order.get("shared_revision") or 0)
-                if remote_order.get("shared_uid") != shared_uid:
-                    raise SyncConflictError(
-                        "Identité de commande partagée incohérente."
-                    )
-                local_order, _ = self.database.get_order(order_id)
-                if remote_revision != int(local_order["sync_base_revision"]):
-                    ignored = {
-                        "id",
-                        "order_id",
-                        "product_id",
-                        "supplier_id",
-                        "pdf_path",
-                        "stored_path",
-                        "sync_state",
-                        "last_synced_at",
-                        "sync_base_revision",
-                    }
-
-                    def business(value):
-                        if isinstance(value, dict):
-                            return {
-                                k: business(v)
-                                for k, v in value.items()
-                                if k not in ignored
-                            }
-                        if isinstance(value, list):
-                            return [business(v) for v in value]
-                        return value
-
-                    from .local_services import resolve_portable_path
-
-                    def document_digests(record):
-                        values = [dict(record.get("order") or {}).get("pdf_path", "")]
-                        values += [
-                            a.get("stored_path", "")
-                            for a in record.get("attachments", [])
-                        ]
-                        paths = [
-                            self.resolve_shared_uri(v)
-                            if v.startswith("shared:")
-                            else resolve_portable_path(v)
-                            for v in values
-                            if v
-                        ]
-                        return [_sha256(p) if p.is_file() else None for p in paths]
-
-                    if (
-                        remote_revision == int(order.get("shared_revision") or 0)
-                        and business(remote) == business(payload)
-                        and document_digests(remote) == document_digests(payload)
-                    ):
-                        cached = self._cache_order_files(remote)
-                        self.database.update_order_shared_paths(
-                            order_id,
-                            pdf_path=cached["order"].get("pdf_path", ""),
-                            attachment_paths={
-                                a["display_name"]: a["stored_path"]
-                                for a in cached.get("attachments", [])
-                            },
+            with handle.fenced():
+                order_dir = self._order_dir(shared_uid)
+                order_dir.mkdir(parents=True, exist_ok=True)
+                current_path = order_dir / "commande.json"
+                remote = _read_json(current_path, {})
+                if isinstance(remote, dict) and remote:
+                    remote_order = dict(remote.get("order") or {})
+                    remote_revision = int(remote_order.get("shared_revision") or 0)
+                    if remote_order.get("shared_uid") != shared_uid:
+                        raise SyncConflictError(
+                            "Identité de commande partagée incohérente."
                         )
-                        self.database.mark_order_synced(order_id)
-                        return
-                    raise SyncConflictError(
-                        "Conflit : la version partagée diffère de la dernière version synchronisée. Modifications locales conservées."
-                    )
-            payload = self._copy_order_files(order_id, dict(payload))
-            order = dict(payload["order"])
-            revision = int(order.get("shared_revision") or 1)
-            revisions = order_dir / "revisions"
-            if (
-                order.get("deleted_at")
-                and revisions.is_dir()
-                and not revisions.is_symlink()
-            ):
-                shutil.rmtree(revisions)
-            revisions.mkdir(parents=True, exist_ok=True)
-            _atomic_json(
-                revisions / f"commande-{revision:06d}.json",
-                payload,
-            )
-            _atomic_json(current_path, payload)
-            self._trim_revisions(revisions, "commande-*.json", keep=30)
-            cached = self._cache_order_files(payload)
-            cached_order = dict(cached.get("order") or {})
-            cached_attachments = {
-                str(item.get("display_name") or ""): str(item.get("stored_path") or "")
-                for item in list(cached.get("attachments") or [])
-            }
-            self.database.update_order_shared_paths(
-                order_id,
-                pdf_path=str(cached_order.get("pdf_path") or ""),
-                attachment_paths=cached_attachments,
-            )
-            self.database.mark_order_synced(order_id)
+                    local_order, _ = self.database.get_order(order_id)
+                    if remote_revision != int(local_order["sync_base_revision"]):
+                        ignored = {
+                            "id",
+                            "order_id",
+                            "product_id",
+                            "supplier_id",
+                            "pdf_path",
+                            "stored_path",
+                            "sync_state",
+                            "last_synced_at",
+                            "sync_base_revision",
+                        }
+
+                        def business(value):
+                            if isinstance(value, dict):
+                                return {
+                                    k: business(v)
+                                    for k, v in value.items()
+                                    if k not in ignored
+                                }
+                            if isinstance(value, list):
+                                return [business(v) for v in value]
+                            return value
+
+                        from .local_services import resolve_portable_path
+
+                        def document_digests(record):
+                            values = [dict(record.get("order") or {}).get("pdf_path", "")]
+                            values += [
+                                a.get("stored_path", "")
+                                for a in record.get("attachments", [])
+                            ]
+                            paths = [
+                                self.resolve_shared_uri(v)
+                                if v.startswith("shared:")
+                                else resolve_portable_path(v)
+                                for v in values
+                                if v
+                            ]
+                            return [_sha256(p) if p.is_file() else None for p in paths]
+
+                        if (
+                            remote_revision == int(order.get("shared_revision") or 0)
+                            and business(remote) == business(payload)
+                            and document_digests(remote) == document_digests(payload)
+                        ):
+                            cached = self._cache_order_files(remote)
+                            self.database.update_order_shared_paths(
+                                order_id,
+                                pdf_path=cached["order"].get("pdf_path", ""),
+                                attachment_paths={
+                                    a["display_name"]: a["stored_path"]
+                                    for a in cached.get("attachments", [])
+                                },
+                            )
+                            self.database.mark_order_synced(order_id)
+                            return
+                        raise SyncConflictError(
+                            "Conflit : la version partagée diffère de la dernière version synchronisée. Modifications locales conservées."
+                        )
+                payload = self._copy_order_files(order_id, dict(payload))
+                order = dict(payload["order"])
+                revision = int(order.get("shared_revision") or 1)
+                revisions = order_dir / "revisions"
+                if (
+                    order.get("deleted_at")
+                    and revisions.is_dir()
+                    and not revisions.is_symlink()
+                ):
+                    shutil.rmtree(revisions)
+                revisions.mkdir(parents=True, exist_ok=True)
+                _atomic_json(
+                    revisions / f"commande-{revision:06d}.json",
+                    payload,
+                )
+                _atomic_json(current_path, payload)
+                self._trim_revisions(revisions, "commande-*.json", keep=30)
+                cached = self._cache_order_files(payload)
+                cached_order = dict(cached.get("order") or {})
+                cached_attachments = {
+                    str(item.get("display_name") or ""): str(item.get("stored_path") or "")
+                    for item in list(cached.get("attachments") or [])
+                }
+                self.database.update_order_shared_paths(
+                    order_id,
+                    pdf_path=str(cached_order.get("pdf_path") or ""),
+                    attachment_paths=cached_attachments,
+                )
+                self.database.mark_order_synced(order_id)
         finally:
             if own_lock:
                 handle.release()
@@ -922,110 +932,111 @@ class CollaborationManager:
             if lock
             else self.acquire_lock("systeme", "catalogue", ttl_seconds=600)
         ) as handle:
-            handle.refresh()
-            current_path = self.catalogs_dir / "catalogue-actuel.json"
-            current = _read_json(current_path, {})
-            if isinstance(current, dict) and (
-                current.get("sha256") == file_hash
-                or current.get("source_sha256") == file_hash
-            ):
+            with handle.fenced():
+                handle.refresh()
+                current_path = self.catalogs_dir / "catalogue-actuel.json"
+                current = _read_json(current_path, {})
+                if isinstance(current, dict) and (
+                    current.get("sha256") == file_hash
+                    or current.get("source_sha256") == file_hash
+                ):
+                    self.database.save_settings(
+                        {
+                            "collaboration_catalog_hash": current.get("sha256", ""),
+                            "collaboration_catalog_version": current.get("version", ""),
+                        }
+                    )
+                    return current
+                if (
+                    getattr(result, "mode", "full") == "delta"
+                    and current
+                    and not self._catalog_base_matches(getattr(result, "previous_catalog_hash", ""), result.import_id, current)
+                ):
+                    raise CollaborationError(
+                        "Un autre poste a publié un catalogue plus récent. Appliquez-le avant de publier vos évolutions."
+                    )
+                version = (
+                    datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                    + "-"
+                    + file_hash[:10]
+                    + "-"
+                    + uuid.uuid4().hex[:8]
+                )
+                versions = self.catalogs_dir / "versions"
+                versions.mkdir(parents=True, exist_ok=True)
+                destination = versions / version
+                incoming = versions / f".incoming-{uuid.uuid4().hex}"
+                incoming.mkdir()
+                catalog_path = incoming / "catalogue.xlsx"
+                try:
+                    snapshot = getattr(result, "mode", "full") in {"delta", "snapshot"}
+                    published_rows = int(getattr(result, "row_count", 0))
+                    if snapshot:
+                        from .catalog_import.snapshots import export_snapshot
+
+                        with tempfile.TemporaryDirectory(
+                            prefix="cahpp-catalogue-"
+                        ) as temporary:
+                            local_snapshot = Path(temporary) / "catalogue.xlsx"
+                            published_rows = export_snapshot(
+                                self.database, local_snapshot, result
+                            )
+                            snapshot_hash = _sha256(local_snapshot)
+                            shutil.copy2(local_snapshot, catalog_path)
+                    else:
+                        shutil.copy2(source, catalog_path)
+                    published_hash = _sha256(catalog_path)
+                    if published_hash != (snapshot_hash if snapshot else file_hash):
+                        raise CollaborationError(
+                            "La copie du catalogue partagé n'est pas intègre."
+                        )
+                    source_archive = ""
+                    if getattr(result, "mode", "full") == "delta":
+                        source_archive = f"versions/{version}/evolutions-source.xlsx"
+                        source_copy = incoming / "evolutions-source.xlsx"
+                        shutil.copy2(source, source_copy)
+                        if _sha256(source_copy) != file_hash:
+                            raise CollaborationError(
+                                "Le fichier d'évolutions a changé pendant sa publication."
+                            )
+                    manifest = {
+                        "format": 2 if snapshot else 1,
+                        "version": version,
+                        "sha256": published_hash,
+                        "source_sha256": file_hash,
+                        "min_app_version": "1.6.0" if snapshot else "1.0.0",
+                        "import_mode": getattr(result, "mode", "full"),
+                        "period": getattr(result, "period", ""),
+                        "review_count": int(getattr(result, "review_count", 0)),
+                        "source_name": getattr(result, "filename", source.name),
+                        "source_relative_path": source_archive,
+                        "published_at": _now(),
+                        "published_by": self.user_name,
+                        "row_count": published_rows,
+                        "source_row_count": int(getattr(result, "row_count", 0)),
+                        "added_count": int(getattr(result, "added_count", 0)),
+                        "updated_count": int(getattr(result, "updated_count", 0)),
+                        "missing_count": int(getattr(result, "missing_count", 0)),
+                        "relative_path": f"versions/{version}/catalogue.xlsx",
+                    }
+                    _atomic_json(incoming / "manifest.json", manifest)
+                    if destination.exists():
+                        shutil.rmtree(incoming)
+                    else:
+                        os.replace(incoming, destination)
+                    handle.refresh()
+                    _atomic_json(current_path, manifest)
+                except Exception:
+                    if incoming.exists():
+                        shutil.rmtree(incoming)
+                    raise
                 self.database.save_settings(
                     {
-                        "collaboration_catalog_hash": current.get("sha256", ""),
-                        "collaboration_catalog_version": current.get("version", ""),
+                        "collaboration_catalog_hash": published_hash,
+                        "collaboration_catalog_version": version,
                     }
                 )
-                return current
-            if (
-                getattr(result, "mode", "full") == "delta"
-                and current
-                and not self._catalog_base_matches(getattr(result, "previous_catalog_hash", ""), result.import_id, current)
-            ):
-                raise CollaborationError(
-                    "Un autre poste a publié un catalogue plus récent. Appliquez-le avant de publier vos évolutions."
-                )
-            version = (
-                datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                + "-"
-                + file_hash[:10]
-                + "-"
-                + uuid.uuid4().hex[:8]
-            )
-            versions = self.catalogs_dir / "versions"
-            versions.mkdir(parents=True, exist_ok=True)
-            destination = versions / version
-            incoming = versions / f".incoming-{uuid.uuid4().hex}"
-            incoming.mkdir()
-            catalog_path = incoming / "catalogue.xlsx"
-            try:
-                snapshot = getattr(result, "mode", "full") in {"delta", "snapshot"}
-                published_rows = int(getattr(result, "row_count", 0))
-                if snapshot:
-                    from .catalog_import.snapshots import export_snapshot
-
-                    with tempfile.TemporaryDirectory(
-                        prefix="cahpp-catalogue-"
-                    ) as temporary:
-                        local_snapshot = Path(temporary) / "catalogue.xlsx"
-                        published_rows = export_snapshot(
-                            self.database, local_snapshot, result
-                        )
-                        snapshot_hash = _sha256(local_snapshot)
-                        shutil.copy2(local_snapshot, catalog_path)
-                else:
-                    shutil.copy2(source, catalog_path)
-                published_hash = _sha256(catalog_path)
-                if published_hash != (snapshot_hash if snapshot else file_hash):
-                    raise CollaborationError(
-                        "La copie du catalogue partagé n'est pas intègre."
-                    )
-                source_archive = ""
-                if getattr(result, "mode", "full") == "delta":
-                    source_archive = f"versions/{version}/evolutions-source.xlsx"
-                    source_copy = incoming / "evolutions-source.xlsx"
-                    shutil.copy2(source, source_copy)
-                    if _sha256(source_copy) != file_hash:
-                        raise CollaborationError(
-                            "Le fichier d'évolutions a changé pendant sa publication."
-                        )
-                manifest = {
-                    "format": 2 if snapshot else 1,
-                    "version": version,
-                    "sha256": published_hash,
-                    "source_sha256": file_hash,
-                    "min_app_version": "1.6.0" if snapshot else "1.0.0",
-                    "import_mode": getattr(result, "mode", "full"),
-                    "period": getattr(result, "period", ""),
-                    "review_count": int(getattr(result, "review_count", 0)),
-                    "source_name": getattr(result, "filename", source.name),
-                    "source_relative_path": source_archive,
-                    "published_at": _now(),
-                    "published_by": self.user_name,
-                    "row_count": published_rows,
-                    "source_row_count": int(getattr(result, "row_count", 0)),
-                    "added_count": int(getattr(result, "added_count", 0)),
-                    "updated_count": int(getattr(result, "updated_count", 0)),
-                    "missing_count": int(getattr(result, "missing_count", 0)),
-                    "relative_path": f"versions/{version}/catalogue.xlsx",
-                }
-                _atomic_json(incoming / "manifest.json", manifest)
-                if destination.exists():
-                    shutil.rmtree(incoming)
-                else:
-                    os.replace(incoming, destination)
-                handle.refresh()
-                _atomic_json(current_path, manifest)
-            except Exception:
-                if incoming.exists():
-                    shutil.rmtree(incoming)
-                raise
-            self.database.save_settings(
-                {
-                    "collaboration_catalog_hash": published_hash,
-                    "collaboration_catalog_version": version,
-                }
-            )
-            return manifest
+                return manifest
 
     def pending_catalog(self) -> dict[str, object] | None:
         if not self.enabled:
@@ -1179,6 +1190,7 @@ class CollaborationManager:
             "readable": tested.readable,
             "writable": tested.writable,
             "atomic_rename": tested.atomic_rename,
+            "lock_protocol": manifest.get("format") if isinstance(manifest, dict) else 0,
             "workspace_id": manifest_workspace_id,
             "workspace_matches": bool(
                 manifest_workspace_id and manifest_workspace_id == self.workspace_id

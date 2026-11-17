@@ -54,6 +54,8 @@ class Jobs(QObject):
         super().__init__(parent)
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(2)
+        self.heartbeat_pool = QThreadPool(self)
+        self.heartbeat_pool.setMaxThreadCount(1)
         self.tasks = {}
         self.latest = {}
         self.counter = 0
@@ -74,7 +76,8 @@ class Jobs(QObject):
             self._progress, Qt.ConnectionType.QueuedConnection
         )
         self.tasks[(key, generation)] = (task, callback)
-        self.pool.start(task)
+        pool = self.heartbeat_pool if key == "heartbeat" else self.pool
+        pool.start(task)
 
     @Slot(str, int, object, object)
     def _done(self, key, generation, result, error):
@@ -106,4 +109,4 @@ class Jobs(QObject):
 
     @property
     def busy(self):
-        return bool(self.pool.activeThreadCount())
+        return bool(self.pool.activeThreadCount() or self.heartbeat_pool.activeThreadCount())
