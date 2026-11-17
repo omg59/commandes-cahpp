@@ -11,7 +11,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -205,7 +205,7 @@ class MobileReceiptTest(unittest.TestCase):
                 self.assertEqual(len(db.list_orders(include_archived=True)), 2)
                 # Une projection documentaire absente doit être réparée même
                 # lorsque la révision métier n'a pas changé.
-                with sqlite3.connect(root / "relay.db") as damaged:
+                with closing(sqlite3.connect(root / "relay.db")) as damaged, damaged:
                     damaged.execute("DELETE FROM mobile_documents WHERE id=?", (document["id"],))
                 synchronize(a, pc)
                 self.assertTrue(base64.b64decode(phone.call("documents/" + document["id"])["data"]).startswith(b"%PDF"))
