@@ -22,8 +22,8 @@ from .theme import apply_theme
 
 
 class ProfileDialog(QDialog):
-    def __init__(self, message=""):
-        super().__init__()
+    def __init__(self, message="", parent=None):
+        super().__init__(parent)
         self.selection = None
         self.setWindowTitle("Bienvenue dans Commandes CAHPP Horizon")
         self.setWindowIcon(QIcon(str(resource_root() / "assets/app_icon.ico")))
@@ -124,13 +124,14 @@ class ProfileDialog(QDialog):
         self.accept()
 
 
-def choose_profile(message=""):
+def choose_profile(message="", parent=None):
     app = create_application()
-    apply_theme(app, False)
+    if parent is None:
+        apply_theme(app, False)
     previous = app.quitOnLastWindowClosed()
     app.setQuitOnLastWindowClosed(False)
     try:
-        dialog = ProfileDialog(message)
+        dialog = ProfileDialog(message, parent)
         return (
             dialog.selection if dialog.exec() == QDialog.DialogCode.Accepted else None
         )

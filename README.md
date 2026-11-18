@@ -1,6 +1,6 @@
 > **Branche de développement.** Correctifs de stabilisation en cours de validation.
 > La [version officielle](https://github.com/omg59/horizon-pc/releases/latest) reste diffusée depuis `main`.
-Lot de développement **3.0.1a10**. [Association des téléphones](docs/acces-mobiles.md) · [Corrections des audits et migration](docs/audit-consolidation.md) · [Montants et schéma 17](docs/montants.md).
+Lot de développement **3.0.1a11**. [Association des téléphones](docs/acces-mobiles.md) · [Corrections des audits et migration](docs/audit-consolidation.md) · [Montants et schéma 17](docs/montants.md).
 
 # Horizon — Commandes CAHPP
 

@@ -17,6 +17,7 @@ from typing import Mapping
 from .database import Database
 from .file_lock import FileLockBusy, exclusive_file
 from .app_logging import log_failure
+from .team_logo import sync_logo
 
 logger = logging.getLogger(__name__)
 
@@ -474,6 +475,12 @@ class CollaborationManager:
             _atomic_json(revision_path, merged)
             _atomic_json(state_path, merged)
             result = self.database.apply_team_state(merged)
+            try:
+                if sync_logo(self.database, state_path.parent, self.workspace_id):
+                    result["logo"] = 1
+            except (OSError, ValueError) as exc:
+                log_failure(logger, "synchronisation_logo_echec", exc)
+                result["logo_error"] = 1
             self._trim_revisions(
                 self._required_root() / "equipe" / "revisions",
                 "etat-*.json",

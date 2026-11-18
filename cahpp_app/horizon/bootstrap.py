@@ -51,6 +51,31 @@ def profile_launch_command(arguments):
     return sys.executable, list(arguments)
 
 
+def profile_launch_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    for key in ("CAHPP_PORTABLE_ROOT", "CAHPP_RESOURCE_ROOT"):
+        environment.pop(key, None)
+    if getattr(sys, "frozen", False):
+        environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        if sys.platform == "linux":
+            original = environment.pop("LD_LIBRARY_PATH_ORIG", None)
+            if original is None:
+                environment.pop("LD_LIBRARY_PATH", None)
+            else:
+                environment["LD_LIBRARY_PATH"] = original
+            for key in ("APPIMAGE", "APPDIR", "ARGV0", "OWD"):
+                environment.pop(key, None)
+    return environment
+
+
+def create_selected_profile(selection: dict) -> Path:
+    path = data_root() / "profils" / ("profil-" + uuid.uuid4().hex[:12])
+    initialize_profile(
+        path, display_name=selection["name"], user_name=selection["user_name"]
+    )
+    return path
+
+
 def profile_info(path: Path) -> dict:
     marker = path / MARKER
     if not marker.is_file():
@@ -235,6 +260,7 @@ def copy_database(source: Path, profiles: Path) -> Path:
                 local.execute(
                     "UPDATE settings SET value='' WHERE key IN ('collaboration_root','shared_folder','shared_workspace_path','collaboration_workspace_id','collaboration_last_sync_at','collaboration_catalog_hash','collaboration_catalog_version','horizon_catalog_pending','pdf_default_directory')"
                 )
+                local.execute("DELETE FROM settings WHERE key='team_logo_pending'")
                 local.execute(
                     "UPDATE settings SET value=? WHERE key='user_id'",
                     (str(uuid.uuid4()),),
@@ -379,12 +405,8 @@ def configure(argv=None, *, select_profile=None) -> tuple[Path, dict]:
                 info = profile_info(path)
                 validate_profile_database(path)
             elif selection["action"] == "create":
-                path = data_root() / "profils" / ("profil-" + uuid.uuid4().hex[:12])
-                info = initialize_profile(
-                    path,
-                    display_name=selection["name"],
-                    user_name=selection["user_name"],
-                )
+                path = create_selected_profile(selection)
+                info = profile_info(path)
             else:
                 raise ValueError("Choix de profil non reconnu.")
         else:

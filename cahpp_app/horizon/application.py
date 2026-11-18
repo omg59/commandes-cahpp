@@ -40,7 +40,12 @@ from ..database import Database
 from ..local_services import create_complete_backup
 from ..paths import BACKUP_DIR, DATABASE_PATH, ensure_directories
 from . import NAME, VERSION
-from .bootstrap import resource_root, profile_launch_command
+from .bootstrap import (
+    create_selected_profile,
+    profile_launch_command,
+    profile_launch_environment,
+    resource_root,
+)
 from .catalog import CatalogPage
 from .dialogs import ProductDialog
 from .jobs import Jobs
@@ -428,24 +433,43 @@ class HorizonWindow(QMainWindow):
         self.launch_profile(["--copy-database", source])
 
     def choose_profile(self):
-        self.launch_profile(["--choose-profile"])
+        if sys.platform != "linux":
+            self.launch_profile(["--choose-profile"])
+            return
+        from .startup import choose_profile
+
+        selection = choose_profile(parent=self)
+        if selection is None:
+            return
+        if selection["action"] == "copy":
+            self.launch_profile(["--copy-database", str(selection["path"])])
+        elif selection["action"] == "create":
+            try:
+                path = create_selected_profile(selection)
+            except (OSError, ValueError) as exc:
+                self.report_error(exc)
+                return
+            self.launch_profile(["--profile", str(path)])
+        else:
+            self.launch_profile(["--profile", str(selection["path"])])
 
     def launch_profile(self, arguments):
         program, args = profile_launch_command(arguments)
         process = QProcess(self)
-        environment = QProcessEnvironment.systemEnvironment()
-        if getattr(sys, "frozen", False):
-            environment.insert("PYINSTALLER_RESET_ENVIRONMENT", "1")
+        environment = QProcessEnvironment()
+        for key, value in profile_launch_environment().items():
+            environment.insert(key, value)
         process.setProcessEnvironment(environment)
         process.setProgram(program)
         process.setArguments(args)
         result = process.startDetached()
         ok = result[0] if isinstance(result, tuple) else result
         if not ok:
+            logger.warning("horizon_profil_lancement_echec qt=%s", process.error())
             self.report_error("Le nouveau profil n'a pas pu être lancé.")
         else:
             self.notify(
-                "Le choix du profil s'ouvre dans une nouvelle fenêtre. Ce profil reste accessible ici."
+                "Ouverture dans une nouvelle fenêtre. Ce profil reste accessible ici."
             )
 
     def choose_catalog(self):
@@ -648,9 +672,11 @@ class HorizonWindow(QMainWindow):
                     self.report_error(error)
                 return
             conflicts = (result.get("orders") or {}).get("conflicts", 0)
+            logo_error = (result.get("team") or {}).get("logo_error")
             self.profile_label.setText(
                 f"Synchronisé · {datetime.now():%H:%M}"
                 + (f" · {conflicts} conflit(s) à examiner" if conflicts else "")
+                + (" · Logo non synchronisé" if logo_error else "")
             )
             self.statistics.reload_suppliers()
             self.refresh_current_page()

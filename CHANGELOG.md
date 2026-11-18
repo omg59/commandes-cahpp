@@ -1,5 +1,10 @@
 # Historique des versions
 
+## Horizon 3.0.1a11 — développement, 18 novembre 2026
+
+- Synchronisation du logo de l’établissement via le dossier partagé et copie locale pour les bons de commande.
+- Sous Linux, ouverture du sélecteur de profil depuis la fenêtre active et relance du paquet avec un environnement indépendant.
+
 ## Horizon 3.0.1a10 — développement, 18 novembre 2026
 
 - Reprise de publication du catalogue mobile après changement du catalogue actif pendant le transfert.

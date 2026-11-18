@@ -37,6 +37,7 @@ from cahpp_app.local_services import (
 from cahpp_app.pdf_export import generate_order_pdf
 from cahpp_app.statistics_export import export_statistics_workbook
 from cahpp_app.numbers import field_display_value
+from cahpp_app.team_logo import PENDING_LOGO, prepare_logo
 
 
 def create_catalog(path: Path, rows: list[dict[str, object]]) -> None:
@@ -964,6 +965,53 @@ class WorkflowTest(unittest.TestCase):
         )
         self.assertIn("Clinique test", query["body"][0])
         self.assertEqual(len(prepared), 1)
+
+    def test_establishment_logo_syncs_as_a_file_and_removal_survives_reconnection(self):
+        shared = self.root / "shared"
+        first = CollaborationManager(self.database, "user-a", "Damien", shared)
+        workspace = first.initialize_workspace()
+        second_db = Database(self.root / "other-pc" / "second.sqlite3")
+        second = CollaborationManager(second_db, "user-b", "Sophie", shared)
+        second.initialize_workspace()
+
+        source = self.root / "logo.png"
+        Image.new("RGB", (20, 10), "blue").save(source)
+        self.database.save_settings({"logo_path": str(source)})
+        first.sync_team_state()
+        second.sync_team_state()
+        first_logo = local_services.resolve_portable_path(self.database.get_settings()["logo_path"])
+        second_logo = local_services.resolve_portable_path(second_db.get_settings()["logo_path"])
+        self.assertNotEqual(first_logo, second_logo)
+        self.assertEqual(second_logo.read_bytes(), source.read_bytes())
+        self.assertTrue(second_logo.is_relative_to(second_db.path.parent))
+
+        shared_logo = shared / "equipe" / "logo-etablissement.image"
+        shared_logo.write_bytes(b"image corrompue")
+        self.assertEqual(second.sync_team_state()["logo_error"], 1)
+        self.assertEqual(second_logo.read_bytes(), source.read_bytes())
+
+        replacement = self.root / "nouveau.jpg"
+        Image.new("RGB", (20, 10), "green").save(replacement)
+        second_db.save_settings({
+            "logo_path": prepare_logo(second_db, str(replacement)),
+            PENDING_LOGO: workspace,
+        })
+        expected = replacement.read_bytes()
+        replacement.unlink()
+        second.sync_team_state()
+        first.sync_team_state()
+        logo = local_services.resolve_portable_path(self.database.get_settings()["logo_path"])
+        self.assertEqual(logo.suffix, ".jpg")
+        self.assertEqual(logo.read_bytes(), expected)
+
+        second_db.save_settings({"logo_path": "", PENDING_LOGO: workspace})
+        second.sync_team_state()
+        first.sync_team_state()
+        self.assertEqual(self.database.get_settings()["logo_path"], "")
+        self.database.save_settings({"logo_path": str(source)})
+        first.sync_team_state()
+        self.assertEqual(self.database.get_settings()["logo_path"], "")
+        self.assertEqual(shared_logo.read_bytes(), b"")
 
     def test_collaboration_without_server(self):
         shared = self.root / "partage"

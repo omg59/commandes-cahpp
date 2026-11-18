@@ -109,6 +109,16 @@ La synchronisation s'exécute :
 - après une modification importante ;
 - avec **Synchroniser maintenant**.
 
+Les coordonnées et le logo de l’établissement, les fiches fournisseurs ainsi
+que l’objet et le corps du modèle d’e-mail sont communs aux postes du même
+partage. Pour modifier le logo, choisir une image PNG ou JPEG dans
+**Paramètres → Établissement**, puis enregistrer. Le fichier est copié sur
+chaque poste pour rester disponible lors de la génération des PDF. Lorsque
+le partage contient déjà un logo, il est repris automatiquement. Si aucun logo
+n’a encore été partagé, le premier poste synchronisé qui possède une image
+valide la publie. Pour retirer le logo des postes, vider le champ **Logo** et
+enregistrer.
+
 Les commandes, PDF et documents reçus sont conservés dans le cache local du
 poste. Si le partage disparaît, l'état **Hors ligne — cache local** apparaît :
 

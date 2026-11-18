@@ -2,6 +2,8 @@
 
 import sys
 import sqlite3
+from pathlib import Path
+from unittest.mock import patch
 
 
 def main():
@@ -50,7 +52,39 @@ def main():
         ),
     )
     assert reopened == profile
+    if sys.platform == "linux":
+        verify_profile_switch(profile, info, create, failures)
     print("HORIZON_BETA_STARTUP_OK")
+
+
+def verify_profile_switch(profile, info, create, failures):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtTest import QTest
+    from cahpp_app.database import Database
+    from cahpp_app.horizon.application import HorizonWindow
+    from cahpp_app.horizon.bootstrap import remembered_profile
+
+    database = Database(profile / "data/commandes_cahpp.sqlite3")
+    window = HorizonWindow(database, profile, info)
+    window.show()
+    launch = window.launch_profile
+    QTimer.singleShot(100, create)
+    with patch.object(window, "launch_profile", side_effect=lambda args: launch([*args, "--smoke-test"])) as start:
+        window.preferences.choose_profile_button.click()
+        assert not failures, failures
+        start.assert_called_once()
+    option, path = start.call_args.args[0]
+    assert option == "--profile"
+    target = Path(path)
+    assert target != profile
+    for _ in range(200):
+        if (target / "startup-ok.json").is_file():
+            break
+        QTest.qWait(50)
+    assert (target / "startup-ok.json").is_file()
+    assert remembered_profile() == target
+    assert window.isVisible()
+    window.close()
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ from ..local_services import (
 )
 from ..numbers import parse_decimal
 from ..paths import BACKUP_DIR
+from ..team_logo import PENDING_LOGO, prepare_logo
 from ..app_logging import LOG_DIR
 from . import VERSION
 from .forms import Fields, action
@@ -288,6 +289,11 @@ class SettingsPage(QWidget):
                 body.addWidget(
                     button("Choisir un logo…", partial(self.browse_file, "logo_path"))
                 )
+                body.addWidget(label(
+                    "En collaboration, le logo est partagé avec les autres postes. "
+                    "Pour le retirer, videz le champ Logo puis enregistrez.",
+                    "muted", True,
+                ))
             elif title == "PDF":
                 body.addWidget(
                     button(
@@ -645,6 +651,14 @@ class SettingsPage(QWidget):
                 "Attendez la fin de la synchronisation avant de changer les réglages."
             )
         try:
+            if self.baseline is None or values["logo_path"] != self.baseline["logo_path"]:
+                values["logo_path"] = prepare_logo(self.window.database, values["logo_path"])
+                values[PENDING_LOGO] = (
+                    previous.get("collaboration_workspace_id", "")
+                    if values["collaboration_enabled"] == "1" else ""
+                )
+            else:
+                del values["logo_path"]
             self.window.database.save_settings(values)
             try:
                 if changed or (
@@ -652,6 +666,10 @@ class SettingsPage(QWidget):
                     and self.window.operations.manager is None
                 ):
                     self.window.operations.configure()
+                if PENDING_LOGO in values and values["collaboration_enabled"] == "1":
+                    manager = self.window.operations.manager
+                    if manager and manager.workspace_id != values[PENDING_LOGO]:
+                        self.window.database.save_settings({PENDING_LOGO: manager.workspace_id})
             except Exception:
                 self.window.database.save_settings(
                     {key: previous.get(key, "") for key in values}

@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cahpp_app.horizon.bootstrap import profile_launch_command
+from cahpp_app.horizon.bootstrap import profile_launch_command, profile_launch_environment
 from tools.build_horizon_linux import (
     APP_NAME,
     create_appdir,
@@ -133,3 +133,29 @@ class LinuxPackagingTest(unittest.TestCase):
         self.assertEqual(program, sys.executable)
         self.assertTrue(arguments[0].endswith("main_horizon.py"))
         self.assertEqual(arguments[1:], ["--profile", "essai"])
+
+    def test_child_appimage_does_not_inherit_the_previous_mount_or_profile(self):
+        with (
+            patch.object(sys, "frozen", True, create=True),
+            patch.object(sys, "platform", "linux"),
+            patch.dict(os.environ, {
+                "APPIMAGE": "/home/user/Horizon.AppImage",
+                "APPDIR": "/tmp/.mount_old",
+                "ARGV0": "./Horizon.AppImage",
+                "OWD": "/home/user",
+                "LD_LIBRARY_PATH": "/tmp/.mount_old/usr/lib:/usr/local/lib",
+                "LD_LIBRARY_PATH_ORIG": "/usr/local/lib",
+                "CAHPP_PORTABLE_ROOT": "/home/user/ancien-profil",
+                "CAHPP_RESOURCE_ROOT": "/tmp/.mount_old/usr/lib",
+                "CAHPP_HORIZON_ROOT": "/home/user/profils",
+                "APPIMAGE_EXTRACT_AND_RUN": "1",
+                "WAYLAND_DISPLAY": "wayland-0",
+            }, clear=True),
+        ):
+            self.assertEqual(profile_launch_environment(), {
+                "LD_LIBRARY_PATH": "/usr/local/lib",
+                "CAHPP_HORIZON_ROOT": "/home/user/profils",
+                "APPIMAGE_EXTRACT_AND_RUN": "1",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "PYINSTALLER_RESET_ENVIRONMENT": "1",
+            })
