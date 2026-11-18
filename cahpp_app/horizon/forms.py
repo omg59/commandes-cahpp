@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..local_services import resolve_portable_path
+from .mobile_documents import check_mobile_attachment
 from .widgets import button, label
 
 
@@ -37,12 +38,14 @@ def selected_row(view, model):
     )
 
 
-def open_document(value):
+def open_document(value, *, attachment_name=""):
     path = resolve_portable_path(value)
     if not path.is_file():
         raise ValueError(
             "Ce document n'est pas disponible localement. Synchronisez le poste ou rattachez-le à nouveau."
         )
+    if attachment_name:
+        check_mobile_attachment(path, attachment_name)
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 

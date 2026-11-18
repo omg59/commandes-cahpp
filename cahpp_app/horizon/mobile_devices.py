@@ -24,6 +24,7 @@ class MobileDevicesDialog(QDialog):
         self.key = "mobile-devices-" + str(id(self))
         self.pending = None
         self.records = []
+        self.requires_individual_keys = None
         self.secret = ""
         self.setWindowTitle("Téléphones autorisés")
         self.resize(720, 620)
@@ -84,12 +85,16 @@ class MobileDevicesDialog(QDialog):
         self.window.jobs.submit(self.key, task, result)
 
     def set_busy(self, value):
-        for widget in (self.create, self.rotate, self.revoke, self.strict):
+        for widget in (self.create, self.rotate, self.revoke):
             widget.setEnabled(not value)
+        self.strict.setEnabled(not value and self.requires_individual_keys is False
+                               and any(not record["revoked"] for record in self.records))
 
     def refresh(self):
         def done(value):
             self.records, policy = value
+            self.requires_individual_keys = policy["require_device"]
+            self.set_busy(False)
             self.list.clear()
             self.list.addItems([r["name"] + " · " + r["label"] + (" · révoqué" if r["revoked"] else " · actif") for r in self.records])
             self.status.setText("Clés individuelles obligatoires." if policy["require_device"] else "Migration en cours : la clé commune fonctionne encore. Désactivez-la après avoir connecté les téléphones.")

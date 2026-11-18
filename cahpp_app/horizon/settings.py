@@ -120,6 +120,13 @@ class DiagnosticDialog(QDialog):
             f"{m['documents']} document(s), {m['document_bytes']} octets, {m['orphan_documents']} orphelin(s)."
             if 'pending_items' in m else "Non contrôlée pendant cette session."
         )
+        if "queue_records_removed" in m:
+            self.relay_capacity_info += (
+                f" {m['queue_records']} trace(s) dont {m['queue_legacy_records']} ancienne(s), "
+                f"{m['queue_records_removed']} purgée(s)."
+            )
+        if m.get("require_device") is False:
+            self.relay_capacity_info += " La clé Android commune est encore active."
         self.credential_info = self.window.preferences.credentials.diagnostic()
         self.mobile_result = self.window.preferences.mobile_status.text() or "Aucun échange pendant cette session."
         self.task_count = len(self.window.jobs.tasks)
@@ -390,6 +397,8 @@ class SettingsPage(QWidget):
         body.addLayout(row)
         body.addWidget(button("Rattacher le relais à cette base…", self.bind_mobile_workspace))
         body.addWidget(button("Gérer les téléphones autorisés…", self.manage_mobile_devices))
+        self.mobile_policy = label("", "muted", True)
+        body.addWidget(self.mobile_policy)
         self.mobile_status = label(self.credentials.warning, "muted", True)
         body.addWidget(self.mobile_status)
         body.addStretch()
@@ -449,7 +458,10 @@ class SettingsPage(QWidget):
         self.window.settings.setValue("mobile/automatic", self.mobile_auto.isChecked())
         self.window.settings.setValue("mobile/interval", self.mobile_interval.value())
         self.window.settings.sync()
-        self.mobile_config = (url, token, self.mobile_proxy.isChecked())
+        config = (url, token, self.mobile_proxy.isChecked())
+        if config != self.mobile_config:
+            self.show_mobile_policy(None)
+        self.mobile_config = config
         self.configure_mobile_timer()
         self.mobile_status.setText(self.credentials.warning or "Connexion enregistrée. Vous pouvez synchroniser avec Android.")
         return url, token
@@ -461,6 +473,16 @@ class SettingsPage(QWidget):
         if self.save_mobile():
             dialog = MobileDevicesDialog(self.window, self.mobile_config)
             dialog.exec()
+            if dialog.requires_individual_keys is not None:
+                self.show_mobile_policy(dialog.requires_individual_keys)
+
+    def show_mobile_policy(self, require_device):
+        self.mobile_policy.setText(
+            "La clé Android commune est encore active. Une fois les téléphones connectés avec leurs clés individuelles, "
+            "désactivez-la dans « Gérer les téléphones autorisés… »."
+            if require_device is False else ""
+        )
+        self.mobile_policy.setVisible(require_device is False)
 
     def configure_mobile_timer(self):
         self.mobile_next_due = 0
@@ -563,6 +585,7 @@ class SettingsPage(QWidget):
                 if not automatic:
                     window.report_error(error)
             else:
+                self.show_mobile_policy(getattr(operations, "last_mobile_maintenance", {}).get("require_device"))
                 window.data_changed()
 
         window.jobs.submit("mobile-sync", work, finished)

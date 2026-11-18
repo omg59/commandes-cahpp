@@ -1,5 +1,11 @@
 # Historique des versions
 
+## Horizon 3.0.1a7 — développement, 18 novembre 2026
+
+- Extension des pièces jointes mobiles imposée par le format vérifié sur le PC. Contrôle des anciennes pièces à l’ouverture, y compris depuis les copies du partage.
+- Rappel dans les réglages et le diagnostic si la clé Android commune est encore active. Compteurs de purge des traces du relais dans le diagnostic.
+- Lot de test avec Horizon Server 0.5.0-dev5 et Horizon Mobile 0.6.0-dev5.
+
 ## Horizon 3.0.1a6 — développement, 17 novembre 2026
 
 - H04 : maintenance bornée des documents orphelins et réparation d’une projection manquante, même à révision métier inchangée.

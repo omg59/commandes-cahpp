@@ -1,7 +1,7 @@
 # Consolidation après audit — développement
 
-Lot coordonné : **Horizon PC 3.0.1a6**, **Horizon Server 0.5.0-dev4** et
-**Horizon Mobile 0.6.0-dev4**. Les changements restent sur les branches `dev`.
+Lot coordonné **Horizon PC 3.0.1a7**, **Horizon Server 0.5.0-dev5** et
+**Horizon Mobile 0.6.0-dev5**. Les changements restent sur les branches `dev`.
 Les versions principales et les releases publiées ne sont pas remplacées.
 
 | Constat | Correction |
@@ -46,8 +46,16 @@ entre pages ; le chargement reprend automatiquement ensuite.
 Les quotas serveur sont configurables, avec une réserve de disque. Un quota
 atteint renvoie 429/507 ; l’erreur de stockage renvoie 503 et une trace technique
 sans le contenu de l’exception. Les clients conservent les données à transmettre.
-Les contenus de demandes terminées sont retirés du relais ; leurs empreintes et
-résultats minimaux restent conservés sous quota pour préserver l’idempotence.
+Le relais retire le contenu des demandes terminées. Les résultats des nouvelles
+demandes Android restent disponibles au moins 180 jours après leur traitement.
+Le relais refuse les anciens identifiants datés après purge pour éviter de traiter
+deux fois une opération. Les anciennes traces sans date restent dans un quota séparé.
+
+Le PC vérifie le format des documents mobiles et choisit le suffixe PDF, JPEG ou
+PNG. L’ouverture d’une ancienne pièce mobile vérifie aussi son suffixe et son
+contenu, y compris sur une copie du dossier partagé. Si l’ouverture est refusée,
+rattacher un exemplaire valide à la commande. Les anciens fichiers restent
+disponibles pour permettre leur récupération.
 
 Le cache de catalogue du PC garde la génération courante et la précédente.
 Les constructions abandonnées depuis plus d’un jour sont retirées. Un verrou

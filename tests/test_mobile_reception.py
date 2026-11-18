@@ -187,9 +187,10 @@ class MobileReceiptTest(unittest.TestCase):
                 phone.call(stale_action, {"kind": "invoiced", "order_id": action_id, "revision": stale_revision})
                 synchronize(a, pc)
                 self.assertEqual(phone.call(stale_action)["state"], "rejected")
-                command("document", name="facture.pdf", document_kind="Facture", mime="application/pdf",
+                command("document", name="facture.dat", document_kind="Facture", mime="application/pdf",
                         data=phone.call("documents/" + document["id"])["data"])
                 self.assertEqual(len(current_order()["documents"]), 2)
+                self.assertTrue(next(d for d in current_order()["documents"] if not d["main"])["name"].endswith(".pdf"))
                 command("invoiced")
                 self.assertTrue(current_order()["invoiced"])
                 command("archive")

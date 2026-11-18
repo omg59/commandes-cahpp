@@ -8,6 +8,7 @@ from ..local_services import portable_path, safe_filename, resolve_portable_path
 
 from ..pdf_export import default_order_pdf_path, generate_order_pdf
 from .mobile_catalog import product_snapshot
+from .mobile_documents import MAX_DOCUMENT_BYTES, check_mobile_attachment, document_filename, validate_document
 from .mobile_identity import mobile_actor
 from .services import Cart
 
@@ -72,11 +73,22 @@ def apply_action(op, key, body):
             raise ValueError("Commande supprimée ou introuvable.")
         existing_document = False
         if body["kind"] == "document":
-            filename = safe_filename(Path(body["name"]).stem[:120] + "-" + key + Path(body["name"]).suffix)
-            attachment = next((a for a in db.list_order_attachments(existing["id"]) if a["display_name"] == filename), None)
+            mime = body.get("mime")
+            filename = document_filename(body.get("name"), key, mime)
+            encoded = body.get("data")
+            if not isinstance(encoded, str) or len(encoded) > 4 * ((MAX_DOCUMENT_BYTES + 2) // 3):
+                raise ValueError("Document mobile invalide ou trop volumineux.")
+            data = base64.b64decode(encoded, validate=True)
+            validate_document(data, mime)
+            original = Path(body["name"])
+            previous_name = safe_filename(original.stem[:120] + "-" + key + original.suffix)
+            attachment = next((a for a in db.list_order_attachments(existing["id"])
+                               if a["display_name"] in (filename, previous_name)), None)
             if attachment:
                 stored = resolve_portable_path(attachment["stored_path"])
-                existing_document = stored.is_file() and hashlib.sha256(stored.read_bytes()).digest() == hashlib.sha256(base64.b64decode(body["data"])).digest()
+                if stored.is_file():
+                    check_mobile_attachment(stored, attachment["display_name"])
+                    existing_document = hashlib.sha256(stored.read_bytes()).digest() == hashlib.sha256(data).digest()
         completed_fields = {"sent": "sent_at", "confirm": "confirmed_at", "invoiced": "invoiced_at", "archive": "archived_at"}
         if existing["shared_revision"] != body["revision"] and body["kind"] in completed_fields and existing[completed_fields[body["kind"]]]:
             db.record_mobile_action(existing["id"], key, body["kind"])
@@ -109,8 +121,11 @@ def apply_action(op, key, body):
                 folder.mkdir(parents=True, exist_ok=True)
                 path = folder / filename
                 temp = folder / "incoming.tmp"
-                temp.write_bytes(base64.b64decode(body["data"], validate=True))
-                temp.replace(path)
+                try:
+                    temp.write_bytes(data)
+                    temp.replace(path)
+                finally:
+                    temp.unlink(missing_ok=True)
                 db.add_order_attachment(oid, body["document_kind"], filename, portable_path(path))
         else:
             raise ValueError("Action mobile inconnue.")

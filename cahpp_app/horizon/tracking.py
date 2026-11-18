@@ -405,7 +405,7 @@ class OrderWorkspaceDialog(QDialog):
     def open_attachment(self, *_):
         row = selected_row(self.documents_table, self.documents_model)
         if row:
-            open_document(row["stored_path"])
+            open_document(row["stored_path"], attachment_name=row["display_name"])
 
     @action
     def toggle_attachment(self):
