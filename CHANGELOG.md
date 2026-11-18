@@ -1,5 +1,10 @@
 # Historique des versions
 
+## Horizon 3.0.1a10 — développement, 18 novembre 2026
+
+- Reprise de publication du catalogue mobile après changement du catalogue actif pendant le transfert.
+- Un poste avec un catalogue partagé à installer continue de traiter les demandes Android et attend avant de publier son propre catalogue.
+
 ## Horizon 3.0.1a9 — développement, 18 novembre 2026
 
 - Association des téléphones par QR code à durée courte, avec liaison à l’identité du profil PC et révocation indépendante.

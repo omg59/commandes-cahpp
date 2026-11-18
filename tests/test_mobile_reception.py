@@ -275,6 +275,17 @@ class MobileReceiptQueueTest(unittest.TestCase):
             self.assertEqual(len(page["items"]), 55)
             self.assertFalse(page["more"])
 
+    def test_shared_catalog_pending_pauses_catalog_but_not_mobile_receipt(self):
+        with self.receipt_queue() as (_, op, pc, phone, _, _, body):
+            route = "receipts/" + str(uuid4())
+            phone.call(route, body)
+            with (patch.object(op.manager, "pending_catalog", return_value={"sha256": "partagé"}),
+                  patch("cahpp_app.horizon.mobile_sync.publish_catalog") as publish):
+                result = synchronize(op, pc)
+            publish.assert_not_called()
+            self.assertIn("Installez le catalogue partagé", result)
+            self.assertEqual(phone.call(route)["state"], "archived")
+
     def test_invalid_without_photo_is_rejected_once_and_next_receipt_is_processed(self):
         with self.receipt_queue() as (db, op, pc, phone, order_id, line, body):
             invalid, valid = "receipts/" + str(UUID(int=1)), "receipts/" + str(UUID(int=2))

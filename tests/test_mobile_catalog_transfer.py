@@ -7,10 +7,10 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from cahpp_app.horizon.mobile_catalog import CatalogTransferPaused, publish_catalog
-from cahpp_app.horizon.mobile_sync import Relay, RelayNetworkError
+from cahpp_app.horizon.mobile_sync import Relay, RelayHTTPError, RelayNetworkError
 
 
 class CatalogTransferTest(unittest.TestCase):
@@ -104,6 +104,31 @@ class CatalogTransferTest(unittest.TestCase):
                     "cahpp_app.horizon.mobile_catalog.time.monotonic", side_effect=[0, 21]):
                 self.assertIn("1/2 blocs", publish_catalog(SimpleNamespace(path=root / "db"), relay))
             self.assertEqual(relay.call.call_count, 4)
+
+    def test_resume_uses_block_acknowledgements_from_new_manifest(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            generation, previous = "a" * 64, "b" * 64
+            route = "catalog-sync/" + generation
+            manifest = {"generation": generation, "parts": 1, "count": 1, "suppliers": []}
+            relay = unittest.mock.Mock()
+            relay.call.side_effect = [{"catalog": previous, "catalog_resume_rebase": True}, {"parts": [0]}, {}]
+            with patch("cahpp_app.horizon.mobile_catalog.catalog_cache", return_value=(root, manifest)):
+                self.assertIn("publié", publish_catalog(SimpleNamespace(path=root / "db"), relay))
+            self.assertEqual(relay.call.call_args_list, [
+                unittest.mock.call("mobile-state"),
+                unittest.mock.call(route, dict(manifest, previous=previous, resume_against_current=True)),
+                unittest.mock.call(route + "/commit", {"previous": previous}),
+            ])
+
+    def test_catalog_conflict_message_reports_catalog_instead_of_key(self):
+        detail = "Le catalogue actif a changé pendant le transfert."
+        route = "catalog-sync/" + "a" * 64 + "/commit"
+        error = HTTPError("https://relay.test", 409, "Conflict", {"Content-Type": "application/json"},
+                          io.BytesIO(json.dumps({"error": detail}).encode()))
+        result = RelayHTTPError(error, route)
+        self.assertTrue(result.relay_catalog_changed)
+        self.assertIn(detail, str(result))
 
 
 if __name__ == "__main__":

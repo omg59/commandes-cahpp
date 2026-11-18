@@ -59,6 +59,7 @@ class RelayHTTPError(ValueError):
                                  if name in server), "unknown")
         content_type = error.headers.get("Content-Type", "")
         self.http_origin = "html" if "text/html" in content_type else "unknown"
+        self.relay_catalog_changed = False
         messages = {
             "Identité d’espace incompatible. Reconnectez cette base depuis les réglages.": "Le relais ou sa base a changé. Les données de cet espace sont conservées ; reconnectez le bon espace dans les réglages.",
             "Clé invalide.": "La clé PC est refusée. Vérifiez HORIZON_PC_TOKEN dans Portainer.",
@@ -69,7 +70,24 @@ class RelayHTTPError(ValueError):
         try:
             raw = error.read(4096)
             payload = json.loads(raw)
-            message = messages.get(payload.get("error")) if isinstance(payload, dict) else None
+            detail = payload.get("error") if isinstance(payload, dict) else None
+            message = messages.get(detail) if isinstance(detail, str) else None
+            if self.http_endpoint == "catalog-sync" and error.code == 409:
+                self.relay_catalog_changed = detail in (
+                    "Le catalogue actif a changé pendant le transfert.",
+                    "Un autre poste a publié un catalogue plus récent.",
+                )
+                catalog_details = (
+                    "Le catalogue actif a changé pendant le transfert.",
+                    "Un autre poste a publié un catalogue plus récent.",
+                    "Le manifeste ne correspond pas au transfert enregistré.",
+                    "Le transfert du catalogue est incomplet.",
+                    "Catalogue incomplet.",
+                    "Référence dupliquée dans le catalogue.",
+                    "Bloc déjà reçu avec un autre contenu.",
+                    "Bloc inconnu.",
+                )
+                message = detail if detail in catalog_details else "Publication refusée par le relais. Vérifiez le catalogue partagé."
         except (ValueError, UnicodeError, OSError):
             message = None
         finally:
@@ -363,7 +381,10 @@ def synchronize(op, relay):
                 archived += 1
         publish_orders(op, relay)
     try:
-        catalog_status = publish_catalog(op.database, relay)
+        if op.manager.pending_catalog():
+            catalog_status = "Installez le catalogue partagé sur ce poste avant de le publier sur Android."
+        else:
+            catalog_status = publish_catalog(op.database, relay)
     except CatalogTransferPaused as exc:
         # Les opérations métier ont déjà été traitées. Le catalogue reprendra au prochain cycle.
         catalog_status = str(exc)

@@ -166,13 +166,22 @@ def _publish_catalog(db, relay):
         except (URLError, TimeoutError, ConnectionError) as exc:
             raise CatalogTransferPaused(paused_message("Publication du catalogue mobile interrompue")) from exc
         except ValueError as exc:
+            if getattr(exc, "relay_catalog_changed", False):
+                raise CatalogTransferPaused(paused_message("Le catalogue actif a changé pendant le transfert")) from exc
             if getattr(exc, "http_status", None) not in {408, 429, 500, 502, 503, 504, 507}:
                 raise
             raise CatalogTransferPaused(paused_message("Relais temporairement indisponible")) from exc
-    # La lecture des accusés précède le manifeste : même un échec d’envoi garde une progression exacte.
-    received = set(call(route)["parts"])
-    done = len(received)
-    call(route, {**manifest, "previous": state["catalog"]})
+    previous = state["catalog"]
+    resume = state.get("catalog_resume_rebase") is True
+    if resume:
+        # Reprendre en tenant compte du catalogue actif et des blocs encore
+        # présents, renvoyés dans la même transaction que le manifeste.
+        received = set(call(route, {**manifest, "previous": previous, "resume_against_current": True})["parts"])
+        done = len(received)
+    else:
+        received = set(call(route)["parts"])
+        done = len(received)
+        call(route, {**manifest, "previous": previous})
     missing = [i for i in range(manifest["parts"]) if i not in received]
     started = time.monotonic()
     for part in missing[:25]:
@@ -181,6 +190,6 @@ def _publish_catalog(db, relay):
         if time.monotonic() - started >= 20:
             break
     if done == manifest["parts"]:
-        call(route + "/commit", {})
+        call(route + "/commit", {"previous": previous} if resume else {})
         return f"Catalogue mobile publié ({manifest['count']} références)."
     return f"Publication du catalogue mobile : {done}/{manifest['parts']} blocs."
