@@ -60,7 +60,13 @@ def main():
             "imports",
             "settings",
         }
-        with patch("cahpp_app.horizon.application.QProcess") as process:
+        with (
+            patch("cahpp_app.horizon.application.QProcess") as process,
+            patch(
+                "cahpp_app.horizon.startup.choose_profile",
+                return_value={"action": "open", "path": profile},
+            ),
+        ):
             for result in (True, (True, 1234)):
                 process.return_value.startDetached.return_value = result
                 window.choose_profile()
