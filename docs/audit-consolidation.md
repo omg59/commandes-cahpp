@@ -1,8 +1,11 @@
 # Consolidation après audit — développement
 
-Lot coordonné **Horizon PC 3.0.1a7**, **Horizon Server 0.5.0-dev5** et
-**Horizon Mobile 0.6.0-dev5**. Les changements restent sur les branches `dev`.
+Lot coordonné **Horizon PC 3.0.1a8**, **Horizon Server 0.5.0-dev5** et
+**Horizon Mobile 0.6.0-dev6**. Les changements restent sur les branches `dev`.
 Les versions principales et les releases publiées ne sont pas remplacées.
+
+Le [schéma 17](montants.md) conserve les montants exacts et crée une copie
+de la base avant conversion.
 
 | Constat | Correction |
 |---|---|

@@ -4,6 +4,7 @@ import json
 import math
 
 from ..numbers import parse_decimal
+from ..money_storage import decimal_text
 import os
 import shutil
 import tempfile
@@ -34,12 +35,13 @@ def supplier_key(row):
     return "cahpp-" + str(row["cahpp_id"]) if row["cahpp_id"] else "nom-" + hashlib.sha256(row["name"].encode()).hexdigest()
 
 
-def product_snapshot(db, product, supplier):
+def product_snapshot(db, product, supplier, *, legacy_price=False):
+    price = product["unit_price"]
     record = {
         "code": product["code_cahpp"], "reference": product["supplier_ref"],
         "label": product["designation"], "supplier_id": supplier_key(supplier),
         "supplier": supplier["name"], "pack": numeric(product["conditionnement"] or product["qml"]),
-        "price": numeric(product["unit_price"]), "vat": numeric(product["vat"]),
+        "price": numeric(price) if legacy_price else decimal_text(price), "vat": numeric(product["vat"]),
         "review": bool(product["catalog_review_required"]), "active": bool(product["active"]),
     }
     record["fingerprint"] = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
@@ -88,7 +90,7 @@ def _catalog_cache(db):
         public_suppliers = [{
             k: s[k] for k in ("name", "email", "phone", "contact_name", "customer_number", "address",
                               "website", "franco_ht", "minimum_order_ht", "notes")
-        } | {"id": supplier_key(s), "franco_ht": numeric(s["franco_ht"]), "minimum_order_ht": numeric(s["minimum_order_ht"])} for s in sorted(suppliers.values(), key=lambda s: supplier_key(s))]
+        } | {"id": supplier_key(s), "franco_ht": decimal_text(s["franco_ht"]), "minimum_order_ht": decimal_text(s["minimum_order_ht"])} for s in sorted(suppliers.values(), key=lambda s: supplier_key(s))]
         incoming = Path(tempfile.mkdtemp(prefix="incoming-", dir=root))
         index = None
         try:

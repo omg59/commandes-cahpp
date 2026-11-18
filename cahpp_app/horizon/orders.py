@@ -471,14 +471,13 @@ class PreparePage(QWidget):
         def save(d):
             values = d.fields.values()
             for key in ("conditionnement", "unit_price", "vat"):
-                values[key] = float(
-                    parse_decimal(
-                        values[key],
-                        key,
-                        minimum=0,
-                        maximum=100 if key == "vat" else None,
-                    )
+                parsed = parse_decimal(
+                    values[key],
+                    key,
+                    minimum=0,
+                    maximum=100 if key == "vat" else None,
                 )
+                values[key] = parsed if key == "unit_price" else float(parsed)
             with self.window.operations.write():
                 pid = self.window.database.create_manual_product(sid, **values)
             d.accept()

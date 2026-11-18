@@ -75,6 +75,7 @@ def build_diagnostic_report(
                 f"Taille : {_size(local.get('size_bytes'))}",
                 f"Journal WAL : {_size(local.get('wal_size_bytes'))}",
                 f"Schéma : {local.get('schema_version', '')}",
+                f"Copie avant migration des montants : {local.get('amounts_backup') or 'aucune'}",
                 f"Mode SQLite : {local.get('journal_mode', '')}",
                 f"Recherche plein texte : {_yes_no(local.get('fts_available'))}",
                 "Index de recherche : "

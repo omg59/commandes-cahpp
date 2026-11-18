@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 
+from ..money_storage import decimal_text
 from .formats import CATALOG_FIELDS, LEGACY_COLUMNS, SNAPSHOT_FORMAT
 
 
@@ -12,6 +15,8 @@ def _append_values(sheet, values):
     """Conserver les textes littéralement, même s'ils commencent par '='."""
     cells = []
     for value in values:
+        if isinstance(value, Decimal):
+            value = decimal_text(value)
         cell = WriteOnlyCell(sheet, value=value)
         if isinstance(value, str):
             cell.data_type = "s"

@@ -9,6 +9,7 @@ import logging
 import ssl
 import tempfile
 import time
+from ..money_storage import decimal_text
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -254,14 +255,15 @@ def publish_orders(op, relay):
     documents = set(state["documents"])
     missing_documents = set(state.get("orders_missing_documents", []))
     with db.connect() as c:
-        orders = list(c.execute("SELECT id, shared_uid, shared_revision FROM orders WHERE sync_state='Synchronisée'"))
+        orders = list(c.execute("SELECT id, shared_uid, shared_revision, deleted_at FROM orders WHERE sync_state='Synchronisée'"))
     published = 0
     deadline = time.monotonic() + 20
     for row in orders:
         if published >= 50 or (published and time.monotonic() >= deadline):
             break
         uid = row["shared_uid"]
-        if not uid or (uid not in missing_documents and versions.get(uid, [-1, 0]) >= [row["shared_revision"], 3]):
+        target_format = 0 if row["deleted_at"] else 4
+        if not uid or (uid not in missing_documents and versions.get(uid, [-1, 0]) >= [row["shared_revision"], target_format]):
             continue
         summary = db.receipt_summary(row["id"])
         order = summary["order"]
@@ -269,17 +271,17 @@ def publish_orders(op, relay):
         if not order["deleted_at"]:
             lines = [{"id": line["line_uid"], "label": line["designation"], "reference": line["supplier_ref"],
                       "code": line["code_cahpp"], "cartons": line["cartons"], "pack": line["units_per_carton"],
-                      "units": line["total_units"], "price": line["unit_price"], "vat": line["vat"],
+                      "units": line["total_units"], "price": decimal_text(line["unit_price"]), "vat": line["vat"],
                       "received": line["received_units"], "remaining": line["remaining_units"]}
                      for line in summary["lines"]]
             receivable = bool(order["sent_at"] and not order["archived_at"] and any(line["remaining"] > 0 for line in lines))
             subject, mail_body = order_mail_content(db, row["id"])
             snapshot = {
-                "format": 3, "id": uid, "revision": row["shared_revision"], "number": order["order_number"],
+                "format": 4, "id": uid, "revision": row["shared_revision"], "number": order["order_number"],
                 "supplier": order["supplier_name"], "date": order["order_date"], "status": order["status"],
                 "sent": bool(order["sent_at"]), "confirmed": bool(order["confirmed_at"]),
                 "invoiced": bool(order["invoiced_at"]), "archived": bool(order["archived_at"]),
-                "receivable": receivable, "total_ht": order["total_ht"], "total_ttc": order["total_ttc"],
+                "receivable": receivable, "total_ht": decimal_text(order["total_ht"]), "total_ttc": decimal_text(order["total_ttc"]),
                 "delivery": order["delivery_status"], "notes": order["notes"], "lines": lines,
                 "service": order["requester_service"], "created_by": order["created_by"], "updated_by": order["updated_by"],
                 "receipts": [{"date": r["receipt_date"], "reference": r["reference"], "units": r["total_received"],

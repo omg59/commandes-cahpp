@@ -1,5 +1,11 @@
 # Historique des versions
 
+## Horizon 3.0.1a8 — développement, 18 novembre 2026
+
+- Migration transactionnelle au schéma 17 et copie automatique de la base avant conversion.
+- Stockage décimal exact des prix, seuils fournisseurs et montants enregistrés. Conservation des commandes historiques et des fichiers existants.
+- Même calcul des montants du panier et de la commande. Import et instantané de catalogue, échanges PC et Android, PDF et statistiques adaptés.
+
 ## Horizon 3.0.1a7 — développement, 18 novembre 2026
 
 - Extension des pièces jointes mobiles imposée par le format vérifié sur le PC. Contrôle des anciennes pièces à l’ouverture, y compris depuis les copies du partage.

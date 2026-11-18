@@ -26,6 +26,8 @@ TABLES = (
 
 
 def snapshot(db):
+    from cahpp_app.money_storage import MONEY_COLUMNS, decimal_text
+
     with db.connect() as connection:
         result = {}
         for table in TABLES:
@@ -36,6 +38,9 @@ def snapshot(db):
             if table == "orders":
                 for row in rows:
                     row.pop("sync_base_revision", None)
+            for row in rows:
+                for field in MONEY_COLUMNS.get(table, ()):
+                    row[field] = decimal_text(row[field])
             result[table] = rows
         return result
 
@@ -102,6 +107,7 @@ def seed(profile):
 
 def check(profile):
     from cahpp_app.database import Database
+    from cahpp_app.money_storage import SCHEMA_VERSION
 
     db = Database(profile / "data/commandes_cahpp.sqlite3")
     expected = json.loads(
@@ -113,7 +119,7 @@ def check(profile):
     for name, digest in expected["files"].items():
         assert hashlib.sha256((profile / name).read_bytes()).hexdigest() == digest, name
     with db.connect() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert c.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     print(
         "Migration d’un profil bêta 5 vers Horizon : commandes, réception, réglages, PDF et pièces jointes conservés."

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from .dialogs import ProductDialog
 from .models import ProductsModel
-from .services import currency, number
+from .services import number, unit_currency
 from .widgets import button, card, label, table, SupplierCombo
 from .forms import action, FormDialog
 from ..numbers import parse_decimal
@@ -293,7 +293,7 @@ class CatalogPage(QWidget):
             else "Article actif"
         )
         self.facts.setText(
-            f"Prix unitaire HT : {currency(p['unit_price'], 4)}\n\nUnités/carton : {number(p['conditionnement'] or p['qml'])}\n\nTVA : {number(p['vat'], 2)} %\n\nCode CAHPP : {p['code_cahpp']}"
+            f"Prix unitaire HT : {unit_currency(p['unit_price'])}\n\nUnités/carton : {number(p['conditionnement'] or p['qml'])}\n\nTVA : {number(p['vat'], 2)} %\n\nCode CAHPP : {p['code_cahpp']}"
         )
         self.warning.setText(p["catalog_review_reason"])
         self.warning.setVisible(p["catalog_review_required"])

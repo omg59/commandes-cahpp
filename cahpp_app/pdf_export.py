@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 import logging
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -26,6 +26,8 @@ from reportlab.platypus import (
 
 from .database import Database
 from .local_services import resolve_portable_path
+from .money_storage import unit_price_decimals
+from .numbers import add_decimal, line_tax, round_decimal
 from .paths import RESOURCE_DIR
 from .app_logging import log_failure
 
@@ -58,8 +60,7 @@ def _decimal(value: object) -> Decimal:
 
 
 def _currency(value: object, decimals: int = 2) -> str:
-    quantizer = Decimal("1").scaleb(-decimals)
-    number = _decimal(value).quantize(quantizer, rounding=ROUND_HALF_UP)
+    number = round_decimal(_decimal(value), decimals)
     return f"{number:,.{decimals}f}".replace(",", " ").replace(".", ",") + " €"
 
 
@@ -332,7 +333,7 @@ def _render_order_pdf(
                 Paragraph(_safe(line["supplier_ref"]), cell_center),
                 Paragraph(_quantity(line["cartons"]), cell_center),
                 Paragraph(_quantity(line["units_per_carton"]), cell_center),
-                Paragraph(_currency(line["unit_price"], 4), cell_right),
+                Paragraph(_currency(line["unit_price"], unit_price_decimals(line["unit_price"])), cell_right),
                 Paragraph(_currency(line["total_ht"]), cell_right),
             ]
         )
@@ -371,7 +372,7 @@ def _render_order_pdf(
     vat_totals: dict[Decimal, Decimal] = defaultdict(lambda: Decimal("0"))
     for line in lines:
         rate = _decimal(line["vat"])
-        vat_totals[rate] += _decimal(line["total_ht"]) * rate / Decimal("100")
+        vat_totals[rate] = add_decimal(vat_totals[rate], line_tax(_decimal(line["total_ht"]), rate))
 
     totals_data = [
         ["Total HT", _currency(order["total_ht"])],

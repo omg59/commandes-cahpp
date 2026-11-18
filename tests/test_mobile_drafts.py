@@ -15,6 +15,7 @@ from wsgiref.simple_server import make_server
 
 from cahpp_app import local_services
 from cahpp_app.database import Database
+from cahpp_app.horizon.mobile_catalog import product_snapshot
 from cahpp_app.horizon.mobile_sync import Relay, synchronize
 from cahpp_app.horizon.operations import Operations
 from cahpp_app.horizon.mobile_enrollment import enroll_device
@@ -73,8 +74,10 @@ class MobileDraftTest(unittest.TestCase):
             alice_phone.connect_workspace(a.manager.workspace_id)
             bob_phone.connect_workspace(a.manager.workspace_id)
             product = alice_phone.call("catalog?q=Article")["items"][0]
+            legacy = product_snapshot(db, db.get_product(product_id), db.get_supplier(supplier), legacy_price=True)
+            self.assertEqual(product["price"], "2")
             draft_body = {"kind": "save_draft", "actor": alice, "lines": [{"code": product["code"],
-                          "fingerprint": product["fingerprint"], "cartons": 2}], "notes": "À compléter", "service": "Soins"}
+                          "fingerprint": legacy["fingerprint"], "cartons": 2}], "notes": "À compléter", "service": "Soins"}
             uid = str(uuid4())
             route = "actions/" + uid
             alice_phone.call(route, draft_body)
@@ -96,7 +99,8 @@ class MobileDraftTest(unittest.TestCase):
             self.assertEqual(current["created_by"], "Alice")
             self.assertEqual(current["service"], "Soins")
             self.assertEqual(current["documents"], [])
-            self.assertEqual(current["format"], 3)
+            self.assertEqual(current["format"], 4)
+            self.assertEqual(current["total_ht"], "40")
             number = current["number"]
             other_id = other.list_orders()[0]["id"]
             # Modification PC pendant que le téléphone détient une version plus ancienne.

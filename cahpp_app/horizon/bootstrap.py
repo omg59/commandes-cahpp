@@ -14,6 +14,8 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
+from ..money_storage import SCHEMA_VERSION
+
 MARKER = "horizon-profile.json"
 DATABASE_NAME = "commandes_cahpp.sqlite3"
 ACTIVE_PROFILE = "profil-actif.json"
@@ -121,7 +123,7 @@ def validate_profile_database(path: Path):
                 )
             }
             if (
-                not 1 <= version <= 16
+                not 1 <= version <= SCHEMA_VERSION
                 or not {"products", "orders", "order_lines", "settings", "suppliers"}
                 <= tables
             ):
@@ -218,10 +220,10 @@ def copy_database(source: Path, profiles: Path) -> Path:
             if (
                 not {"products", "orders", "order_lines", "settings", "suppliers"}
                 <= tables
-                or not 1 <= version <= 16
+                or not 1 <= version <= SCHEMA_VERSION
             ):
                 raise ValueError(
-                    "Choisissez une base Commandes CAHPP de schéma 16 ou antérieur."
+                    f"Choisissez une base Commandes CAHPP de schéma {SCHEMA_VERSION} ou antérieur."
                 )
             with closing(sqlite3.connect(target)) as local, local:
                 origin.backup(local)

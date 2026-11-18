@@ -10,11 +10,12 @@ from contextlib import closing, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Sequence
 from .app_logging import log_failure
-from .numbers import parse_decimal
+from .numbers import add_decimal, decimal_product, line_amount, line_tax, parse_decimal, round_decimal
+from .money_storage import SCHEMA_VERSION, decimal_text, migrate_amounts, register_money_sql, wire_amounts
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,8 @@ CREATE TABLE IF NOT EXISTS suppliers (
     phone TEXT NOT NULL DEFAULT '',
     address TEXT NOT NULL DEFAULT '',
     website TEXT NOT NULL DEFAULT '',
-    franco_ht REAL,
-    minimum_order_ht REAL,
+    franco_ht DECIMAL_TEXT,
+    minimum_order_ht DECIMAL_TEXT,
     notes TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
@@ -73,8 +74,8 @@ CREATE TABLE IF NOT EXISTS products (
     conditionnement REAL,
     qml REAL,
     vat REAL,
-    unit_price REAL,
-    gam_price REAL,
+    unit_price DECIMAL_TEXT,
+    gam_price DECIMAL_TEXT,
     classification_name TEXT NOT NULL DEFAULT '',
     classification_code TEXT NOT NULL DEFAULT '',
     evolution TEXT NOT NULL DEFAULT '',
@@ -109,7 +110,7 @@ CREATE TABLE IF NOT EXISTS product_overrides (
     designation TEXT,
     conditionnement REAL,
     unit_packaging TEXT,
-    unit_price REAL,
+    unit_price DECIMAL_TEXT,
     vat REAL,
     updated_at TEXT NOT NULL,
     updated_by TEXT NOT NULL DEFAULT ''
@@ -131,7 +132,7 @@ CREATE TABLE IF NOT EXISTS price_history (
     product_id INTEGER NOT NULL REFERENCES products(id),
     import_id INTEGER NOT NULL REFERENCES imports(id),
     recorded_at TEXT NOT NULL,
-    unit_price REAL,
+    unit_price DECIMAL_TEXT,
     conditionnement REAL,
     qml REAL,
     UNIQUE(product_id, import_id)
@@ -145,9 +146,9 @@ CREATE TABLE IF NOT EXISTS orders (
     requester_service TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'Brouillon',
     notes TEXT NOT NULL DEFAULT '',
-    total_ht REAL NOT NULL DEFAULT 0,
-    total_vat REAL NOT NULL DEFAULT 0,
-    total_ttc REAL NOT NULL DEFAULT 0,
+    total_ht DECIMAL_TEXT NOT NULL DEFAULT 0,
+    total_vat DECIMAL_TEXT NOT NULL DEFAULT 0,
+    total_ttc DECIMAL_TEXT NOT NULL DEFAULT 0,
     pdf_path TEXT NOT NULL DEFAULT '',
     email_prepared_at TEXT NOT NULL DEFAULT '',
     sent_at TEXT NOT NULL DEFAULT '',
@@ -188,9 +189,9 @@ CREATE TABLE IF NOT EXISTS order_lines (
     cartons REAL NOT NULL DEFAULT 0,
     units_per_carton REAL NOT NULL DEFAULT 0,
     total_units REAL NOT NULL DEFAULT 0,
-    unit_price REAL NOT NULL DEFAULT 0,
+    unit_price DECIMAL_TEXT NOT NULL DEFAULT 0,
     vat REAL NOT NULL DEFAULT 0,
-    total_ht REAL NOT NULL DEFAULT 0,
+    total_ht DECIMAL_TEXT NOT NULL DEFAULT 0,
     line_order INTEGER NOT NULL DEFAULT 0
 );
 
@@ -438,7 +439,7 @@ def repair_supplier_contact_value(field: str, value: object) -> str:
 def money(value: Decimal | float | int | str | None) -> Decimal:
     if value in (None, ""):
         return Decimal("0")
-    return parse_decimal(value).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return round_decimal(parse_decimal(value), 4)
 
 
 class SearchCancelled(Exception):
@@ -497,9 +498,13 @@ class Database:
         self.initialize()
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30, factory=ManagedConnection)
+        connection = sqlite3.connect(
+            self.path, timeout=30, factory=ManagedConnection,
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+        )
         try:
             connection.row_factory = sqlite3.Row
+            register_money_sql(connection)
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 30000")
         except Exception:
@@ -524,6 +529,8 @@ class Database:
         # recherche provoquait des verrouillages coûteux, surtout lorsque
         # l'application avait été copiée sur un partage réseau.
         with self.connect() as bootstrap:
+            if bootstrap.execute("PRAGMA user_version").fetchone()[0] > SCHEMA_VERSION:
+                raise ValueError("Cette base a été ouverte avec une version plus récente d’Horizon.")
             bootstrap.execute("PRAGMA busy_timeout = 30000")
             bootstrap.execute("PRAGMA journal_mode = WAL")
         with self.session() as connection:
@@ -540,7 +547,8 @@ class Database:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 DEFAULT_SETTINGS.items(),
             )
-            connection.execute("PRAGMA user_version = 16")
+        with self.connect() as connection:
+            self.amounts_backup = migrate_amounts(connection, self.path)
 
     def _create_search_table(self, connection: sqlite3.Connection) -> None:
         connection.execute(
@@ -583,7 +591,7 @@ class Database:
             ("contact_name", "TEXT NOT NULL DEFAULT ''"),
             ("address", "TEXT NOT NULL DEFAULT ''"),
             ("website", "TEXT NOT NULL DEFAULT ''"),
-            ("minimum_order_ht", "REAL"),
+            ("minimum_order_ht", "DECIMAL_TEXT"),
             ("updated_by", "TEXT NOT NULL DEFAULT ''"),
         ):
             self._ensure_column(connection, "suppliers", column, declaration)
@@ -939,12 +947,12 @@ class Database:
         customer_number: str,
         email: str,
         phone: str,
-        franco_ht: float | None,
+        franco_ht: Decimal | float | None,
         notes: str,
         contact_name: str = "",
         address: str = "",
         website: str = "",
-        minimum_order_ht: float | None = None,
+        minimum_order_ht: Decimal | float | None = None,
     ) -> None:
         _, actor_name = self._actor()
         contact_name = repair_supplier_contact_value(
@@ -970,8 +978,8 @@ class Database:
                     phone.strip(),
                     address.strip(),
                     website.strip(),
-                    franco_ht,
-                    minimum_order_ht,
+                    decimal_text(franco_ht),
+                    decimal_text(minimum_order_ht),
                     notes.strip(),
                     datetime.now().isoformat(timespec="microseconds"),
                     actor_name,
@@ -1513,7 +1521,7 @@ class Database:
         supplier_ref: str,
         designation: str,
         conditionnement: float,
-        unit_price: float,
+        unit_price: Decimal | float,
         vat: float,
         unit_packaging: str = "",
     ) -> int:
@@ -1543,7 +1551,7 @@ class Database:
                     conditionnement,
                     conditionnement,
                     vat,
-                    unit_price,
+                    decimal_text(unit_price),
                     unit_packaging.strip(),
                     actor_name,
                     actor_name,
@@ -1571,7 +1579,7 @@ class Database:
         designation: str,
         conditionnement: float,
         unit_packaging: str,
-        unit_price: float,
+        unit_price: Decimal | float,
         vat: float,
     ) -> None:
         now = datetime.now().isoformat(timespec="seconds")
@@ -1596,7 +1604,7 @@ class Database:
                     conditionnement,
                     conditionnement,
                     unit_packaging.strip(),
-                    unit_price,
+                    decimal_text(unit_price),
                     vat,
                     now,
                     actor_name,
@@ -1647,7 +1655,7 @@ class Database:
         designation: str,
         conditionnement: float,
         unit_packaging: str,
-        unit_price: float,
+        unit_price: Decimal | float,
         vat: float,
         catalog_review_confirmed: bool = False,
         reviewed_catalog_token: str = "",
@@ -1673,7 +1681,9 @@ class Database:
         overrides: dict[str, object | None] = {}
         for field, value in edited.items():
             catalog_value = product[f"catalog_{field}"]
-            if field in {"conditionnement", "unit_price", "vat"}:
+            if field == "unit_price":
+                same = catalog_value is not None and decimal_text(value) == decimal_text(catalog_value)
+            elif field in {"conditionnement", "vat"}:
                 same = catalog_value is not None and money(value) == money(catalog_value)
             else:
                 same = str(value or "").strip() == str(
@@ -1711,7 +1721,7 @@ class Database:
                     overrides["designation"],
                     overrides["conditionnement"],
                     overrides["unit_packaging"],
-                    overrides["unit_price"],
+                    decimal_text(overrides["unit_price"]),
                     overrides["vat"],
                     now,
                     actor_name,
@@ -1909,21 +1919,16 @@ class Database:
         for index, line in enumerate(lines):
             cartons = money(line.get("cartons"))
             units_per_carton = money(line.get("units_per_carton"))
-            unit_price = money(line.get("unit_price"))
+            unit_price = parse_decimal(line.get("unit_price", 0) or 0, "Prix", minimum=0)
             vat = money(line.get("vat"))
             if cartons <= 0 or units_per_carton <= 0:
                 raise ValueError("Les quantités et conditionnements doivent être positifs.")
             if unit_price < 0 or not 0 <= vat <= 100:
                 raise ValueError("Prix négatif ou TVA hors limites (0 à 100 %).")
-            total_units = cartons * units_per_carton
-            line_ht = (total_units * unit_price).quantize(
-                Decimal("0.0001"), rounding=ROUND_HALF_UP
-            )
-            line_vat = (line_ht * vat / Decimal("100")).quantize(
-                Decimal("0.0001"), rounding=ROUND_HALF_UP
-            )
-            total_ht += line_ht
-            total_vat += line_vat
+            total_units = decimal_product(cartons, units_per_carton)
+            line_ht = line_amount(total_units, unit_price)
+            total_ht = add_decimal(total_ht, line_ht)
+            total_vat = add_decimal(total_vat, line_tax(line_ht, vat))
             normalized_lines.append(
                 (
                     str(line.get("line_uid") or uuid.uuid4()),
@@ -1934,13 +1939,13 @@ class Database:
                     float(cartons),
                     float(units_per_carton),
                     float(total_units),
-                    float(unit_price),
+                    decimal_text(unit_price),
                     float(vat),
-                    float(line_ht),
+                    decimal_text(line_ht),
                     index,
                 )
             )
-        total_ttc = total_ht + total_vat
+        total_ttc = add_decimal(total_ht, total_vat)
         _, actor_name = self._actor()
         settings = self.get_settings()
         catalog_hash = settings.get("collaboration_catalog_hash", "")
@@ -1982,9 +1987,9 @@ class Database:
                         requester_service.strip(),
                         status,
                         notes.strip(),
-                        float(total_ht),
-                        float(total_vat),
-                        float(total_ttc),
+                        decimal_text(total_ht),
+                        decimal_text(total_vat),
+                        decimal_text(total_ttc),
                         shared_uid,
                         catalog_hash,
                         actor_name,
@@ -2012,9 +2017,9 @@ class Database:
                         requester_service.strip(),
                         status,
                         notes.strip(),
-                        float(total_ht),
-                        float(total_vat),
-                        float(total_ttc),
+                        decimal_text(total_ht),
+                        decimal_text(total_vat),
+                        decimal_text(total_ttc),
                         catalog_hash,
                         now,
                         actor_name,
@@ -2276,7 +2281,7 @@ class Database:
                            COALESCE(po.supplier_ref, p.supplier_ref) AS supplier_ref,
                            COALESCE(po.designation, p.designation) AS designation,
                            COALESCE(po.conditionnement, p.conditionnement) AS conditionnement,
-                           COALESCE(po.unit_price, p.unit_price) AS unit_price,
+                           COALESCE(po.unit_price, p.unit_price) AS "unit_price [DECIMAL_TEXT]",
                            COALESCE(po.vat, p.vat) AS vat,
                            p.usual_cartons, r.last_order_date,
                            ROUND(r.average_interval_days) AS average_interval_days,
@@ -3247,8 +3252,8 @@ class Database:
                 f"""
                 SELECT COUNT(*) AS order_count,
                        COUNT(DISTINCT o.supplier_id) AS supplier_count,
-                       COALESCE(SUM(o.total_ht), 0) AS total_ht,
-                       COALESCE(SUM(o.total_ttc), 0) AS total_ttc
+                       COALESCE(decimal_sum(o.total_ht), '0') AS "total_ht [DECIMAL_TEXT]",
+                       COALESCE(decimal_sum(o.total_ttc), '0') AS "total_ttc [DECIMAL_TEXT]"
                 FROM orders o WHERE {order_filter}
                 """,
                 parameters,
@@ -3258,8 +3263,8 @@ class Database:
                     f"""
                     SELECT s.name AS supplier_name,
                            COUNT(*) AS order_count,
-                           COALESCE(SUM(o.total_ht), 0) AS total_ht,
-                           COALESCE(SUM(o.total_ttc), 0) AS total_ttc,
+                           COALESCE(decimal_sum(o.total_ht), '0') AS "total_ht [DECIMAL_TEXT]",
+                           COALESCE(decimal_sum(o.total_ttc), '0') AS "total_ttc [DECIMAL_TEXT]",
                            ROUND(AVG(
                                CASE WHEN o.confirmed_at <> '' THEN
                                    julianday(o.confirmed_at) - julianday(o.sent_at)
@@ -3279,7 +3284,7 @@ class Database:
                     JOIN suppliers s ON s.id = o.supplier_id
                     WHERE {order_filter}
                     GROUP BY s.id, s.name
-                    ORDER BY total_ht DESC, s.name COLLATE NOCASE
+                    ORDER BY "total_ht [DECIMAL_TEXT]" COLLATE CAHPP_DECIMAL DESC, s.name COLLATE NOCASE
                     """,
                     parameters,
                 )
@@ -3291,20 +3296,19 @@ class Database:
                            ol.designation,
                            COALESCE(SUM(ol.cartons), 0) AS cartons,
                            COALESCE(SUM(ol.total_units), 0) AS total_units,
-                           COALESCE(SUM(ol.total_ht), 0) AS total_ht
+                           COALESCE(decimal_sum(ol.total_ht), '0') AS "total_ht [DECIMAL_TEXT]"
                     FROM order_lines ol
                     JOIN orders o ON o.id = ol.order_id
                     JOIN suppliers s ON s.id = o.supplier_id
                     WHERE {order_filter}
                     GROUP BY s.name, ol.supplier_ref, ol.designation
-                    ORDER BY total_ht DESC, ol.designation COLLATE NOCASE
+                    ORDER BY "total_ht [DECIMAL_TEXT]" COLLATE CAHPP_DECIMAL DESC, ol.designation COLLATE NOCASE
 
                     """,
                     parameters,
                 )
             )
-            price_variances = list(
-                connection.execute(
+            comparable_prices = connection.execute(
                     f"""
                     WITH ranked AS (
                         SELECT ol.product_id, s.name AS supplier_name,
@@ -3321,30 +3325,27 @@ class Database:
                         WHERE {order_filter} AND ol.product_id IS NOT NULL
                     )
                     SELECT r.supplier_name, r.supplier_ref, r.designation,
-                           r.order_number, r.order_date, r.ordered_price,
-                           COALESCE(po.unit_price, p.unit_price) AS current_price,
-                           COALESCE(po.unit_price, p.unit_price) - r.ordered_price
-                               AS difference,
-                           CASE WHEN r.ordered_price <> 0 THEN
-                               100 * (
-                                   COALESCE(po.unit_price, p.unit_price)
-                                   - r.ordered_price
-                               ) / r.ordered_price
-                           ELSE 0 END AS difference_percent
+                           r.order_number, r.order_date,
+                           r.ordered_price AS "ordered_price [DECIMAL_TEXT]",
+                           COALESCE(po.unit_price, p.unit_price) AS "current_price [DECIMAL_TEXT]"
                     FROM ranked r
                     JOIN products p ON p.id = r.product_id
                     LEFT JOIN product_overrides po ON po.product_id = p.id
                     WHERE r.position = 1
                       AND COALESCE(po.unit_price, p.unit_price) IS NOT NULL
-                      AND ABS(
-                          COALESCE(po.unit_price, p.unit_price) - r.ordered_price
-                      ) > 0.00005
-                    ORDER BY ABS(difference_percent) DESC, r.designation
-
                     """,
                     parameters,
                 )
-            )
+            price_variances = []
+            for row in comparable_prices:
+                ordered, current = row["ordered_price"], row["current_price"]
+                difference = add_decimal(current, ordered.copy_negate())
+                if abs(difference) > Decimal("0.00005"):
+                    price_variances.append(dict(row) | {
+                        "difference": difference,
+                        "difference_percent": 100 * difference / ordered if ordered else Decimal(0),
+                    })
+            price_variances.sort(key=lambda row: (-abs(row["difference_percent"]), row["designation"]))
         return {
             "summary": dict(summary) if summary else {},
             "suppliers": suppliers,
@@ -3514,7 +3515,7 @@ class Database:
         settings = self.get_settings()
         with self.connect() as connection:
             suppliers = {
-                row["name"]: dict(row)
+                row["name"]: wire_amounts(row)
                 for row in connection.execute(
                     """
                     SELECT name, cahpp_id, customer_number, contact_name, email,
@@ -3526,7 +3527,7 @@ class Database:
                 )
             }
             preferences = {
-                row["code_cahpp"]: dict(row)
+                row["code_cahpp"]: wire_amounts(row)
                 for row in connection.execute(
                     """
                     SELECT code_cahpp, favorite, usual_cartons, short_name,
@@ -3537,7 +3538,7 @@ class Database:
                 )
             }
             overrides = {
-                row["code_cahpp"]: dict(row)
+                row["code_cahpp"]: wire_amounts(row)
                 for row in connection.execute(
                     """
                     SELECT p.code_cahpp, po.supplier_ref, po.designation,
@@ -3551,7 +3552,7 @@ class Database:
                 )
             }
             manual_products = {
-                row["code_cahpp"]: dict(row)
+                row["code_cahpp"]: wire_amounts(row)
                 for row in connection.execute(
                     """
                     SELECT p.code_cahpp, p.supplier_name, p.supplier_ref,
@@ -3655,8 +3656,8 @@ class Database:
                         repair_supplier_contact_value(
                             "website", record.get("website")
                         ),
-                        record.get("franco_ht"),
-                        record.get("minimum_order_ht"),
+                        decimal_text(record.get("franco_ht")),
+                        decimal_text(record.get("minimum_order_ht")),
                         record.get("notes") or "",
                         record.get("updated_at") or "",
                         record.get("updated_by") or "",
@@ -3733,7 +3734,7 @@ class Database:
                         record.get("conditionnement"),
                         record.get("qml"),
                         record.get("vat"),
-                        record.get("unit_price"),
+                        decimal_text(record.get("unit_price")),
                         record.get("unit_packaging") or "",
                         int(bool(record.get("active", 1))),
                         int(bool(record.get("favorite", 0))),
@@ -3852,7 +3853,7 @@ class Database:
                         record.get("designation"),
                         record.get("conditionnement"),
                         record.get("unit_packaging"),
-                        record.get("unit_price"),
+                        decimal_text(record.get("unit_price")),
                         record.get("vat"),
                         record.get("updated_at") or "",
                         record.get("updated_by") or "",
@@ -3987,7 +3988,7 @@ class Database:
         }
         return {
             "format": 1,
-            "order": order_values,
+            "order": wire_amounts(order_values),
             "supplier": {
                 "name": order["supplier_name"],
                 "customer_number": order["customer_number"] or "",
@@ -3995,7 +3996,7 @@ class Database:
                 "phone": order["supplier_phone"] or "",
             },
             "lines": [
-                {
+                wire_amounts({
                     key: line[key]
                     for key in (
                         "line_uid",
@@ -4010,7 +4011,7 @@ class Database:
                         "total_ht",
                         "line_order",
                     )
-                }
+                })
                 for line in lines
             ],
             "receipts": receipts,
@@ -4107,9 +4108,9 @@ class Database:
                 order.get("requester_service") or "",
                 order.get("status") or "Brouillon",
                 order.get("notes") or "",
-                order.get("total_ht") or 0,
-                order.get("total_vat") or 0,
-                order.get("total_ttc") or 0,
+                decimal_text(order.get("total_ht") or 0),
+                decimal_text(order.get("total_vat") or 0),
+                decimal_text(order.get("total_ttc") or 0),
                 order.get("pdf_path") or "",
                 order.get("email_prepared_at") or "",
                 order.get("sent_at") or "",
@@ -4219,9 +4220,9 @@ class Database:
                         item.get("cartons") or 0,
                         item.get("units_per_carton") or 0,
                         item.get("total_units") or 0,
-                        item.get("unit_price") or 0,
+                        decimal_text(item.get("unit_price") or 0),
                         item.get("vat") or 0,
-                        item.get("total_ht") or 0,
+                        decimal_text(item.get("total_ht") or 0),
                         item.get("line_order") or 0,
                     ),
                 )
@@ -4451,7 +4452,8 @@ class Database:
                     )
                     SELECT p.id AS product_id, p.code_cahpp, p.supplier_name,
                            p.supplier_ref, p.designation, p.active,
-                           c.old_price, c.new_price, c.old_pack, c.new_pack
+                           c.old_price AS "old_price [DECIMAL_TEXT]",
+                           c.new_price AS "new_price [DECIMAL_TEXT]", c.old_pack, c.new_pack
                     FROM changes c
                     JOIN products p ON p.id = c.product_id
                     WHERE EXISTS (
@@ -4692,6 +4694,10 @@ class Database:
             "wal_size_bytes": wal_path.stat().st_size if wal_path.is_file() else 0,
             "shm_size_bytes": shm_path.stat().st_size if shm_path.is_file() else 0,
             "schema_version": schema_version,
+            "amounts_backup": max(
+                (entry.name for entry in self.path.parent.glob(f"{self.path.stem}-avant-montants-v17-*.sqlite3")),
+                default="",
+            ),
             "pending_revision_bases": synchronization,
             "catalog_publication_pending": bool(
                 self.get_settings().get("horizon_catalog_pending")

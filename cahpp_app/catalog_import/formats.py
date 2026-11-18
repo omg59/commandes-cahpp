@@ -12,6 +12,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from ..money_storage import decimal_text
 from ..numbers import parse_decimal
 
 
@@ -359,11 +360,12 @@ class CatalogWorkbook:
                                 raise ValueError(
                                     "Le code fournisseur doit être entier."
                                 )
-                            row[key] = (
-                                int(n) if key == "supplier_cahpp_id" else float(n)
-                            )
-                            if not math.isfinite(row[key]):
-                                raise ValueError("Nombre trop grand.")
+                            if key in ("unit_price", "gam_price"):
+                                row[key] = decimal_text(n)
+                            else:
+                                row[key] = int(n) if key == "supplier_cahpp_id" else float(n)
+                                if not math.isfinite(row[key]):
+                                    raise ValueError("Nombre trop grand.")
                         except ValueError as exc:
                             raise CatalogImportError(
                                 f"Ligne {number}, {code}, {key} : {exc}"

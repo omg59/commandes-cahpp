@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -367,6 +368,21 @@ class MonthlyCatalogTest(unittest.TestCase):
             )
         self.assertEqual(sum(result.already_imported for result in results), 1)
         self.assertEqual(self.product("DM001")["unit_price"], 2.5)
+
+    def test_price_precision_survives_catalog_import_and_shared_snapshot(self):
+        path = self.root / "novembre.xlsx"
+        value = Decimal("0.1234567890123456789")
+        create_monthly(path, [monthly_row(price="0,1234567890123456789")])
+        result = self.importer.import_file(path, options=self.options)
+        self.assertEqual(self.product("DM001")["unit_price"], value)
+        first = CollaborationManager(self.db, "a", "A", self.root / "shared")
+        first.initialize_workspace()
+        first.publish_catalog(path, result)
+        other = Database(self.root / "autre.sqlite3")
+        second = CollaborationManager(other, "b", "B", self.root / "shared")
+        second.initialize_workspace()
+        CatalogImporter(other).import_file(second.catalog_source(second.pending_catalog()))
+        self.assertEqual(self.product("DM001", other)["unit_price"], value)
 
     def test_shared_snapshot_catches_up_an_offline_and_a_new_workstation(self):
         shared = self.root / "shared"

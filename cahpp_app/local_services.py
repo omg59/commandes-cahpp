@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from .database import Database
+from .numbers import format_decimal
 from .paths import DATABASE_PATH, DOCUMENTS_DIR, MAIL_PREP_DIR, ROOT_DIR
 
 SHARED_WORKSPACE_DIR: Path | None = None
@@ -302,8 +303,8 @@ def order_mail_content(database: Database, order_id: int) -> tuple[str, str]:
         "order_date": order["order_date"],
         "supplier": order["supplier_name"],
         "supplier_email": order["supplier_email"],
-        "total_ht": f"{float(order['total_ht']):.2f}".replace(".", ","),
-        "total_ttc": f"{float(order['total_ttc']):.2f}".replace(".", ","),
+        "total_ht": format_decimal(order["total_ht"], 2),
+        "total_ttc": format_decimal(order["total_ttc"], 2),
         "establishment_name": settings.get("establishment_name", ""),
         "establishment_subtitle": settings.get("establishment_subtitle", ""),
         "customer_number": order["customer_number"] or "",

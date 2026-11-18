@@ -139,7 +139,7 @@ class SuppliersPage(QWidget):
         values = self.fields.values()
         for key in ("franco_ht", "minimum_order_ht"):
             values[key] = (
-                float(parse_decimal(values[key], "Montant HT", minimum=0))
+                parse_decimal(values[key], "Montant HT", minimum=0)
                 if values[key]
                 else None
             )

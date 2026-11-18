@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from ..database import CATALOG_REVIEW_SQL
+from ..money_storage import decimal_text
 
 from .formats import (
     CATALOG_FIELDS,
@@ -266,7 +267,7 @@ class CatalogImporter:
             connection.execute("PRAGMA temp_store=FILE")
             stage_fields = (*CATALOG_FIELDS, "active", "review_token", "review_reason")
             declarations = [
-                f"{name} {'REAL' if name in NUMERIC_FIELDS else 'INTEGER' if name == 'active' else 'TEXT'}"
+                f"{name} {'REAL' if name in NUMERIC_FIELDS and name not in ('unit_price', 'gam_price') else 'INTEGER' if name == 'active' else 'TEXT'}"
                 for name in stage_fields
             ]
             connection.execute(
@@ -534,7 +535,7 @@ class CatalogImporter:
                         name,
                         code,
                         *(
-                            by_code[key]
+                            decimal_text(by_code[key])
                             if key in {"franco_ht", "minimum_order_ht"}
                             else (by_code[key] or "")
                             for key in fields

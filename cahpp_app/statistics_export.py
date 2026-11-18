@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from .money_storage import decimal_text
 
 
 BLUE = "1F6F9F"
 LIGHT_BLUE = "E8F2F8"
+
+
+def _excel_amount(value):
+    if not isinstance(value, Decimal):
+        return value
+    text = decimal_text(value)
+    significant_digits = text.replace(".", "").lstrip("-0").rstrip("0")
+    # Excel ne garantit que 15 chiffres significatifs dans une cellule numérique.
+    return text if len(significant_digits) > 15 or not -307 <= value.adjusted() <= 307 else value
 
 
 def _prepare_sheet(sheet, headers: list[str]) -> None:
@@ -53,8 +64,8 @@ def export_statistics_workbook(
     summary_sheet["C2"].number_format = "yyyy-mm-dd"
     summary_sheet.append(["Commandes envoyées", summary.get("order_count", 0)])
     summary_sheet.append(["Fournisseurs", summary.get("supplier_count", 0)])
-    summary_sheet.append(["Total HT", summary.get("total_ht", 0)])
-    summary_sheet.append(["Total TTC", summary.get("total_ttc", 0)])
+    summary_sheet.append(["Total HT", _excel_amount(summary.get("total_ht", 0))])
+    summary_sheet.append(["Total TTC", _excel_amount(summary.get("total_ttc", 0))])
     summary_sheet.column_dimensions["A"].width = 28
     summary_sheet.column_dimensions["B"].width = 18
     summary_sheet.column_dimensions["C"].width = 18
@@ -79,8 +90,8 @@ def export_statistics_workbook(
             [
                 row["supplier_name"],
                 row["order_count"],
-                row["total_ht"],
-                row["total_ttc"],
+                _excel_amount(row["total_ht"]),
+                _excel_amount(row["total_ttc"]),
                 row["average_confirmation_days"],
                 row["average_delivery_days"],
                 row["incomplete_count"],
@@ -104,7 +115,7 @@ def export_statistics_workbook(
                 row["designation"],
                 row["cartons"],
                 row["total_units"],
-                row["total_ht"],
+                _excel_amount(row["total_ht"]),
             ]
         )
     for row in product_sheet.iter_rows(min_row=2):
@@ -134,19 +145,17 @@ def export_statistics_workbook(
                 row["designation"],
                 row["order_number"],
                 date.fromisoformat(row["order_date"]) if row["order_date"] else None,
-                row["ordered_price"],
-                row["current_price"],
-                row["difference"],
-                row["difference_percent"],
+                _excel_amount(row["ordered_price"]),
+                _excel_amount(row["current_price"]),
+                _excel_amount(row["difference"]),
+                Decimal(str(row["difference_percent"])) / 100,
             ]
         )
     for row in price_sheet.iter_rows(min_row=2):
         row[4].number_format = "yyyy-mm-dd"
         for cell in row[5:8]:
-            cell.number_format = '#,##0.0000 [$€-fr-FR]'
+            cell.number_format = '#,##0.0000########### [$€-fr-FR]'
         row[8].number_format = '0.0%'
-        if row[8].value is not None:
-            row[8].value = float(row[8].value) / 100
     _finish_sheet(price_sheet)
 
     workbook.save(destination)

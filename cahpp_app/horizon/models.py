@@ -11,7 +11,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor
 
-from .services import currency, number
+from .services import currency, number, unit_currency
 from .dates import format_date, format_datetime, date_sort_key
 from ..numbers import parse_decimal
 
@@ -121,7 +121,7 @@ class ProductsModel(RowsModel):
                     ),
                     False,
                 ),
-                ("PU HT", lambda p: currency(p["unit_price"], 4), True),
+                ("PU HT", lambda p: unit_currency(p["unit_price"]), True),
                 (
                     "Unités/carton",
                     lambda p: number(p["conditionnement"] or p["qml"]),
@@ -215,7 +215,7 @@ class CartModel(RowsModel):
             return number(self.rows[index.row()].cartons, 3)
         if role == Qt.ItemDataRole.ToolTipRole and index.isValid():
             line = self.rows[index.row()]
-            return f"{line.designation}\n{number(line.units_per_carton)} unités/carton · {currency(line.unit_price, 4)} HT/unité"
+            return f"{line.designation}\n{number(line.units_per_carton)} unités/carton · {unit_currency(line.unit_price)} HT/unité"
         return super().data(index, role)
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):

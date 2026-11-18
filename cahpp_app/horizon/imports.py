@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QMessageBox, QV
 from .dates import format_month
 from .forms import action, selected_row
 from .models import RowsModel, date_column
-from .services import currency, number
+from .services import number, unit_currency
 from .widgets import button, label, table
 
 
@@ -160,8 +160,8 @@ class ImportsPage(QWidget):
                     lambda r: r["designation"] + "\n" + r["supplier_name"],
                     False,
                 ),
-                ("Ancien PU HT", lambda r: currency(r["old_price"], 4), True),
-                ("Nouveau PU HT", lambda r: currency(r["new_price"], 4), True),
+                ("Ancien PU HT", lambda r: unit_currency(r["old_price"]), True),
+                ("Nouveau PU HT", lambda r: unit_currency(r["new_price"]), True),
                 ("Ancien conditionnement", lambda r: number(r["old_pack"]), True),
                 ("Nouveau conditionnement", lambda r: number(r["new_pack"]), True),
             ]

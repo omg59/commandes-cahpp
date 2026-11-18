@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from ..database import CATALOG_REVIEW_SQL, Database, money
-from ..numbers import parse_decimal
+from ..money_storage import unit_price_decimals
+from ..numbers import add_decimal, decimal_product, line_amount, line_tax, parse_decimal, round_decimal, sum_decimals
 
 
 def number(value, digits=0):
@@ -18,7 +19,11 @@ def number(value, digits=0):
 
 
 def currency(value, digits=2):
-    return "Prix absent" if value is None else number(value, digits) + " €"
+    return "Prix absent" if value is None else number(round_decimal(parse_decimal(value), digits), digits) + " €"
+
+
+def unit_currency(value):
+    return currency(value, unit_price_decimals(value))
 
 
 @dataclass
@@ -34,9 +39,8 @@ class CartLine:
 
     @property
     def total_ht(self):
-        return (self.cartons * self.units_per_carton * self.unit_price).quantize(
-            Decimal("0.0001"), rounding=ROUND_HALF_UP
-        )
+        units = decimal_product(money(self.cartons), money(self.units_per_carton))
+        return line_amount(units, self.unit_price)
 
     def as_mapping(self):
         return dict(vars(self))
@@ -108,23 +112,15 @@ class Cart:
 
     @property
     def total_ht(self):
-        return sum((line.total_ht for line in self.lines), Decimal(0))
+        return sum_decimals(line.total_ht for line in self.lines)
 
     @property
     def total_vat(self):
-        return sum(
-            (
-                (line.total_ht * line.vat / 100).quantize(
-                    Decimal("0.0001"), rounding=ROUND_HALF_UP
-                )
-                for line in self.lines
-            ),
-            Decimal(0),
-        )
+        return sum_decimals(line_tax(line.total_ht, money(line.vat)) for line in self.lines)
 
     @property
     def total_ttc(self):
-        return self.total_ht + self.total_vat
+        return add_decimal(self.total_ht, self.total_vat)
 
     def save(self, database: Database, notes="", service=""):
         if not self.lines:
@@ -156,7 +152,7 @@ class Cart:
                 row["designation"],
                 money(row["cartons"]),
                 money(row["units_per_carton"]),
-                money(row["unit_price"]),
+                parse_decimal(row["unit_price"], "Prix"),
                 money(row["vat"]),
             )
             for row in lines
@@ -240,21 +236,21 @@ class HorizonService:
                 return None
             totals = dict(
                 c.execute(
-                    f"SELECT COUNT(*) AS orders,COUNT(DISTINCT supplier_id) AS suppliers,COALESCE(SUM(total_ht),0) AS total_ht FROM orders WHERE {clause}",
+                    f"""SELECT COUNT(*) AS orders,COUNT(DISTINCT supplier_id) AS suppliers,COALESCE(decimal_sum(total_ht),'0') AS "total_ht [DECIMAL_TEXT]" FROM orders WHERE {clause}""",
                     params,
                 ).fetchone()
             )
             monthly = {
                 row["month"]: row["total_ht"]
                 for row in c.execute(
-                    f"SELECT substr(order_date,1,7) AS month,SUM(total_ht) AS total_ht FROM orders WHERE {clause} GROUP BY month",
+                    f"""SELECT substr(order_date,1,7) AS month,decimal_sum(total_ht) AS "total_ht [DECIMAL_TEXT]" FROM orders WHERE {clause} GROUP BY month""",
                     params,
                 )
             }
             suppliers = [
                 dict(row)
                 for row in c.execute(
-                    f"SELECT s.id,s.name,COUNT(*) AS orders,SUM(o.total_ht) AS total_ht,AVG(CASE WHEN o.delivered_at<>'' THEN julianday(o.delivered_at)-julianday(o.sent_at) END) AS delivery_days FROM orders o JOIN suppliers s ON s.id=o.supplier_id WHERE {clause} GROUP BY s.id ORDER BY total_ht DESC",
+                    f"""SELECT s.id,s.name,COUNT(*) AS orders,decimal_sum(o.total_ht) AS "total_ht [DECIMAL_TEXT]",AVG(CASE WHEN o.delivered_at<>'' THEN julianday(o.delivered_at)-julianday(o.sent_at) END) AS delivery_days FROM orders o JOIN suppliers s ON s.id=o.supplier_id WHERE {clause} GROUP BY s.id ORDER BY "total_ht [DECIMAL_TEXT]" COLLATE CAHPP_DECIMAL DESC""",
                     params,
                 )
             ]

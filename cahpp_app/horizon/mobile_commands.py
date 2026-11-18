@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from ..local_services import portable_path, safe_filename, resolve_portable_path
+from ..money_storage import decimal_text
 
 from ..pdf_export import default_order_pdf_path, generate_order_pdf
 from .mobile_catalog import product_snapshot
@@ -56,8 +57,13 @@ def apply_action(op, key, body):
                     raise ValueError("Une référence du panier a été supprimée. Rechargez le catalogue.")
                 product = db.get_product(row["id"])
                 supplier = db.get_supplier(product["supplier_id"])
-                if product_snapshot(db, product, supplier)["fingerprint"] != line["fingerprint"]:
-                    raise ValueError(f"Les informations de « {product['designation']} » ont changé. Vérifiez le panier avec le catalogue actualisé.")
+                snapshot = product_snapshot(db, product, supplier)
+                if snapshot["fingerprint"] != line["fingerprint"]:
+                    # Les anciennes demandes restent valides quand le prix
+                    # numérique transmis auparavant représentait la même valeur.
+                    legacy = product_snapshot(db, product, supplier, legacy_price=True)
+                    if legacy["fingerprint"] != line["fingerprint"] or decimal_text(legacy["price"]) != snapshot["price"]:
+                        raise ValueError(f"Les informations de « {product['designation']} » ont changé. Vérifiez le panier avec le catalogue actualisé.")
                 cart.add(product, quantity=line["cartons"])
             # Le numéro et le marqueur sont enregistrés avec les lignes dans la même transaction.
             number = None if updating else op.manager.reserve_order_number(date.today())

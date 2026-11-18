@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .models import RowsModel
-from .services import currency, number
+from .services import currency, number, unit_currency
 from .widgets import Chart, Metric, button, card, label, table, SupplierCombo
 from .forms import action
 from .dates import parse_date, format_date
@@ -233,8 +233,8 @@ class StatisticsPage(QWidget):
                     lambda r: r["designation"] + "\n" + r["supplier_name"],
                     False,
                 ),
-                ("Prix commandé", lambda r: currency(r["ordered_price"], 4), True),
-                ("Prix actuel", lambda r: currency(r["current_price"], 4), True),
+                ("Prix commandé", lambda r: unit_currency(r["ordered_price"]), True),
+                ("Prix actuel", lambda r: unit_currency(r["current_price"]), True),
                 ("Écart (%)", lambda r: number(r["difference_percent"], 2), True),
             ]
         )

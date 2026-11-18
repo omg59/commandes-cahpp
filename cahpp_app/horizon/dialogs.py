@@ -95,14 +95,13 @@ class ProductDialog(QDialog):
                 ("unit_price", "Prix unitaire"),
                 ("vat", "TVA"),
             ]:
-                values[key] = float(
-                    parse_decimal(
-                        values[key],
-                        title,
-                        minimum=0,
-                        maximum=100 if key == "vat" else None,
-                    )
+                parsed = parse_decimal(
+                    values[key],
+                    title,
+                    minimum=0,
+                    maximum=100 if key == "vat" else None,
                 )
+                values[key] = parsed if key == "unit_price" else float(parsed)
             if values["conditionnement"] <= 0:
                 raise ValueError(
                     "Le nombre d'unités par carton doit être supérieur à zéro."
