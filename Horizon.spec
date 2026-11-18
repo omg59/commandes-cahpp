@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 from importlib.metadata import distribution
 from packaging.requirements import Requirement
 from PySide6.QtCore import QLibraryInfo
@@ -35,8 +35,10 @@ translations=Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath))
 relative_translations=translations.relative_to(Path(PySide6.__file__).parent)
 datas += [(str(translations/"qtbase_fr.qm"), "PySide6/"+relative_translations.as_posix())]
 
+# ReportLab charge aussi des modules de code-barres lors de l'import du QR.
+barcode_modules = collect_submodules("reportlab.graphics.barcode")
 a=Analysis(["main_horizon.py"],pathex=[],binaries=[],datas=datas,
-           hiddenimports=[],hookspath=[],hooksconfig={},runtime_hooks=[],
+           hiddenimports=barcode_modules,hookspath=[],hooksconfig={},runtime_hooks=[],
            excludes=["tkinter","_tkinter","PySide6.QtQuick","PySide6.QtQml","PySide6.QtWebEngineCore","PySide6.QtWebEngineWidgets"],noarchive=False)
 pyz=PYZ(a.pure)
 exe=EXE(pyz,a.scripts,[],exclude_binaries=True,name="CommandesCAHPP-Horizon",

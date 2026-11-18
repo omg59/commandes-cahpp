@@ -56,7 +56,7 @@ def verify(output: Path, platform="offscreen"):
                     "Démarrage Linux en échec :\n" + run.stdout + run.stderr
                 )
             report = json.loads((target_profile / "startup-ok.json").read_text())
-            if report["version"] != VERSION or not report["qt_translated"]:
+            if report["version"] != VERSION or not report["qt_translated"] or not report.get("qr_pairing"):
                 raise ValueError(
                     "Version ou ressources françaises absentes : " + str(report)
                 )

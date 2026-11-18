@@ -6,12 +6,12 @@ import time
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
-from reportlab.graphics.barcode.qrencoder import QRCode, QR8bitByte, QRErrorCorrectLevel
-
 from .widgets import button, label
 
 
 def qr_pixmap(payload):
+    from reportlab.graphics.barcode.qrencoder import QRCode, QR8bitByte, QRErrorCorrectLevel
+
     code = QRCode(None, QRErrorCorrectLevel.M)
     code.addData(QR8bitByte(payload.encode("ascii")))
     code.make()

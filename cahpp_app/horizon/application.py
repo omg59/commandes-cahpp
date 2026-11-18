@@ -796,12 +796,17 @@ def run(profile, info):
                 from keyring.backends import SecretService
                 ready = hasattr(SecretService, "secretstorage")
             if ready:
+                from .pairing_dialog import qr_pixmap
+
+                ready = not qr_pixmap('{"horizon_pairing":1,"test":true}').isNull()
+            if ready:
                 (profile / "startup-ok.json").write_text(
                     json.dumps(
                         {
                             "version": VERSION,
                             "profile": info["mode"],
                             "qt_translated": bool(app.horizon_translator.filePath()),
+                            "qr_pairing": True,
                             "credential_backend": window.preferences.credentials.diagnostic()["backend"],
                         }
                     ),
