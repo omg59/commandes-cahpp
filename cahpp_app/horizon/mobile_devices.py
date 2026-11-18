@@ -3,17 +3,19 @@
 import secrets
 from uuid import uuid4
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFormLayout, QHBoxLayout, QLineEdit, QListWidget,
     QMessageBox, QVBoxLayout,
 )
 
 from .forms import action
+from .pairing_dialog import PairingDialog
 from .mobile_sync import Relay
 from .widgets import button, label
 
 
-from .mobile_enrollment import enroll_device
+from .mobile_enrollment import enroll_device, pairing_invitation
 
 
 class MobileDevicesDialog(QDialog):
@@ -42,10 +44,11 @@ class MobileDevicesDialog(QDialog):
         form.addRow("Téléphone (ex. Fairphone de Damien)", self.device_label)
         body.addLayout(form)
         row = QHBoxLayout()
-        self.create = button("Enregistrer un téléphone", self.enroll)
+        self.pair = button("Associer par QR code…", self.pair_phone, "primary")
+        self.create = button("Créer une clé manuellement", self.enroll)
         self.rotate = button("Renouveler sa clé", self.rotate_selected)
         self.revoke = button("Révoquer ce téléphone…", self.revoke_selected)
-        for widget in (self.create, self.rotate, self.revoke):
+        for widget in (self.pair, self.create, self.rotate, self.revoke):
             row.addWidget(widget)
         body.addLayout(row)
         self.token = QLineEdit()
@@ -65,7 +68,7 @@ class MobileDevicesDialog(QDialog):
         self.finished.connect(lambda: window.jobs.cancel(self.key))
         self.refresh()
 
-    def work(self, function, done):
+    def work(self, function, done, *, on_error=None):
         self.set_busy(True)
         url, token, proxy = self.config
         expected = self.workspace_id
@@ -79,13 +82,15 @@ class MobileDevicesDialog(QDialog):
             self.set_busy(False)
             if error:
                 self.status.setText(str(error))
+                if on_error:
+                    on_error(error)
             else:
                 done(value)
 
         self.window.jobs.submit(self.key, task, result)
 
     def set_busy(self, value):
-        for widget in (self.create, self.rotate, self.revoke):
+        for widget in (self.pair, self.create, self.rotate, self.revoke):
             widget.setEnabled(not value)
         self.strict.setEnabled(not value and self.requires_individual_keys is False
                                and any(not record["revoked"] for record in self.records))
@@ -106,6 +111,21 @@ class MobileDevicesDialog(QDialog):
         if index < 0 or (self.records[index]["revoked"] and not allow_revoked):
             raise ValueError("Sélectionnez un téléphone actif.")
         return self.records[index]
+
+    @action
+    def pair_phone(self):
+        settings = self.window.database.get_settings()
+        user_id, name = settings.get("user_id", ""), settings.get("user_name", "").strip()
+        if not user_id or not name:
+            raise ValueError("Renseignez le nom de votre profil Horizon avant d’associer un téléphone.")
+        device_label = self.device_label.text().strip() or f"Téléphone de {name}"[:150]
+
+        def show(invitation):
+            dialog = PairingDialog(self, invitation)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            dialog.open()
+
+        self.work(lambda relay: pairing_invitation(relay, user_id, name, device_label), show)
 
     @action
     def enroll(self):

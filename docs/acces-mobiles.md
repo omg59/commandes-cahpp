@@ -1,10 +1,25 @@
-# Téléphones et clé PC — lot de développement 3.0.1a4
+# Téléphones et clé PC — développement
 
-Accompagne le relais 0.5.0-dev2 et Android 0.6.0-dev2. Le relais reste commun à
-l’établissement ; chaque téléphone dispose de sa clé propre. Les versions
-officielles restent inchangées tant que le lot n’est pas validé.
+Le relais est commun à l’établissement. Chaque téléphone dispose de sa propre clé.
 
-## Enregistrer les téléphones
+## Associer un téléphone par QR code
+
+Dans **Paramètres → Android → Gérer les téléphones autorisés**, choisissez
+**Associer par QR code**. Horizon utilise le nom et l’identifiant du profil PC
+actif. Le libellé du téléphone est facultatif et aide à le retrouver dans la liste.
+
+Dans **Horizon Mobile → Réglages**, choisissez **Scanner le QR code du PC**.
+Vérifiez le nom et l’adresse HTTPS avant de confirmer. Le réseau mobile peut
+être utilisé. Si la connexion coupe, réessayez depuis le dialogue ouvert pour
+reprendre la même association.
+
+Le QR vaut cinq minutes et associe un seul téléphone. Fermer le dialogue PC
+demande l’annulation d’un code inutilisé. Le téléphone crée sa clé et peut
+la mémoriser avec Android Keystore. Pour deux appareils, générez deux codes.
+
+Versions de test : PC 3.0.1a9, relais 0.5.0-dev6 et Android 0.6.0-dev7.
+
+## Enregistrer les téléphones manuellement
 
 Après rattachement du relais au bon partage, ouvrir Paramètres → Android →
 **Gérer les téléphones autorisés…**. Renseigner le nom attribué aux opérations

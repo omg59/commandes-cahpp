@@ -1,5 +1,9 @@
 # Historique des versions
 
+## Horizon 3.0.1a9 — développement, 18 novembre 2026
+
+- Association des téléphones par QR code à durée courte, avec liaison à l’identité du profil PC et révocation indépendante.
+
 ## Horizon 3.0.1a8 — développement, 18 novembre 2026
 
 - Migration transactionnelle au schéma 17 et copie automatique de la base avant conversion.
